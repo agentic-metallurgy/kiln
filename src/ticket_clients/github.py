@@ -1184,6 +1184,182 @@ class GitHubTicketClient:
 
         return re.sub(pattern, replace_fn, body, flags=re.IGNORECASE)
 
+    # Parent/child issue operations
+
+    def get_parent_issue(self, repo: str, ticket_id: int) -> int | None:
+        """Get the parent issue number if one exists.
+
+        Uses GitHub's sub-issues REST API to find the parent.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            ticket_id: Issue number
+
+        Returns:
+            Parent issue number, or None if no parent
+        """
+        _, owner, repo_name = self._parse_repo(repo)
+        endpoint = f"repos/{owner}/{repo_name}/issues/{ticket_id}/parent"
+        hostname = self._get_hostname_for_repo(repo)
+
+        try:
+            output = self._run_gh_command(["api", endpoint], hostname=hostname)
+            data = json.loads(output)
+            return data.get("number")
+        except subprocess.CalledProcessError:
+            # 404 means no parent
+            logger.debug(f"No parent issue found for {repo}#{ticket_id}")
+            return None
+        except json.JSONDecodeError:
+            logger.debug(f"Invalid JSON response for parent issue {repo}#{ticket_id}")
+            return None
+
+    def get_child_issues(self, repo: str, ticket_id: int) -> list[dict]:
+        """Get child issues (sub-issues) for an issue.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            ticket_id: Issue number
+
+        Returns:
+            List of child issue dicts with 'number' and 'state' keys
+        """
+        _, owner, repo_name = self._parse_repo(repo)
+        endpoint = f"repos/{owner}/{repo_name}/issues/{ticket_id}/sub_issues"
+        hostname = self._get_hostname_for_repo(repo)
+
+        try:
+            output = self._run_gh_command(["api", endpoint], hostname=hostname)
+            data = json.loads(output)
+            return [{"number": item["number"], "state": item["state"]} for item in data]
+        except subprocess.CalledProcessError:
+            logger.debug(f"No child issues found for {repo}#{ticket_id}")
+            return []
+        except (json.JSONDecodeError, KeyError):
+            logger.debug(f"Invalid response for child issues {repo}#{ticket_id}")
+            return []
+
+    def get_pr_for_issue(self, repo: str, issue_number: int) -> dict | None:
+        """Get the open PR that closes a given issue.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            issue_number: Issue number
+
+        Returns:
+            Dict with 'number', 'headRefName', 'url' or None if no open PR
+        """
+        _, owner, repo_name = self._parse_repo(repo)
+
+        query = """
+        query($owner: String!, $repo: String!, $issueNumber: Int!) {
+          repository(owner: $owner, name: $repo) {
+            issue(number: $issueNumber) {
+              closedByPullRequestsReferences(first: 10) {
+                nodes {
+                  number
+                  headRefName
+                  url
+                  state
+                }
+              }
+            }
+          }
+        }
+        """
+
+        try:
+            response = self._execute_graphql_query(
+                query,
+                {"owner": owner, "repo": repo_name, "issueNumber": issue_number},
+                repo=repo,
+            )
+
+            prs = (
+                response.get("data", {})
+                .get("repository", {})
+                .get("issue", {})
+                .get("closedByPullRequestsReferences", {})
+                .get("nodes", [])
+            )
+            for pr in prs:
+                if pr and pr.get("state") == "OPEN":
+                    return {
+                        "number": pr["number"],
+                        "headRefName": pr["headRefName"],
+                        "url": pr["url"],
+                    }
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get PR for issue {repo}#{issue_number}: {e}")
+            return None
+
+    def set_commit_status(
+        self,
+        repo: str,
+        sha: str,
+        state: str,
+        context: str,
+        description: str,
+        target_url: str | None = None,
+    ) -> None:
+        """Set a commit status check.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            sha: Commit SHA to set status on
+            state: One of 'error', 'failure', 'pending', 'success'
+            context: Status check name (e.g., 'kiln/child-issues-check')
+            description: Short description
+            target_url: Optional URL for more details
+        """
+        _, owner, repo_name = self._parse_repo(repo)
+        endpoint = f"repos/{owner}/{repo_name}/statuses/{sha}"
+        hostname = self._get_hostname_for_repo(repo)
+
+        payload = {
+            "state": state,
+            "context": context,
+            "description": description,
+        }
+        if target_url:
+            payload["target_url"] = target_url
+
+        args = ["api", "-X", "POST", endpoint]
+        for key, value in payload.items():
+            args.extend(["-f", f"{key}={value}"])
+
+        self._run_gh_command(args, hostname=hostname)
+        logger.info(f"Set commit status {context}={state} on {sha[:7]}")
+
+    def get_pr_head_sha(self, repo: str, pr_number: int) -> str | None:
+        """Get the HEAD commit SHA of a pull request.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: PR number
+
+        Returns:
+            Commit SHA or None if PR not found
+        """
+        repo_ref = self._get_repo_ref(repo)
+        try:
+            args = [
+                "pr",
+                "view",
+                str(pr_number),
+                "--repo",
+                repo_ref,
+                "--json",
+                "headRefOid",
+                "--jq",
+                ".headRefOid",
+            ]
+            output = self._run_gh_command(args, repo=repo)
+            return output.strip()
+        except subprocess.CalledProcessError:
+            return None
+
     # Internal helpers
 
     def _parse_board_url(self, board_url: str) -> tuple[str, str, int]:

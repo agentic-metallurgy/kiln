@@ -38,8 +38,13 @@ class ImplementWorkflow:
         if ctx.project_url:
             project_url_context = f" Project URL: {ctx.project_url}"
 
+        # Add parent branch context for child issues
+        parent_context = ""
+        if ctx.parent_branch:
+            parent_context = f" Parent branch: {ctx.parent_branch} (PR should target this branch)."
+
         prompts = [
-            f"/implement_github for issue {issue_url}.{reviewer_flags}{project_url_context}",
+            f"/implement_github for issue {issue_url}.{reviewer_flags}{project_url_context}{parent_context}",
         ]
 
         logger.debug(f"Implement workflow prompt: {prompts[0]}")

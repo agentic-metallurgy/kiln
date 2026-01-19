@@ -18,6 +18,7 @@ from pathlib import Path
 
 from tenacity import wait_exponential
 
+from src.child_issue_checker import update_parent_pr_status
 from src.claude_runner import run_claude
 from src.comment_processor import CommentProcessor
 from src.config import Config, load_config
@@ -855,6 +856,8 @@ class Daemon:
         - Item has at least one merged PR
         - Item is closed (GitHub auto-closes when PR with "closes #X" merges)
 
+        Also updates parent PR status check if this issue is a child issue.
+
         Args:
             item: TicketItem to check
         """
@@ -879,6 +882,15 @@ class Daemon:
         try:
             self.ticket_client.update_item_status(item.item_id, "Done")
             logger.info(f"Moved {item.repo}#{item.ticket_id} to Done")
+
+            # If this is a child issue, update parent's PR status check
+            parent_issue = self.ticket_client.get_parent_issue(item.repo, item.ticket_id)
+            if parent_issue:
+                logger.info(
+                    f"Child issue #{item.ticket_id} completed, "
+                    f"updating parent #{parent_issue} PR status"
+                )
+                update_parent_pr_status(self.ticket_client, item.repo, parent_issue)
         except Exception as e:
             logger.error(f"Failed to move {item.repo}#{item.ticket_id} to Done: {e}")
 
@@ -1157,6 +1169,26 @@ class Daemon:
                     self.ticket_client.update_item_status(item.item_id, yolo_next)
                     logger.info(f"YOLO: Auto-advanced {key} from '{item.status}' to '{yolo_next}'")
 
+            # After Implement workflow: update parent/child PR statuses
+            if item.status == "Implement":
+                # If this is a child issue with a parent, update parent's PR status
+                parent_issue = self.ticket_client.get_parent_issue(item.repo, item.ticket_id)
+                if parent_issue:
+                    logger.info(
+                        f"Child issue #{item.ticket_id} implemented, "
+                        f"updating parent #{parent_issue} PR status to block merge"
+                    )
+                    update_parent_pr_status(self.ticket_client, item.repo, parent_issue)
+
+                # If this issue has children, update our own PR status
+                children = self.ticket_client.get_child_issues(item.repo, item.ticket_id)
+                if children:
+                    logger.info(
+                        f"Parent issue #{item.ticket_id} has {len(children)} children, "
+                        f"setting PR status check"
+                    )
+                    update_parent_pr_status(self.ticket_client, item.repo, item.ticket_id)
+
             # After workflow completes, update last_processed_comment timestamp to skip
             # any comments posted during the workflow (prevents daemon from treating
             # its own research/plan posts as user feedback)
@@ -1230,6 +1262,43 @@ class Daemon:
         repo_name = repo.split("/")[-1] if "/" in repo else repo
         return f"{self.config.workspace_dir}/{repo_name}-issue-{issue_number}"
 
+    def _get_parent_info(
+        self, repo: str, issue_number: int
+    ) -> tuple[int | None, str | None]:
+        """Get parent issue information if the issue has a parent.
+
+        Checks if the issue has a parent and if so, returns the parent's
+        issue number and the branch name of the parent's open PR.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            issue_number: Issue number
+
+        Returns:
+            Tuple of (parent_issue_number, parent_branch) or (None, None) if no parent
+        """
+        # Check if issue has a parent
+        parent_issue = self.ticket_client.get_parent_issue(repo, issue_number)
+        if not parent_issue:
+            return None, None
+
+        logger.info(f"Issue #{issue_number} has parent issue #{parent_issue}")
+
+        # Get parent's open PR to find its branch
+        parent_pr = self.ticket_client.get_pr_for_issue(repo, parent_issue)
+        if not parent_pr:
+            logger.warning(
+                f"Parent issue #{parent_issue} has no open PR yet. "
+                f"Child will branch from main."
+            )
+            return parent_issue, None
+
+        parent_branch = parent_pr.get("headRefName")
+        logger.info(
+            f"Child issue #{issue_number} will branch from parent's PR branch: {parent_branch}"
+        )
+        return parent_issue, parent_branch
+
     def _auto_prepare_worktree(self, item: TicketItem) -> None:
         """Create worktree for an issue using PrepareWorkflow.
 
@@ -1239,11 +1308,17 @@ class Daemon:
         Pre-fetches the issue body so PrepareWorkflow can include it directly
         in the prompt without requiring Claude to make an API call.
 
+        For child issues with a parent, the worktree will branch from the
+        parent's PR branch instead of main.
+
         Args:
             item: TicketItem to prepare worktree for
         """
         # Pre-fetch issue body for PrepareWorkflow
         issue_body = self.ticket_client.get_ticket_body(item.repo, item.ticket_id)
+
+        # Check for parent issue and get parent's PR branch
+        parent_issue, parent_branch = self._get_parent_info(item.repo, item.ticket_id)
 
         workflow = PrepareWorkflow()
         ctx = WorkflowContext(
@@ -1254,6 +1329,8 @@ class Daemon:
             project_url=item.board_url,
             issue_body=issue_body,
             allowed_username=self.config.allowed_username,
+            parent_issue_number=parent_issue,
+            parent_branch=parent_branch,
         )
         self.runner.run(workflow, ctx, "Prepare")
         logger.info("Auto-prepared worktree")
@@ -1300,6 +1377,9 @@ class Daemon:
         resume_session = None
         logger.info(f"Starting fresh {workflow_name} session")
 
+        # Get parent info for child issues (used by Implement workflow for PR targeting)
+        parent_issue, parent_branch = self._get_parent_info(item.repo, item.ticket_id)
+
         # Create context
         ctx = WorkflowContext(
             repo=item.repo,
@@ -1308,6 +1388,8 @@ class Daemon:
             workspace_path=workspace_path,
             project_url=item.board_url,
             allowed_username=self.config.allowed_username,
+            parent_issue_number=parent_issue,
+            parent_branch=parent_branch,
         )
 
         # Run workflow

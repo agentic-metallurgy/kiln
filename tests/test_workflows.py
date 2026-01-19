@@ -88,6 +88,48 @@ class TestWorkflowContext:
         )
         assert ctx.allowed_username == "user1"
 
+    def test_workflow_context_parent_issue_number_optional(self):
+        """Test that parent_issue_number is optional and defaults to None."""
+        ctx = WorkflowContext(
+            repo="owner/repo",
+            issue_number=42,
+            issue_title="Test",
+            workspace_path="/tmp/workspace",
+        )
+        assert ctx.parent_issue_number is None
+
+    def test_workflow_context_parent_issue_number_can_be_set(self):
+        """Test that parent_issue_number can be set during creation."""
+        ctx = WorkflowContext(
+            repo="owner/repo",
+            issue_number=42,
+            issue_title="Test",
+            workspace_path="/tmp/workspace",
+            parent_issue_number=10,
+        )
+        assert ctx.parent_issue_number == 10
+
+    def test_workflow_context_parent_branch_optional(self):
+        """Test that parent_branch is optional and defaults to None."""
+        ctx = WorkflowContext(
+            repo="owner/repo",
+            issue_number=42,
+            issue_title="Test",
+            workspace_path="/tmp/workspace",
+        )
+        assert ctx.parent_branch is None
+
+    def test_workflow_context_parent_branch_can_be_set(self):
+        """Test that parent_branch can be set during creation."""
+        ctx = WorkflowContext(
+            repo="owner/repo",
+            issue_number=42,
+            issue_title="Test",
+            workspace_path="/tmp/workspace",
+            parent_branch="10-feature-branch",
+        )
+        assert ctx.parent_branch == "10-feature-branch"
+
 
 @pytest.mark.unit
 class TestResearchWorkflow:
@@ -277,6 +319,37 @@ class TestImplementWorkflow:
         prompts = workflow.init(ctx)
 
         assert "--reviewer" not in prompts[0]
+
+    def test_implement_workflow_prompt_includes_parent_branch(self):
+        """Test that prompts include parent branch info when set."""
+        ctx = WorkflowContext(
+            repo="github.com/owner/test-repo",
+            issue_number=42,
+            issue_title="Test Issue",
+            workspace_path="/tmp/workspace",
+            parent_issue_number=10,
+            parent_branch="10-parent-feature",
+        )
+        workflow = ImplementWorkflow()
+        prompts = workflow.init(ctx)
+
+        assert "Parent branch: 10-parent-feature" in prompts[0]
+        assert "PR should target this branch" in prompts[0]
+
+    def test_implement_workflow_prompt_no_parent_branch_when_none(self):
+        """Test that no parent branch info when not set."""
+        ctx = WorkflowContext(
+            repo="github.com/owner/test-repo",
+            issue_number=42,
+            issue_title="Test Issue",
+            workspace_path="/tmp/workspace",
+            parent_issue_number=None,
+            parent_branch=None,
+        )
+        workflow = ImplementWorkflow()
+        prompts = workflow.init(ctx)
+
+        assert "Parent branch:" not in prompts[0]
 
 
 @pytest.mark.unit
@@ -579,3 +652,60 @@ class TestPrepareWorkflow:
         # Should NOT ask Claude to read the issue (empty body is still "provided")
         assert "Read github issue" not in prompts[1]
         assert "Issue description:" in prompts[1]
+
+    def test_prepare_workflow_with_parent_branch(self):
+        """Test that prompt includes parent branch info when set."""
+        ctx = WorkflowContext(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            issue_title="Child Issue",
+            workspace_path="/tmp/workspaces",
+            issue_body="Child issue body",
+            parent_issue_number=10,
+            parent_branch="10-parent-feature",
+        )
+        workflow = PrepareWorkflow()
+        prompts = workflow.init(ctx)
+
+        # Should reference parent branch
+        assert "Base branch: '10-parent-feature'" in prompts[1]
+        assert "child of issue #10" in prompts[1]
+        assert "instead of main" in prompts[1]
+
+    def test_prepare_workflow_without_parent_uses_main(self):
+        """Test that prompt uses main branch when no parent."""
+        ctx = WorkflowContext(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            issue_title="Standalone Issue",
+            workspace_path="/tmp/workspaces",
+            issue_body="Issue body",
+            parent_issue_number=None,
+            parent_branch=None,
+        )
+        workflow = PrepareWorkflow()
+        prompts = workflow.init(ctx)
+
+        # Should use main branch
+        assert "Base branch: 'main'" in prompts[1]
+        # Should NOT mention parent
+        assert "child of issue" not in prompts[1]
+
+    def test_prepare_workflow_parent_without_pr_falls_back_to_main(self):
+        """Test that parent without PR branch still defaults to main."""
+        ctx = WorkflowContext(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            issue_title="Child Issue",
+            workspace_path="/tmp/workspaces",
+            issue_body="Child issue body",
+            parent_issue_number=10,
+            parent_branch=None,  # Parent has no open PR
+        )
+        workflow = PrepareWorkflow()
+        prompts = workflow.init(ctx)
+
+        # Should use main branch since parent has no PR
+        assert "Base branch: 'main'" in prompts[1]
+        # Should NOT mention branching from parent
+        assert "child of issue" not in prompts[1]

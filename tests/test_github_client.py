@@ -2361,3 +2361,228 @@ class TestAuthenticationErrorHandling:
 
             error_msg = str(exc_info.value)
             assert "github.mycompany.com" in error_msg
+
+
+@pytest.mark.unit
+class TestGetParentIssue:
+    """Tests for GitHubTicketClient.get_parent_issue()."""
+
+    def test_get_parent_issue_returns_parent_number(self, github_client):
+        """Test fetching parent issue number when it exists."""
+        mock_response = json.dumps({"number": 42, "title": "Parent Issue"})
+
+        with patch.object(github_client, "_run_gh_command", return_value=mock_response):
+            result = github_client.get_parent_issue("github.com/owner/repo", 123)
+
+        assert result == 42
+
+    def test_get_parent_issue_returns_none_when_no_parent(self, github_client):
+        """Test that None is returned when issue has no parent (404)."""
+        import subprocess
+
+        with patch.object(
+            github_client,
+            "_run_gh_command",
+            side_effect=subprocess.CalledProcessError(1, "gh"),
+        ):
+            result = github_client.get_parent_issue("github.com/owner/repo", 123)
+
+        assert result is None
+
+    def test_get_parent_issue_returns_none_on_invalid_json(self, github_client):
+        """Test that None is returned when response is invalid JSON."""
+        with patch.object(github_client, "_run_gh_command", return_value="not json"):
+            result = github_client.get_parent_issue("github.com/owner/repo", 123)
+
+        assert result is None
+
+
+@pytest.mark.unit
+class TestGetChildIssues:
+    """Tests for GitHubTicketClient.get_child_issues()."""
+
+    def test_get_child_issues_returns_children(self, github_client):
+        """Test fetching child issues when they exist."""
+        mock_response = json.dumps(
+            [
+                {"number": 10, "state": "open", "title": "Child 1"},
+                {"number": 11, "state": "closed", "title": "Child 2"},
+            ]
+        )
+
+        with patch.object(github_client, "_run_gh_command", return_value=mock_response):
+            result = github_client.get_child_issues("github.com/owner/repo", 5)
+
+        assert len(result) == 2
+        assert result[0] == {"number": 10, "state": "open"}
+        assert result[1] == {"number": 11, "state": "closed"}
+
+    def test_get_child_issues_returns_empty_when_none(self, github_client):
+        """Test that empty list is returned when no children exist."""
+        import subprocess
+
+        with patch.object(
+            github_client,
+            "_run_gh_command",
+            side_effect=subprocess.CalledProcessError(1, "gh"),
+        ):
+            result = github_client.get_child_issues("github.com/owner/repo", 5)
+
+        assert result == []
+
+    def test_get_child_issues_returns_empty_on_invalid_response(self, github_client):
+        """Test that empty list is returned on invalid response."""
+        with patch.object(github_client, "_run_gh_command", return_value="not json"):
+            result = github_client.get_child_issues("github.com/owner/repo", 5)
+
+        assert result == []
+
+
+@pytest.mark.unit
+class TestGetPrForIssue:
+    """Tests for GitHubTicketClient.get_pr_for_issue()."""
+
+    def test_get_pr_for_issue_returns_open_pr(self, github_client):
+        """Test fetching PR for an issue when open PR exists."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "issue": {
+                        "closedByPullRequestsReferences": {
+                            "nodes": [
+                                {
+                                    "number": 100,
+                                    "headRefName": "feature-branch",
+                                    "url": "https://github.com/owner/repo/pull/100",
+                                    "state": "OPEN",
+                                },
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+
+        with patch.object(
+            github_client, "_execute_graphql_query", return_value=mock_response
+        ):
+            result = github_client.get_pr_for_issue("github.com/owner/repo", 42)
+
+        assert result == {
+            "number": 100,
+            "headRefName": "feature-branch",
+            "url": "https://github.com/owner/repo/pull/100",
+        }
+
+    def test_get_pr_for_issue_returns_none_when_no_open_pr(self, github_client):
+        """Test that None is returned when no open PR exists."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "issue": {
+                        "closedByPullRequestsReferences": {
+                            "nodes": [
+                                {
+                                    "number": 100,
+                                    "headRefName": "feature-branch",
+                                    "url": "https://github.com/owner/repo/pull/100",
+                                    "state": "MERGED",
+                                },
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+
+        with patch.object(
+            github_client, "_execute_graphql_query", return_value=mock_response
+        ):
+            result = github_client.get_pr_for_issue("github.com/owner/repo", 42)
+
+        assert result is None
+
+    def test_get_pr_for_issue_returns_none_when_no_prs(self, github_client):
+        """Test that None is returned when no PRs exist."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "issue": {"closedByPullRequestsReferences": {"nodes": []}}
+                }
+            }
+        }
+
+        with patch.object(
+            github_client, "_execute_graphql_query", return_value=mock_response
+        ):
+            result = github_client.get_pr_for_issue("github.com/owner/repo", 42)
+
+        assert result is None
+
+
+@pytest.mark.unit
+class TestSetCommitStatus:
+    """Tests for GitHubTicketClient.set_commit_status()."""
+
+    def test_set_commit_status_success(self, github_client):
+        """Test setting commit status successfully."""
+        with patch.object(github_client, "_run_gh_command", return_value="") as mock_cmd:
+            github_client.set_commit_status(
+                repo="github.com/owner/repo",
+                sha="abc123def456",
+                state="failure",
+                context="kiln/child-issues-check",
+                description="2 child issues still open",
+            )
+
+        call_args = mock_cmd.call_args[0][0]
+        assert "api" in call_args
+        assert "-X" in call_args
+        assert "POST" in call_args
+        assert "repos/owner/repo/statuses/abc123def456" in call_args
+        assert "-f" in call_args
+        assert "state=failure" in call_args
+        assert "context=kiln/child-issues-check" in call_args
+        assert "description=2 child issues still open" in call_args
+
+    def test_set_commit_status_with_target_url(self, github_client):
+        """Test setting commit status with target URL."""
+        with patch.object(github_client, "_run_gh_command", return_value="") as mock_cmd:
+            github_client.set_commit_status(
+                repo="github.com/owner/repo",
+                sha="abc123def456",
+                state="success",
+                context="test-context",
+                description="All good",
+                target_url="https://example.com/details",
+            )
+
+        call_args = mock_cmd.call_args[0][0]
+        assert "target_url=https://example.com/details" in call_args
+
+
+@pytest.mark.unit
+class TestGetPrHeadSha:
+    """Tests for GitHubTicketClient.get_pr_head_sha()."""
+
+    def test_get_pr_head_sha_returns_sha(self, github_client):
+        """Test fetching PR head SHA successfully."""
+        with patch.object(
+            github_client, "_run_gh_command", return_value="abc123def456\n"
+        ):
+            result = github_client.get_pr_head_sha("github.com/owner/repo", 100)
+
+        assert result == "abc123def456"
+
+    def test_get_pr_head_sha_returns_none_on_error(self, github_client):
+        """Test that None is returned when PR not found."""
+        import subprocess
+
+        with patch.object(
+            github_client,
+            "_run_gh_command",
+            side_effect=subprocess.CalledProcessError(1, "gh"),
+        ):
+            result = github_client.get_pr_head_sha("github.com/owner/repo", 100)
+
+        assert result is None

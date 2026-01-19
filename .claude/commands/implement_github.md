@@ -25,7 +25,9 @@ If the implementation has already happened and the PR was created, skip all step
 
 ### Step 2: Implement
 
-1. Rebase from main branch before starting
+1. Rebase from the base branch before starting:
+   - If a "Parent branch" is specified in the arguments, rebase from that parent branch
+   - Otherwise, rebase from main branch
 2. Implement the changes as described in the spec, using the sections in order of preference described above.
 3. Follow existing codebase patterns
 4. Write/update tests for new behavior
@@ -36,8 +38,10 @@ If the implementation has already happened and the PR was created, skip all step
 1. Commit and push to the feature branch
 2. Create a **DRAFT PR** with description that closes the issue:
    ```bash
-   gh pr create --draft --title "<title>" --body "<body with Closes #N>"
+   gh pr create --draft --title "<title>" --base <base_branch> --body "<body with Closes #N>"
    ```
+   - If a "Parent branch" is specified in the arguments, use `--base <parent_branch>` to target the parent's branch
+   - Otherwise, omit `--base` to target the default branch (main)
    - If reviewers are specified, add them with `--reviewer` flags
 3. Save the PR URL for the review loop
 

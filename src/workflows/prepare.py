@@ -54,12 +54,22 @@ class PrepareWorkflow:
         worktree_path = f"{workspace}/{repo_name}-issue-{ctx.issue_number}"
         clone_url = self._get_clone_url(ctx)
 
+        # Determine base branch: parent's PR branch or main
+        base_branch = ctx.parent_branch if ctx.parent_branch else "main"
+        branch_context = ""
+        if ctx.parent_branch:
+            branch_context = (
+                f" This is a child of issue #{ctx.parent_issue_number}, "
+                f"so branch from '{ctx.parent_branch}' instead of main."
+            )
+
         return [
             f"Clone {clone_url} to {workspace}/{repo_name} if missing. If it exists, pull from origin main to sync it to the latest commit.",
             (
                 f"Create a worktree at {worktree_path} for issue #{ctx.issue_number} "
-                f"the folder name must always match the provided path exactly."
-                f"the branch name MUST start with the issue number ({ctx.issue_number}-) followed by a semantic slug based on the issue's details:"
+                f"the folder name must always match the provided path exactly. "
+                f"the branch name MUST start with the issue number ({ctx.issue_number}-) followed by a semantic slug based on the issue's details. "
+                f"Base branch: '{base_branch}'.{branch_context}\n"
                 f"Issue title: {ctx.issue_title}\n\n"
                 f"Issue description:\n{ctx.issue_body}"
             ),
