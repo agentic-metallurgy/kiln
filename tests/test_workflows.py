@@ -3,6 +3,7 @@
 import pytest
 
 from src.workflows.base import WorkflowContext
+from src.workflows.implement import ImplementWorkflow, count_checkboxes, count_tasks
 from src.workflows.plan import PlanWorkflow
 from src.workflows.prepare import PrepareWorkflow
 from src.workflows.process_comments import ProcessCommentsWorkflow
@@ -459,3 +460,104 @@ class TestPrepareWorkflow:
         # Should still use main branch since no parent PR exists
         assert "main branch" in prompts[1]
         assert "parent branch" not in prompts[1]
+
+
+@pytest.mark.unit
+class TestCountTasks:
+    """Tests for the count_tasks() helper function."""
+
+    def test_count_tasks_h2_header_format(self):
+        """Test counting tasks with ## TASK N: format."""
+        markdown = """
+## TASK 1: First task
+Some description here.
+
+## TASK 2: Second task
+Another description.
+"""
+        assert count_tasks(markdown) == 2
+
+    def test_count_tasks_h3_header_format(self):
+        """Test counting tasks with ### TASK N: format."""
+        markdown = """
+### TASK 1: First task
+Some description here.
+
+### TASK 2: Second task
+Another description.
+
+### TASK 3: Third task
+More description.
+"""
+        assert count_tasks(markdown) == 3
+
+    def test_count_tasks_bold_format(self):
+        """Test counting tasks with **TASK N**: format."""
+        markdown = """
+**TASK 1**: First task description.
+
+**TASK 2**: Second task description.
+"""
+        assert count_tasks(markdown) == 2
+
+    def test_count_tasks_case_insensitivity(self):
+        """Test that task matching is case insensitive."""
+        markdown = """
+## task 1: lowercase
+## Task 2: titlecase
+## TASK 3: uppercase
+**task 4**: bold lowercase
+"""
+        assert count_tasks(markdown) == 4
+
+    def test_count_tasks_empty_string(self):
+        """Test that empty string returns 0."""
+        assert count_tasks("") == 0
+
+    def test_count_tasks_no_tasks_present(self):
+        """Test text without any TASK blocks returns 0."""
+        markdown = """
+## Overview
+This is a document without any tasks.
+
+### Section 1
+Some content.
+
+- [ ] A checkbox but not a TASK
+"""
+        assert count_tasks(markdown) == 0
+
+    def test_count_tasks_multiple_formats_mixed(self):
+        """Test counting tasks with mixed header and bold formats."""
+        markdown = """
+## TASK 1: Header format
+Description.
+
+**TASK 2**: Bold format
+Description.
+
+### TASK 3: H3 header format
+Description.
+"""
+        assert count_tasks(markdown) == 3
+
+    def test_count_tasks_with_surrounding_content(self):
+        """Test tasks embedded in a larger document."""
+        markdown = """
+# Implementation Plan
+
+## Overview
+This plan outlines the work to be done.
+
+## TASK 1: Set up infrastructure
+- [ ] Create database
+- [ ] Configure server
+
+## TASK 2: Implement features
+- [ ] Add login
+- [ ] Add logout
+
+## Appendix
+Additional notes here.
+"""
+        assert count_tasks(markdown) == 2
