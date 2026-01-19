@@ -849,3 +849,254 @@ class TestImplementWorkflow:
             call_kwargs = mock_run_claude.call_args
             # Model should fall back to "opus" from stage_models["Implement"]
             assert call_kwargs.kwargs["model"] == "opus"
+
+    def test_execute_creates_pr_when_none_exists(self, workflow_context):
+        """Test that execute() calls /prepare_implementation_github when no PR exists."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        # Mock config
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"prepare_implementation": "sonnet", "implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # First call: no PR found
+        # Second call: PR found after prepare_implementation_github
+        pr_responses = [
+            None,  # Initial check - no PR
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test\n- [x] Done",
+            },  # After prepare
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test\n- [x] Done",
+            },  # In loop (check state)
+        ]
+        call_count = {"value": 0}
+
+        def mock_get_pr_create(*_args, **_kwargs):
+            result = pr_responses[min(call_count["value"], len(pr_responses) - 1)]
+            call_count["value"] += 1
+            return result
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr_create),
+            patch.object(workflow, "_run_prompt") as mock_run,
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # Verify prepare_implementation was called
+        prepare_calls = [c for c in mock_run.call_args_list if "/prepare_implementation_github" in c[0][0]]
+        assert len(prepare_calls) == 1
+
+    def test_execute_fails_after_two_pr_creation_attempts(self, workflow_context):
+        """Test that execute() raises RuntimeError after 2 failed PR creation attempts."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        # Mock config
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"prepare_implementation": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # Always return None (no PR found)
+        with (
+            patch.object(workflow, "_get_pr_for_issue", return_value=None),
+            patch.object(workflow, "_run_prompt") as mock_run,
+            pytest.raises(RuntimeError, match="Failed to create PR.*after 2 attempts"),
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # Verify prepare_implementation was called twice
+        assert mock_run.call_count == 2
+
+    def test_execute_max_iterations_based_on_task_count(self, workflow_context):
+        """Test that execute() sets max_iterations based on TASK count in PR body."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # PR with 3 TASKs and always-incomplete checkboxes
+        pr_info = {
+            "number": 42,
+            "body": """Closes #42
+
+## TASK 1: First task
+- [ ] Subtask 1
+
+## TASK 2: Second task
+- [ ] Subtask 2
+
+## TASK 3: Third task
+- [ ] Subtask 3
+""",
+        }
+
+        iterations_run = {"count": 0}
+
+        def mock_run_prompt(*args, **kwargs):
+            iterations_run["count"] += 1
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", return_value=pr_info),
+            patch.object(workflow, "_run_prompt", side_effect=mock_run_prompt),
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # With 3 TASKs, max_iterations = 3, but stall detection kicks in after 2
+        # iterations with no progress (MAX_STALL_COUNT = 2)
+        # First iteration runs, second iteration sees no progress (stall_count=1),
+        # third iteration sees no progress (stall_count=2), loop exits
+        assert iterations_run["count"] == 2  # Exits due to stall detection
+
+    def test_execute_stall_detection(self, workflow_context):
+        """Test that execute() exits after MAX_STALL_COUNT iterations with no progress."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+        from src.workflows.implement import MAX_STALL_COUNT
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # PR with 5 TASKs (so max_iterations=5) that never makes progress
+        # This allows stall detection to trigger before max_iterations
+        pr_info = {
+            "number": 42,
+            "body": """Closes #42
+
+## TASK 1: Test 1
+- [x] Done task
+
+## TASK 2: Test 2
+- [ ] Pending task 1
+
+## TASK 3: Test 3
+- [ ] Pending task 2
+
+## TASK 4: Test 4
+- [ ] Pending task 3
+
+## TASK 5: Test 5
+- [ ] Pending task 4
+""",
+        }
+
+        iterations_run = {"count": 0}
+
+        def mock_run_prompt(*_args, **_kwargs):
+            iterations_run["count"] += 1
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", return_value=pr_info),
+            patch.object(workflow, "_run_prompt", side_effect=mock_run_prompt),
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # With 5 TASKs, max_iterations=5
+        # Iteration 1: completed=1, last_completed=-1, no stall (stall_count stays 0), run prompt, last_completed=1
+        # Iteration 2: completed=1, last_completed=1, stall_count=1, run prompt
+        # Iteration 3: completed=1, last_completed=1, stall_count=2 (>=MAX_STALL_COUNT), exit BEFORE running
+        # So MAX_STALL_COUNT iterations run (stall detected on iteration 3 before running)
+        assert iterations_run["count"] == MAX_STALL_COUNT
+
+    def test_execute_completion_detection(self, workflow_context):
+        """Test that execute() exits and marks PR ready when all checkboxes complete."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # PR with 2 TASKs, starts incomplete, then becomes complete after 1 implementation
+        # Need 2+ TASKs so max_iterations >= 2, allowing the implementation loop to run
+        pr_responses = [
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test 1\n- [ ] Task 1\n\n## TASK 2: Test 2\n- [ ] Task 2",
+            },  # Initial check (sets max_iterations=2)
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test 1\n- [ ] Task 1\n\n## TASK 2: Test 2\n- [ ] Task 2",
+            },  # Loop iteration 1: get PR state
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test 1\n- [x] Task 1\n\n## TASK 2: Test 2\n- [x] Task 2",
+            },  # Loop iteration 2: all complete
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test 1\n- [x] Task 1\n\n## TASK 2: Test 2\n- [x] Task 2",
+            },  # Final check
+        ]
+        call_count = {"value": 0}
+
+        def mock_get_pr_completion(*_args, **_kwargs):
+            result = pr_responses[min(call_count["value"], len(pr_responses) - 1)]
+            call_count["value"] += 1
+            return result
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr_completion),
+            patch.object(workflow, "_run_prompt") as mock_run,
+            patch.object(workflow, "_mark_pr_ready") as mock_ready,
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # Implementation should run once, then completion detected on second check
+        assert mock_run.call_count == 1
+        # PR should be marked ready
+        mock_ready.assert_called_once_with(workflow_context.repo, 42)
+
+    def test_execute_pr_disappearance_raises_error(self, workflow_context):
+        """Test that execute() raises RuntimeError if PR disappears during execution."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # PR exists initially with 2 TASKs, then disappears in loop
+        pr_responses = [
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test 1\n- [ ] Task 1\n\n## TASK 2: Test 2\n- [ ] Task 2",
+            },  # Initial check (sets max_iterations=2)
+            None,  # Disappeared in loop
+        ]
+        call_count = {"value": 0}
+
+        def mock_get_pr_disappear(*_args, **_kwargs):
+            result = pr_responses[min(call_count["value"], len(pr_responses) - 1)]
+            call_count["value"] += 1
+            return result
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr_disappear),
+            patch.object(workflow, "_run_prompt"),
+            pytest.raises(RuntimeError, match="PR disappeared"),
+        ):
+            workflow.execute(workflow_context, mock_config)
