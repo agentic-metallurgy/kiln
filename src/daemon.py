@@ -1230,6 +1230,42 @@ class Daemon:
         repo_name = repo.split("/")[-1] if "/" in repo else repo
         return f"{self.config.workspace_dir}/{repo_name}-issue-{issue_number}"
 
+    def _get_parent_pr_info(
+        self, repo: str, ticket_id: int
+    ) -> tuple[int | None, str | None]:
+        """Get parent issue number and its open PR branch name.
+
+        Combines get_parent_issue and get_pr_for_issue to find the parent's
+        open PR branch that child issues should branch from.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            ticket_id: Issue number to check for parent
+
+        Returns:
+            Tuple of (parent_issue_number, parent_branch_name).
+            Both are None if no parent or no open PR for parent.
+        """
+        # Check if this issue has a parent
+        parent_issue_number = self.ticket_client.get_parent_issue(repo, ticket_id)
+        if parent_issue_number is None:
+            logger.debug(f"Issue #{ticket_id} has no parent")
+            return None, None
+
+        logger.info(f"Issue #{ticket_id} has parent issue #{parent_issue_number}")
+
+        # Find the parent's open PR
+        parent_pr = self.ticket_client.get_pr_for_issue(repo, parent_issue_number)
+        if parent_pr is None:
+            logger.info(f"Parent issue #{parent_issue_number} has no open PR")
+            return parent_issue_number, None
+
+        parent_branch = str(parent_pr.get("branch_name")) if parent_pr.get("branch_name") else None
+        logger.info(
+            f"Found parent PR #{parent_pr.get('number')} with branch '{parent_branch}'"
+        )
+        return parent_issue_number, parent_branch
+
     def _auto_prepare_worktree(self, item: TicketItem) -> None:
         """Create worktree for an issue using PrepareWorkflow.
 
@@ -1239,11 +1275,20 @@ class Daemon:
         Pre-fetches the issue body so PrepareWorkflow can include it directly
         in the prompt without requiring Claude to make an API call.
 
+        Also checks if the issue has a parent with an open PR, and if so,
+        passes the parent branch information so the child issue branches
+        from the parent's PR branch instead of main.
+
         Args:
             item: TicketItem to prepare worktree for
         """
         # Pre-fetch issue body for PrepareWorkflow
         issue_body = self.ticket_client.get_ticket_body(item.repo, item.ticket_id)
+
+        # Check for parent issue with open PR
+        parent_issue_number, parent_branch = self._get_parent_pr_info(
+            item.repo, item.ticket_id
+        )
 
         workflow = PrepareWorkflow()
         ctx = WorkflowContext(
@@ -1254,9 +1299,14 @@ class Daemon:
             project_url=item.board_url,
             issue_body=issue_body,
             allowed_username=self.config.allowed_username,
+            parent_issue_number=parent_issue_number,
+            parent_branch=parent_branch,
         )
         self.runner.run(workflow, ctx, "Prepare")
-        logger.info("Auto-prepared worktree")
+        if parent_branch:
+            logger.info(f"Auto-prepared worktree (branching from parent branch '{parent_branch}')")
+        else:
+            logger.info("Auto-prepared worktree")
 
     def _run_workflow(
         self,
