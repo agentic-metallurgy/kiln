@@ -24,7 +24,7 @@ from src.config import Config, load_config
 from src.database import Database, ProjectMetadata
 from src.interfaces import TicketItem
 from src.labels import REQUIRED_LABELS, Labels
-from src.logger import clear_issue_context, get_logger, set_issue_context, setup_logging
+from src.logger import clear_issue_context, get_logger, log_message, set_issue_context, setup_logging
 from src.security import check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients.github import GitHubTicketClient
@@ -116,7 +116,7 @@ class WorkflowRunner:
                     logger.debug(
                         f"Executing prompt {i}/{len(prompts)} for workflow '{workflow.name}'"
                     )
-                    logger.debug(f"Prompt preview: {prompt[:200]}...")
+                    log_message(logger, "Prompt", prompt)
 
                     try:
                         model = self.config.stage_models.get(workflow_name)
@@ -1322,6 +1322,50 @@ class Daemon:
         self.runner.run(workflow, ctx, "Prepare")
         logger.info("Auto-prepared worktree")
 
+        # Sync .claude/commands to the new worktree
+        self._sync_claude_commands(item)
+
+    def _sync_claude_commands(self, item: TicketItem) -> None:
+        """Sync .claude/commands from daemon repo to worktree.
+
+        This ensures worktrees have the latest commands even if they were
+        created from an older branch.
+
+        Args:
+            item: TicketItem to sync commands for
+        """
+        import shutil
+
+        # Construct worktree path (same logic as PrepareWorkflow)
+        repo_name = item.repo.split("/")[-1] if "/" in item.repo else item.repo
+        worktree_path = Path(self.config.workspace_dir) / f"{repo_name}-issue-{item.ticket_id}"
+
+        # Source commands from daemon's repo (where kiln is running from)
+        daemon_commands = Path(".claude/commands")
+        worktree_commands = worktree_path / ".claude" / "commands"
+
+        if not daemon_commands.exists():
+            logger.debug("No .claude/commands in daemon repo, skipping sync")
+            return
+
+        if not worktree_path.exists():
+            logger.warning(f"Worktree not found at {worktree_path}, skipping command sync")
+            return
+
+        try:
+            # Create .claude directory if it doesn't exist
+            worktree_commands.parent.mkdir(parents=True, exist_ok=True)
+
+            # Copy each command file (overwrite if exists)
+            for cmd_file in daemon_commands.glob("*.md"):
+                dest = worktree_commands / cmd_file.name
+                shutil.copy2(cmd_file, dest)
+                logger.debug(f"Synced command: {cmd_file.name}")
+
+            logger.info(f"Synced .claude/commands to {worktree_path}")
+        except Exception as e:
+            logger.warning(f"Failed to sync .claude/commands: {e}")
+
     def _run_workflow(
         self,
         workflow_name: str,
@@ -1346,6 +1390,9 @@ class Daemon:
 
         # Determine workspace path based on workflow
         workspace_path = self._get_worktree_path(item.repo, item.ticket_id)
+
+        # Sync .claude/commands to ensure worktree has latest commands
+        self._sync_claude_commands(item)
 
         # Rebase on first Research run (no research_ready label yet) - use cached labels
         if workflow_name == "Research":
@@ -1420,11 +1467,12 @@ def main() -> None:
             log_backups=config.log_backups,
         )
         logger.info("=== Agentic Metallurgy Daemon Starting ===")
+        logger.info(f"Logging to file: {config.log_file}")
         logger.debug("Configuration loaded successfully")
 
         # Get git version once at startup for consistent attribution
         git_version = get_git_version()
-        logger.info(f"Daemon version: {git_version}")
+        logger.info(f"Current kiln HEAD SHA: {git_version}")
 
         # Initialize OpenTelemetry if configured
         if config.otel_endpoint:

@@ -6,7 +6,7 @@ import subprocess
 from typing import TYPE_CHECKING
 
 from src.claude_runner import run_claude
-from src.logger import get_logger
+from src.logger import get_logger, log_message
 from src.workflows.base import WorkflowContext
 
 if TYPE_CHECKING:
@@ -15,8 +15,27 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 # Constants for the implementation loop
-MAX_ITERATIONS = 8
+DEFAULT_MAX_ITERATIONS = 8  # Fallback if no TASKs detected
 MAX_STALL_COUNT = 2  # Stop after 2 iterations with no progress
+
+
+def count_tasks(markdown_text: str) -> int:
+    """Count the number of TASK blocks in markdown text.
+
+    Looks for patterns like:
+    - ## TASK 1: Description
+    - ### TASK 2: Description
+    - **TASK 3**: Description
+
+    Args:
+        markdown_text: Markdown content to parse
+
+    Returns:
+        Number of TASK blocks found
+    """
+    # Match TASK headers in various formats
+    task_pattern = re.compile(r"^#+\s*TASK\s+\d+|^\*\*TASK\s+\d+\*\*", re.MULTILINE | re.IGNORECASE)
+    return len(task_pattern.findall(markdown_text))
 
 
 def count_checkboxes(markdown_text: str) -> tuple[int, int]:
@@ -65,6 +84,8 @@ class ImplementWorkflow:
         issue_url = f"https://{ctx.repo}/issues/{ctx.issue_number}"
         key = f"{ctx.repo}#{ctx.issue_number}"
 
+        logger.info(f"ImplementWorkflow.execute() starting for {key}")
+
         # Build common prompt parts
         reviewer_flags = ""
         if ctx.allowed_username:
@@ -76,6 +97,7 @@ class ImplementWorkflow:
 
         # Step 1: Ensure PR exists (with retry)
         pr_info = self._get_pr_for_issue(ctx.repo, ctx.issue_number)
+        logger.info(f"PR lookup for {key}: {'found PR #' + str(pr_info.get('number')) if pr_info else 'not found'}")
 
         if not pr_info:
             for attempt in range(1, 3):  # Try up to 2 times
@@ -100,11 +122,17 @@ class ImplementWorkflow:
                 )
 
         # Step 2: Implementation loop
+        # Set max iterations based on TASK count (each TASK = 1 iteration)
+        pr_body = pr_info.get("body", "")
+        num_tasks = count_tasks(pr_body)
+        max_iterations = num_tasks if num_tasks > 0 else DEFAULT_MAX_ITERATIONS
+        logger.info(f"Detected {num_tasks} TASKs for {key}, max_iterations={max_iterations}")
+
         iteration = 0
         last_completed = -1
         stall_count = 0
 
-        while iteration < MAX_ITERATIONS:
+        while iteration < max_iterations:
             iteration += 1
 
             # Get current PR state
@@ -149,8 +177,32 @@ class ImplementWorkflow:
             )
             self._run_prompt(implement_prompt, ctx, config, "implement")
 
-        if iteration >= MAX_ITERATIONS:
-            logger.warning(f"Hit max iterations ({MAX_ITERATIONS}) for {key}")
+        if iteration >= max_iterations:
+            logger.warning(f"Hit max iterations ({max_iterations}) for {key}")
+
+        # Check final state and mark PR ready if all tasks complete
+        pr_info = self._get_pr_for_issue(ctx.repo, ctx.issue_number)
+        if pr_info:
+            pr_body = pr_info.get("body", "")
+            total_tasks, completed_tasks = count_checkboxes(pr_body)
+            pr_number = pr_info.get("number")
+            if total_tasks > 0 and completed_tasks == total_tasks and pr_number:
+                self._mark_pr_ready(ctx.repo, pr_number)
+
+    def _mark_pr_ready(self, repo: str, pr_number: int) -> None:
+        """Mark a draft PR as ready for review.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: PR number
+        """
+        try:
+            repo_ref = f"https://{repo}"
+            cmd = ["gh", "pr", "ready", str(pr_number), "--repo", repo_ref]
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            logger.info(f"Marked PR #{pr_number} as ready for review")
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Failed to mark PR #{pr_number} as ready: {e.stderr}")
 
     def _run_prompt(
         self,
@@ -170,6 +222,9 @@ class ImplementWorkflow:
         model = config.stage_models.get(stage_name) or config.stage_models.get("Implement")
         issue_context = f"{ctx.repo}#{ctx.issue_number}"
 
+        logger.info(f"Running prompt (model={model}, workspace={ctx.workspace_path})")
+        log_message(logger, "Prompt", prompt)
+
         run_claude(
             prompt,
             ctx.workspace_path,
@@ -178,6 +233,8 @@ class ImplementWorkflow:
             enable_telemetry=config.claude_code_enable_telemetry,
             execution_stage=stage_name,
         )
+
+        logger.info(f"Prompt completed: {stage_name}")
 
     def _get_pr_for_issue(self, repo: str, issue_number: int) -> dict | None:
         """Get the open PR that closes a specific issue.
@@ -193,7 +250,7 @@ class ImplementWorkflow:
             # Build repo reference URL
             repo_ref = f"https://{repo}"
 
-            # Use gh CLI to find PR
+            # Use gh CLI to find PRs - search is loose, so we filter in Python
             cmd = [
                 "gh",
                 "pr",
@@ -206,17 +263,29 @@ class ImplementWorkflow:
                 f"closes #{issue_number}",
                 "--json",
                 "number,body",
-                "--jq",
-                ".[0]",
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             output = result.stdout.strip()
 
-            if not output or output == "null":
+            if not output or output == "[]":
                 return None
 
-            return json.loads(output)
+            prs = json.loads(output)
+
+            # Filter for PRs that actually link to this issue
+            # GitHub linking keywords: closes, fixes, resolves (case-insensitive)
+            link_pattern = re.compile(
+                rf"\b(closes|fixes|resolves)\s+#?{issue_number}\b", re.IGNORECASE
+            )
+
+            for pr in prs:
+                body = pr.get("body", "") or ""
+                if link_pattern.search(body):
+                    logger.debug(f"Found PR #{pr['number']} linking to issue #{issue_number}")
+                    return pr
+
+            return None
 
         except subprocess.CalledProcessError as e:
             logger.warning(f"Failed to get PR for issue #{issue_number}: {e.stderr}")
@@ -224,3 +293,4 @@ class ImplementWorkflow:
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse PR response: {e}")
             return None
+
