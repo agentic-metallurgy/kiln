@@ -654,3 +654,109 @@ class TestImplementWorkflow:
 
         assert isinstance(prompts, list)
         assert len(prompts) == 0
+
+    def test_get_pr_for_issue_closes_keyword(self):
+        """Test that _get_pr_for_issue finds PR with 'closes #N' keyword."""
+        import json
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+        mock_result.stdout = json.dumps(
+            [{"number": 42, "body": "This PR closes #123\n\nSome description"}]
+        )
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 123)
+
+        assert result is not None
+        assert result["number"] == 42
+        mock_run.assert_called_once()
+
+    def test_get_pr_for_issue_fixes_keyword(self):
+        """Test that _get_pr_for_issue finds PR with 'fixes #N' keyword."""
+        import json
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+        mock_result.stdout = json.dumps([{"number": 55, "body": "Fixes #99 - bug fix"}])
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 99)
+
+        assert result is not None
+        assert result["number"] == 55
+        mock_run.assert_called_once()
+
+    def test_get_pr_for_issue_resolves_keyword(self):
+        """Test that _get_pr_for_issue finds PR with 'resolves #N' keyword."""
+        import json
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+        mock_result.stdout = json.dumps([{"number": 77, "body": "RESOLVES #200 in uppercase"}])
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 200)
+
+        assert result is not None
+        assert result["number"] == 77
+        mock_run.assert_called_once()
+
+    def test_get_pr_for_issue_no_matching_pr(self):
+        """Test that _get_pr_for_issue returns None when no PR matches."""
+        import json
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+        # PR exists but doesn't link to the issue we're looking for
+        mock_result.stdout = json.dumps([{"number": 42, "body": "Closes #999 - different issue"}])
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 123)
+
+        assert result is None
+
+    def test_get_pr_for_issue_subprocess_failure(self):
+        """Test that _get_pr_for_issue returns None on subprocess failure."""
+        import subprocess
+        from unittest.mock import patch
+
+        workflow = ImplementWorkflow()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(
+                returncode=1, cmd=["gh"], stderr="error"
+            )
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 123)
+
+        assert result is None
+
+    def test_get_pr_for_issue_json_parse_error(self):
+        """Test that _get_pr_for_issue returns None on JSON parse error."""
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+        mock_result.stdout = "not valid json"
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 123)
+
+        assert result is None
+
+    def test_get_pr_for_issue_empty_list_response(self):
+        """Test that _get_pr_for_issue returns None for empty PR list."""
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+        mock_result.stdout = "[]"
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 123)
+
+        assert result is None
