@@ -1403,7 +1403,12 @@ class Daemon:
         worktree_path = Path(self.config.workspace_dir) / f"{repo_name}-issue-{item.ticket_id}"
 
         # Source commands from daemon's repo (where kiln is running from)
-        daemon_commands = Path(".claude/commands")
+        # PyInstaller sets sys._MEIPASS when running from bundle, else use repo root
+        if hasattr(sys, "_MEIPASS"):
+            base_path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+        else:
+            base_path = Path(__file__).parent.parent  # repo root
+        daemon_commands = base_path / ".claude" / "commands"
         worktree_commands = worktree_path / ".claude" / "commands"
 
         if not daemon_commands.exists():
