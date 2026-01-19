@@ -1262,9 +1262,40 @@ class TestValidateScopes:
             with pytest.raises(RuntimeError, match="should ONLY have these scopes"):
                 github_client.validate_scopes("github.com")
 
-    def test_validate_scopes_fine_grained_pat_logs_warning_and_passes(self, github_client):
-        """Test that fine-grained PAT (no X-OAuth-Scopes header) logs warning and passes."""
+    def test_validate_scopes_fine_grained_pat_raises_error(self, github_client):
+        """Test that fine-grained PAT (no X-OAuth-Scopes header) raises RuntimeError."""
         mock_output = 'HTTP/2.0 200 OK\nContent-Type: application/json\n\n{"login": "test-user"}'
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.stdout = mock_output
+            mock_run.return_value.returncode = 0
+            with pytest.raises(RuntimeError) as exc_info:
+                github_client.validate_scopes("github.com")
+
+        error_msg = str(exc_info.value)
+        assert "fine-grained PAT" in error_msg.lower() or "could not verify" in error_msg.lower()
+        assert "classic Personal Access Token" in error_msg
+
+    def test_validate_scopes_fine_grained_pat_prefix_detected_early(self, github_client):
+        """Test that fine-grained PAT is detected by prefix before API call."""
+        # Set a fine-grained PAT token
+        github_client.tokens["github.com"] = "github_pat_abc123xyz"
+
+        # Should fail immediately without making API call
+        with pytest.raises(RuntimeError) as exc_info:
+            github_client.validate_scopes("github.com")
+
+        error_msg = str(exc_info.value)
+        assert "Fine-grained PAT detected" in error_msg
+        assert "github_pat_" in error_msg
+        assert "classic Personal Access Token" in error_msg
+
+    def test_validate_scopes_classic_pat_prefix_allowed(self, github_client):
+        """Test that classic PAT prefix (ghp_) passes prefix check."""
+        github_client.tokens["github.com"] = "ghp_abc123xyz"
+        mock_output = (
+            'HTTP/2.0 200 OK\nX-OAuth-Scopes: repo, read:org, project\n\n{"login": "test-user"}'
+        )
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value.stdout = mock_output
@@ -1303,15 +1334,17 @@ class TestValidateScopes:
             assert "project" in error_msg
             assert "read:org" in error_msg
 
-    def test_validate_scopes_api_error_passes(self, github_client):
-        """Test that API errors result in warning and pass."""
+    def test_validate_scopes_api_error_raises(self, github_client):
+        """Test that API errors raise RuntimeError (fail closed for security)."""
         import subprocess
 
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = subprocess.CalledProcessError(1, "gh", stderr="API error")
-            result = github_client.validate_scopes("github.com")
+            with pytest.raises(RuntimeError) as exc_info:
+                github_client.validate_scopes("github.com")
 
-        assert result is True
+        error_msg = str(exc_info.value)
+        assert "Could not verify token scopes" in error_msg
 
     def test_validate_scopes_required_scopes_constant(self, github_client):
         """Test that REQUIRED_SCOPES contains expected values."""
