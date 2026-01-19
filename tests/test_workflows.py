@@ -760,3 +760,34 @@ class TestImplementWorkflow:
             result = workflow._get_pr_for_issue("github.com/owner/repo", 123)
 
         assert result is None
+
+    def test_mark_pr_ready_success(self):
+        """Test that _mark_pr_ready calls gh pr ready with correct arguments."""
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            workflow._mark_pr_ready("github.com/owner/repo", 42)
+
+        mock_run.assert_called_once_with(
+            ["gh", "pr", "ready", "42", "--repo", "https://github.com/owner/repo"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    def test_mark_pr_ready_failure_logs_warning_no_raise(self):
+        """Test that _mark_pr_ready logs warning on failure but doesn't raise."""
+        import subprocess
+        from unittest.mock import patch
+
+        workflow = ImplementWorkflow()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(
+                returncode=1, cmd=["gh"], stderr="PR is already ready"
+            )
+            # Should not raise - just logs a warning
+            workflow._mark_pr_ready("github.com/owner/repo", 42)
