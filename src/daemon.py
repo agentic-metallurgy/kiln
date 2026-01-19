@@ -997,6 +997,16 @@ class Daemon:
         # Remove the reset label first
         self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.RESET)
 
+        # Clean up worktree if it exists (prevents rebase failures on subsequent Research runs)
+        repo_name = item.repo.split("/")[-1]
+        worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
+        if Path(worktree_path).exists():
+            try:
+                self.workspace_manager.cleanup_workspace(repo_name, item.ticket_id)
+                logger.info(f"RESET: Cleaned up worktree for {key}")
+            except Exception as e:
+                logger.warning(f"RESET: Failed to cleanup worktree for {key}: {e}")
+
         # Remove linking keywords from related PRs (severs PR-issue relationship)
         self._remove_pr_issue_links(item)
 
