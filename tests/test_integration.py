@@ -55,27 +55,41 @@ class TestGitHubTicketClientIntegration:
         """Test _parse_board_url with various valid URL formats."""
         client = GitHubTicketClient({"github.com": "fake_token"})
 
-        # Standard format
-        hostname, org, num = client._parse_board_url(
+        # Standard org format
+        hostname, entity_type, login, num = client._parse_board_url(
             "https://github.com/orgs/chronoboost/projects/6/views/2"
         )
         assert hostname == "github.com"
-        assert org == "chronoboost"
+        assert entity_type == "organization"
+        assert login == "chronoboost"
         assert num == 6
 
         # Without views part
-        hostname, org, num = client._parse_board_url("https://github.com/orgs/myorg/projects/42")
+        hostname, entity_type, login, num = client._parse_board_url(
+            "https://github.com/orgs/myorg/projects/42"
+        )
         assert hostname == "github.com"
-        assert org == "myorg"
+        assert entity_type == "organization"
+        assert login == "myorg"
         assert num == 42
 
         # With trailing slash
-        hostname, org, num = client._parse_board_url(
+        hostname, entity_type, login, num = client._parse_board_url(
             "https://github.com/orgs/test-org/projects/123/views/1/"
         )
         assert hostname == "github.com"
-        assert org == "test-org"
+        assert entity_type == "organization"
+        assert login == "test-org"
         assert num == 123
+
+        # User project
+        hostname, entity_type, login, num = client._parse_board_url(
+            "https://github.com/users/myuser/projects/5"
+        )
+        assert hostname == "github.com"
+        assert entity_type == "user"
+        assert login == "myuser"
+        assert num == 5
 
     def test_parse_board_url_invalid_formats(self):
         """Test _parse_board_url raises ValueError for invalid URLs."""
