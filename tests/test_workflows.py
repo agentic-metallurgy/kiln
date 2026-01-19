@@ -579,3 +579,60 @@ class TestPrepareWorkflow:
         # Should NOT ask Claude to read the issue (empty body is still "provided")
         assert "Read github issue" not in prompts[1]
         assert "Issue description:" in prompts[1]
+
+    def test_prepare_workflow_with_parent_branch_creates_from_parent(self):
+        """Test that workflow uses parent branch when provided."""
+        ctx = WorkflowContext(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            issue_title="Child Issue",
+            workspace_path="/tmp/workspaces",
+            issue_body="Child issue body",
+            parent_issue_number=10,
+            parent_branch="10-parent-feature",
+        )
+        workflow = PrepareWorkflow()
+        prompts = workflow.init(ctx)
+
+        # Should instruct to create from parent branch
+        assert "10-parent-feature" in prompts[1]
+        assert "parent branch" in prompts[1]
+        assert "parent issue #10" in prompts[1]
+        assert "git fetch origin 10-parent-feature" in prompts[1]
+
+    def test_prepare_workflow_without_parent_branch_creates_from_main(self):
+        """Test that workflow uses main branch when no parent branch provided."""
+        ctx = WorkflowContext(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            issue_title="Standalone Issue",
+            workspace_path="/tmp/workspaces",
+            issue_body="Issue body",
+            parent_issue_number=None,
+            parent_branch=None,
+        )
+        workflow = PrepareWorkflow()
+        prompts = workflow.init(ctx)
+
+        # Should instruct to create from main branch
+        assert "main branch" in prompts[1]
+        # Should NOT mention parent branch
+        assert "parent branch" not in prompts[1]
+
+    def test_prepare_workflow_with_parent_number_but_no_branch(self):
+        """Test that workflow uses main when parent has no open PR."""
+        ctx = WorkflowContext(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            issue_title="Child Issue",
+            workspace_path="/tmp/workspaces",
+            issue_body="Issue body",
+            parent_issue_number=10,  # Has parent but no open PR
+            parent_branch=None,
+        )
+        workflow = PrepareWorkflow()
+        prompts = workflow.init(ctx)
+
+        # Should still use main branch since no parent PR exists
+        assert "main branch" in prompts[1]
+        assert "parent branch" not in prompts[1]
