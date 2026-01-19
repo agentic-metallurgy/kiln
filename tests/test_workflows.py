@@ -632,3 +632,25 @@ class TestCountCheckboxes:
         # Only the two valid checkboxes should be counted
         assert total == 2
         assert completed == 1
+
+
+@pytest.mark.unit
+class TestImplementWorkflow:
+    """Tests for ImplementWorkflow class."""
+
+    def test_implement_workflow_name(self):
+        """Test that ImplementWorkflow has the correct name."""
+        workflow = ImplementWorkflow()
+        assert workflow.name == "implement"
+
+    def test_implement_workflow_init_returns_empty_list(self, workflow_context):
+        """Test that init() returns an empty list.
+
+        ImplementWorkflow uses execute() instead of init() for its custom loop logic,
+        so init() should return an empty list.
+        """
+        workflow = ImplementWorkflow()
+        prompts = workflow.init(workflow_context)
+
+        assert isinstance(prompts, list)
+        assert len(prompts) == 0
