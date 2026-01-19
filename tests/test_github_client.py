@@ -2269,8 +2269,8 @@ class TestGetRepoRef:
 class TestAuthenticationErrorHandling:
     """Tests for authentication error handling in _run_gh_command."""
 
-    def test_auth_error_gh_auth_login(self, github_client):
-        """Test that 'gh auth login' error produces user-friendly message."""
+    def test_auth_error_gh_auth_login_simple(self, github_client):
+        """Test that auth error produces simple message in non-debug mode."""
         import subprocess
 
         error = subprocess.CalledProcessError(
@@ -2278,13 +2278,33 @@ class TestAuthenticationErrorHandling:
         )
 
         with patch("subprocess.run", side_effect=error):
-            with pytest.raises(RuntimeError) as exc_info:
-                github_client._run_gh_command(["api", "user"])
+            with patch("src.ticket_clients.github.is_debug_mode", return_value=False):
+                with pytest.raises(RuntimeError) as exc_info:
+                    github_client._run_gh_command(["api", "user"])
 
-            error_msg = str(exc_info.value)
-            assert "GitHub authentication failed" in error_msg
-            assert "GITHUB_TOKEN" in error_msg
-            assert "gh auth login" in error_msg
+                error_msg = str(exc_info.value)
+                assert "GitHub authentication failed" in error_msg
+                assert "GITHUB_TOKEN" in error_msg
+                # Simple mode should NOT include detailed error
+                assert "gh auth login" not in error_msg
+
+    def test_auth_error_gh_auth_login_debug(self, github_client):
+        """Test that auth error produces rich message in debug mode."""
+        import subprocess
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="To get started with GitHub CLI, please run:  gh auth login"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with patch("src.ticket_clients.github.is_debug_mode", return_value=True):
+                with pytest.raises(RuntimeError) as exc_info:
+                    github_client._run_gh_command(["api", "user"])
+
+                error_msg = str(exc_info.value)
+                assert "GitHub authentication failed" in error_msg
+                assert "GITHUB_TOKEN" in error_msg
+                assert "gh auth login" in error_msg
 
     def test_auth_error_unauthorized(self, github_client):
         """Test that unauthorized error produces user-friendly message."""

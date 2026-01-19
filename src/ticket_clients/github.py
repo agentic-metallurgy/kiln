@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from src.interfaces import Comment, LinkedPullRequest, TicketItem
-from src.logger import get_logger
+from src.logger import get_logger, is_debug_mode
 
 logger = get_logger(__name__)
 
@@ -1501,11 +1501,17 @@ class GitHubTicketClient:
                     "no token",
                 ]
             ):
-                raise RuntimeError(
-                    f"GitHub authentication failed for {hostname}.\n"
-                    f"Please ensure GITHUB_TOKEN is set in .kiln/config or run 'gh auth login'.\n"
-                    f"Error: {e.stderr}"
-                ) from e
+                if is_debug_mode():
+                    raise RuntimeError(
+                        f"GitHub authentication failed for {hostname}.\n"
+                        f"Please ensure GITHUB_TOKEN is set in .kiln/config or run 'gh auth login'.\n"
+                        f"Error: {e.stderr}"
+                    ) from e
+                else:
+                    raise RuntimeError(
+                        f"GitHub authentication failed for {hostname}. "
+                        f"Please set GITHUB_TOKEN in .kiln/config"
+                    ) from e
             raise
         except FileNotFoundError as e:
             logger.error("gh CLI not found. Please install GitHub CLI: https://cli.github.com/")
