@@ -244,7 +244,9 @@ class Daemon:
         logger.debug(f"Database initialized at {config.database_path}")
 
         tokens: dict[str, str] = {}
-        if config.github_token:
+        if config.github_enterprise_host and config.github_enterprise_token:
+            tokens[config.github_enterprise_host] = config.github_enterprise_token
+        elif config.github_token:
             tokens["github.com"] = config.github_token
         self.ticket_client = GitHubTicketClient(tokens)
         logger.debug("Ticket client initialized")

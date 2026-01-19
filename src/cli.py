@@ -141,7 +141,9 @@ def run_daemon(daemon_mode: bool = False) -> None:
 
         # Build tokens dict for client
         tokens: dict[str, str] = {}
-        if config.github_token:
+        if config.github_enterprise_host and config.github_enterprise_token:
+            tokens[config.github_enterprise_host] = config.github_enterprise_token
+        elif config.github_token:
             tokens["github.com"] = config.github_token
 
         client = GitHubTicketClient(tokens)
