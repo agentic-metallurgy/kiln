@@ -561,3 +561,74 @@ This plan outlines the work to be done.
 Additional notes here.
 """
         assert count_tasks(markdown) == 2
+
+
+@pytest.mark.unit
+class TestCountCheckboxes:
+    """Tests for the count_checkboxes() helper function."""
+
+    def test_count_checkboxes_mixed_checked_unchecked(self):
+        """Test counting a mix of checked and unchecked checkboxes."""
+        markdown = """
+- [x] Completed task 1
+- [ ] Pending task 2
+- [x] Completed task 3
+- [ ] Pending task 4
+"""
+        total, completed = count_checkboxes(markdown)
+        assert total == 4
+        assert completed == 2
+
+    def test_count_checkboxes_all_checked(self):
+        """Test when all checkboxes are checked."""
+        markdown = """
+- [x] Task 1
+- [x] Task 2
+- [x] Task 3
+"""
+        total, completed = count_checkboxes(markdown)
+        assert total == 3
+        assert completed == 3
+
+    def test_count_checkboxes_all_unchecked(self):
+        """Test when all checkboxes are unchecked."""
+        markdown = """
+- [ ] Task 1
+- [ ] Task 2
+- [ ] Task 3
+- [ ] Task 4
+"""
+        total, completed = count_checkboxes(markdown)
+        assert total == 4
+        assert completed == 0
+
+    def test_count_checkboxes_empty_string(self):
+        """Test that empty string returns (0, 0)."""
+        total, completed = count_checkboxes("")
+        assert total == 0
+        assert completed == 0
+
+    def test_count_checkboxes_uppercase_x(self):
+        """Test that [X] uppercase is counted as checked."""
+        markdown = """
+- [X] Uppercase checked
+- [x] Lowercase checked
+- [ ] Unchecked
+"""
+        total, completed = count_checkboxes(markdown)
+        assert total == 3
+        assert completed == 2
+
+    def test_count_checkboxes_malformed_not_counted(self):
+        """Test that malformed checkboxes without proper space are not counted."""
+        markdown = """
+- [x] Valid checked
+- [ ] Valid unchecked
+- [] Malformed - no space inside brackets
+- [  ] Malformed - double space
+-[ ] Malformed - no space after dash
+"""
+        total, completed = count_checkboxes(markdown)
+        # Only the two valid checkboxes should be counted
+        assert total == 2
+        assert completed == 1
