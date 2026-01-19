@@ -2614,3 +2614,178 @@ class TestExecuteGraphqlQueryWithHeaders:
                 )
 
             assert "parent" in str(exc_info.value) or "GraphQL errors" in str(exc_info.value)
+
+
+@pytest.mark.unit
+class TestGetChildIssues:
+    """Tests for GitHubTicketClient.get_child_issues() method."""
+
+    def test_get_child_issues_returns_children(self, github_client):
+        """Test that get_child_issues returns child issue info."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "issue": {
+                        "subIssues": {
+                            "nodes": [
+                                {"number": 10, "state": "OPEN"},
+                                {"number": 11, "state": "CLOSED"},
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+
+        with patch.object(
+            github_client, "_execute_graphql_query_with_headers", return_value=mock_response
+        ):
+            children = github_client.get_child_issues("github.com/owner/repo", 5)
+
+        assert len(children) == 2
+        assert children[0] == {"number": 10, "state": "OPEN"}
+        assert children[1] == {"number": 11, "state": "CLOSED"}
+
+    def test_get_child_issues_returns_empty_when_no_children(self, github_client):
+        """Test that get_child_issues returns empty list when no children."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "issue": {
+                        "subIssues": {"nodes": []}
+                    }
+                }
+            }
+        }
+
+        with patch.object(
+            github_client, "_execute_graphql_query_with_headers", return_value=mock_response
+        ):
+            children = github_client.get_child_issues("github.com/owner/repo", 5)
+
+        assert children == []
+
+    def test_get_child_issues_returns_empty_on_error(self, github_client):
+        """Test that get_child_issues returns empty list on API errors."""
+        with patch.object(
+            github_client, "_execute_graphql_query_with_headers", side_effect=Exception("API error")
+        ):
+            children = github_client.get_child_issues("github.com/owner/repo", 5)
+
+        assert children == []
+
+    def test_get_child_issues_uses_sub_issues_header(self, github_client):
+        """Test that get_child_issues sends the sub_issues header."""
+        mock_response = {
+            "data": {"repository": {"issue": {"subIssues": {"nodes": []}}}}
+        }
+
+        with patch.object(
+            github_client, "_execute_graphql_query_with_headers", return_value=mock_response
+        ) as mock_query:
+            github_client.get_child_issues("github.com/owner/repo", 5)
+
+            # Verify sub_issues header is passed via kwargs
+            call_kwargs = mock_query.call_args
+            headers = call_kwargs.kwargs.get("headers", [])
+            assert "GraphQL-Features: sub_issues" in headers
+
+
+@pytest.mark.unit
+class TestGetPrHeadSha:
+    """Tests for GitHubTicketClient.get_pr_head_sha() method."""
+
+    def test_get_pr_head_sha_returns_sha(self, github_client):
+        """Test that get_pr_head_sha returns the HEAD SHA."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "headRefOid": "abc123def456"
+                    }
+                }
+            }
+        }
+
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            sha = github_client.get_pr_head_sha("github.com/owner/repo", 42)
+
+        assert sha == "abc123def456"
+
+    def test_get_pr_head_sha_returns_none_when_no_pr(self, github_client):
+        """Test that get_pr_head_sha returns None when PR not found."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "pullRequest": None
+                }
+            }
+        }
+
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            sha = github_client.get_pr_head_sha("github.com/owner/repo", 42)
+
+        assert sha is None
+
+    def test_get_pr_head_sha_returns_none_on_error(self, github_client):
+        """Test that get_pr_head_sha returns None on API errors."""
+        with patch.object(
+            github_client, "_execute_graphql_query", side_effect=Exception("API error")
+        ):
+            sha = github_client.get_pr_head_sha("github.com/owner/repo", 42)
+
+        assert sha is None
+
+
+@pytest.mark.unit
+class TestSetCommitStatus:
+    """Tests for GitHubTicketClient.set_commit_status() method."""
+
+    def test_set_commit_status_success(self, github_client):
+        """Test that set_commit_status calls the correct API."""
+        with patch.object(github_client, "_run_gh_command", return_value="{}") as mock_cmd:
+            result = github_client.set_commit_status(
+                repo="github.com/owner/repo",
+                sha="abc123",
+                state="success",
+                context="kiln/child-issues",
+                description="All children resolved",
+            )
+
+        assert result is True
+        call_args = mock_cmd.call_args[0][0]
+        assert "repos/owner/repo/statuses/abc123" in call_args
+        assert "-X" in call_args
+        assert "POST" in call_args
+        assert "state=success" in " ".join(call_args)
+        assert "context=kiln/child-issues" in " ".join(call_args)
+
+    def test_set_commit_status_with_target_url(self, github_client):
+        """Test that set_commit_status includes target_url when provided."""
+        with patch.object(github_client, "_run_gh_command", return_value="{}") as mock_cmd:
+            github_client.set_commit_status(
+                repo="github.com/owner/repo",
+                sha="abc123",
+                state="pending",
+                context="kiln/child-issues",
+                description="1 child still open",
+                target_url="https://example.com/details",
+            )
+
+        call_args = mock_cmd.call_args[0][0]
+        assert "target_url=https://example.com/details" in " ".join(call_args)
+
+    def test_set_commit_status_returns_false_on_error(self, github_client):
+        """Test that set_commit_status returns False on API errors."""
+        with patch.object(
+            github_client, "_run_gh_command", side_effect=Exception("API error")
+        ):
+            result = github_client.set_commit_status(
+                repo="github.com/owner/repo",
+                sha="abc123",
+                state="success",
+                context="kiln/child-issues",
+                description="All resolved",
+            )
+
+        assert result is False
