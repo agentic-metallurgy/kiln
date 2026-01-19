@@ -33,12 +33,24 @@ class ValidationResult:
 
 
 def _parse_project_url(url: str) -> tuple[str, str, int]:
-    """Parse project URL to extract hostname, org, and project number."""
-    pattern = r"https?://([^/]+)/orgs/([^/]+)/projects/(\d+)"
-    match = re.match(pattern, url)
-    if not match:
-        raise ValueError(f"Invalid project URL: {url}")
-    return match.group(1), match.group(2), int(match.group(3))
+    """Parse project URL to extract hostname, login, and project number."""
+    # Try org pattern: https://{hostname}/orgs/{org}/projects/{number}
+    org_pattern = r"https?://([^/]+)/orgs/([^/]+)/projects/(\d+)"
+    org_match = re.match(org_pattern, url)
+    if org_match:
+        return org_match.group(1), org_match.group(2), int(org_match.group(3))
+
+    # Try user pattern: https://{hostname}/users/{user}/projects/{number}
+    user_pattern = r"https?://([^/]+)/users/([^/]+)/projects/(\d+)"
+    user_match = re.match(user_pattern, url)
+    if user_match:
+        return user_match.group(1), user_match.group(2), int(user_match.group(3))
+
+    raise ValueError(
+        f"Invalid project URL: {url}. "
+        "Expected format: https://HOSTNAME/orgs/ORG/projects/NUMBER "
+        "or https://HOSTNAME/users/USER/projects/NUMBER"
+    )
 
 
 def validate_project_columns(

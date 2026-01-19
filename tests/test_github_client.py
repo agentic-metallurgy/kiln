@@ -977,20 +977,32 @@ class TestParseBoardUrl:
     def test_parse_board_url_github_com(self, github_client):
         """Test parsing standard github.com project URL."""
         url = "https://github.com/orgs/myorg/projects/42/views/1"
-        hostname, org, project_number = github_client._parse_board_url(url)
+        hostname, entity_type, login, project_number = github_client._parse_board_url(url)
 
         assert hostname == "github.com"
-        assert org == "myorg"
+        assert entity_type == "organization"
+        assert login == "myorg"
         assert project_number == 42
 
     def test_parse_board_url_without_views(self, github_client):
         """Test parsing URL without /views/ suffix."""
         url = "https://github.com/orgs/testorg/projects/99"
-        hostname, org, project_number = github_client._parse_board_url(url)
+        hostname, entity_type, login, project_number = github_client._parse_board_url(url)
 
         assert hostname == "github.com"
-        assert org == "testorg"
+        assert entity_type == "organization"
+        assert login == "testorg"
         assert project_number == 99
+
+    def test_parse_board_url_user_project(self, github_client):
+        """Test parsing user project URL."""
+        url = "https://github.com/users/myuser/projects/5"
+        hostname, entity_type, login, project_number = github_client._parse_board_url(url)
+
+        assert hostname == "github.com"
+        assert entity_type == "user"
+        assert login == "myuser"
+        assert project_number == 5
 
     def test_parse_board_url_invalid_format(self, github_client):
         """Test parsing invalid URL raises ValueError."""
@@ -1004,10 +1016,11 @@ class TestParseBoardUrl:
     def test_parse_board_url_http(self, github_client):
         """Test parsing http:// URL (not https)."""
         url = "http://github.com/orgs/myorg/projects/10"
-        hostname, org, project_number = github_client._parse_board_url(url)
+        hostname, entity_type, login, project_number = github_client._parse_board_url(url)
 
         assert hostname == "github.com"
-        assert org == "myorg"
+        assert entity_type == "organization"
+        assert login == "myorg"
         assert project_number == 10
 
 

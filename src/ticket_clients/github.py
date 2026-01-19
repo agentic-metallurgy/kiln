@@ -292,8 +292,8 @@ class GitHubTicketClient:
             List of TicketItem objects representing items in the project
         """
         logger.debug(f"Fetching board items from: {board_url}")
-        hostname, org, project_number = self._parse_board_url(board_url)
-        items = self._query_board_items(hostname, org, project_number, board_url)
+        hostname, entity_type, login, project_number = self._parse_board_url(board_url)
+        items = self._query_board_items(hostname, entity_type, login, project_number, board_url)
         logger.debug(f"Retrieved {len(items)} board items")
         return items
 
@@ -306,40 +306,40 @@ class GitHubTicketClient:
         Returns:
             Dict with keys: project_id, status_field_id, status_options
         """
-        hostname, org, project_number = self._parse_board_url(board_url)
+        hostname, entity_type, login, project_number = self._parse_board_url(board_url)
 
-        query = """
-        query($org: String!, $projectNumber: Int!) {
-          organization(login: $org) {
-            projectV2(number: $projectNumber) {
+        query = f"""
+        query($login: String!, $projectNumber: Int!) {{
+          {entity_type}(login: $login) {{
+            projectV2(number: $projectNumber) {{
               id
-              fields(first: 50) {
-                nodes {
-                  ... on ProjectV2SingleSelectField {
+              fields(first: 50) {{
+                nodes {{
+                  ... on ProjectV2SingleSelectField {{
                     id
                     name
-                    options {
+                    options {{
                       id
                       name
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+                    }}
+                  }}
+                }}
+              }}
+            }}
+          }}
+        }}
         """
 
         response = self._execute_graphql_query(
             query,
             {
-                "org": org,
+                "login": login,
                 "projectNumber": project_number,
             },
             hostname=hostname,
         )
 
-        project_data = response.get("data", {}).get("organization", {}).get("projectV2", {})
+        project_data = response.get("data", {}).get(entity_type, {}).get("projectV2", {})
         if not project_data:
             logger.warning(f"Could not fetch project metadata for {board_url}")
             return {"project_id": None, "status_field_id": None, "status_options": {}}
@@ -1487,90 +1487,93 @@ class GitHubTicketClient:
 
     # Internal helpers
 
-    def _parse_board_url(self, board_url: str) -> tuple[str, str, int]:
-        """Parse a GitHub project URL to extract hostname, organization and project number.
+    def _parse_board_url(self, board_url: str) -> tuple[str, str, str, int]:
+        """Parse a GitHub project URL to extract hostname, entity type, login and project number.
 
         Args:
             board_url: URL of the GitHub project
 
         Returns:
-            Tuple of (hostname, organization, project_number)
+            Tuple of (hostname, entity_type, login, project_number)
+            entity_type is "organization" or "user"
 
         Raises:
             ValueError: If the URL format is invalid
         """
-        # Format: https://{hostname}/orgs/{org}/projects/{number} (views are optional)
-        pattern = r"https?://([^/]+)/orgs/([^/]+)/projects/(\d+)"
-        match = re.search(pattern, board_url)
+        # Try org pattern: https://{hostname}/orgs/{org}/projects/{number}
+        org_pattern = r"https?://([^/]+)/orgs/([^/]+)/projects/(\d+)"
+        org_match = re.search(org_pattern, board_url)
+        if org_match:
+            return org_match.group(1), "organization", org_match.group(2), int(org_match.group(3))
 
-        if not match:
-            raise ValueError(
-                f"Invalid project URL format: {board_url}. "
-                "Expected format: https://HOSTNAME/orgs/ORG/projects/NUMBER"
-            )
+        # Try user pattern: https://{hostname}/users/{user}/projects/{number}
+        user_pattern = r"https?://([^/]+)/users/([^/]+)/projects/(\d+)"
+        user_match = re.search(user_pattern, board_url)
+        if user_match:
+            return user_match.group(1), "user", user_match.group(2), int(user_match.group(3))
 
-        hostname = match.group(1)
-        org = match.group(2)
-        project_number = int(match.group(3))
-
-        return hostname, org, project_number
+        raise ValueError(
+            f"Invalid project URL format: {board_url}. "
+            "Expected format: https://HOSTNAME/orgs/ORG/projects/NUMBER "
+            "or https://HOSTNAME/users/USER/projects/NUMBER"
+        )
 
     def _query_board_items(
-        self, hostname: str, org: str, project_number: int, board_url: str
+        self, hostname: str, entity_type: str, login: str, project_number: int, board_url: str
     ) -> list[TicketItem]:
         """Query GitHub API for project items using GraphQL."""
-        query = """
-        query($org: String!, $projectNumber: Int!, $cursor: String) {
-          organization(login: $org) {
-            projectV2(number: $projectNumber) {
-              items(first: 100, after: $cursor) {
-                pageInfo {
+        query = f"""
+        query($login: String!, $projectNumber: Int!, $cursor: String) {{
+          {entity_type}(login: $login) {{
+            projectV2(number: $projectNumber) {{
+              items(first: 100, after: $cursor) {{
+                pageInfo {{
                   hasNextPage
                   endCursor
-                }
-                nodes {
+                }}
+                nodes {{
                   id
-                  fieldValues(first: 20) {
-                    nodes {
-                      ... on ProjectV2ItemFieldSingleSelectValue {
+                  fieldValues(first: 20) {{
+                    nodes {{
+                      ... on ProjectV2ItemFieldSingleSelectValue {{
                         name
-                        field {
-                          ... on ProjectV2SingleSelectField {
+                        field {{
+                          ... on ProjectV2SingleSelectField {{
                             name
-                          }
-                        }
-                      }
-                    }
-                  }
-                  content {
-                    ... on Issue {
+                          }}
+                        }}
+                      }}
+                    }}
+                  }}
+                  content {{
+                    ... on Issue {{
                       number
                       title
                       state
                       stateReason
-                      repository {
+                      repository {{
                         nameWithOwner
-                      }
-                      labels(first: 20) {
-                        nodes {
+                      }}
+                      labels(first: 20) {{
+                        nodes {{
                           name
-                        }
-                      }
-                      closedByPullRequestsReferences(first: 10) {
-                        nodes {
+                        }}
+                      }}
+                      closedByPullRequestsReferences(first: 10) {{
+                        nodes {{
                           merged
-                        }
-                      }
-                      comments {
+                        }}
+                      }}
+                      comments {{
                         totalCount
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+                      }}
+                    }}
+                  }}
+                }}
+              }}
+            }}
+          }}
+        }}
         """
 
         items: list[TicketItem] = []
@@ -1582,13 +1585,13 @@ class GitHubTicketClient:
         while has_next_page and page_count < max_pages:
             page_count += 1
             prev_cursor = cursor
-            variables = {"org": org, "projectNumber": project_number, "cursor": cursor}
+            variables = {"login": login, "projectNumber": project_number, "cursor": cursor}
 
             logger.debug(f"Executing GraphQL query page {page_count} with cursor: {cursor}")
             response = self._execute_graphql_query(query, variables, hostname=hostname)
 
             try:
-                project_data = response["data"]["organization"]["projectV2"]
+                project_data = response["data"][entity_type]["projectV2"]
                 items_data = project_data["items"]
                 page_info = items_data["pageInfo"]
                 nodes = items_data["nodes"]
