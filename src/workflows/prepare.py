@@ -50,8 +50,10 @@ class PrepareWorkflow:
         """
         # Extract repo name from 'hostname/owner/repo' format (last segment)
         repo_name = ctx.repo.split("/")[-1] if "/" in ctx.repo else ctx.repo
-        # Use simple names without workspace prefix since Claude's cwd is already the workspace
-        worktree_name = f"{repo_name}-issue-{ctx.issue_number}"
+        # Use absolute paths so Claude knows exactly where to create things
+        workspace = ctx.workspace_path  # This is now an absolute path
+        repo_path = f"{workspace}/{repo_name}"
+        worktree_path = f"{workspace}/{repo_name}-issue-{ctx.issue_number}"
         clone_url = self._get_clone_url(ctx)
 
         # Determine base branch for worktree
@@ -66,11 +68,11 @@ class PrepareWorkflow:
             base_branch_instruction = "Create the worktree from the main branch."
 
         return [
-            f"Clone {clone_url} to {repo_name} if missing. If it exists, pull from origin main to sync it to the latest commit.",
+            f"Clone {clone_url} to {repo_path} if missing. If it exists, pull from origin main to sync it to the latest commit.",
             (
-                f"Create a worktree at {worktree_name} for issue #{ctx.issue_number}. "
+                f"Create a git worktree at exactly this path: {worktree_path}\n"
                 f"{base_branch_instruction} "
-                f"The folder name must always match the provided path exactly. "
+                f"The folder MUST be created at the exact path specified above - do not create it anywhere else. "
                 f"The branch name MUST start with the issue number ({ctx.issue_number}-) followed by a semantic slug based on the issue's details:\n"
                 f"Issue title: {ctx.issue_title}\n\n"
                 f"Issue description:\n{ctx.issue_body}"

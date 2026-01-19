@@ -1355,11 +1355,13 @@ class Daemon:
         )
 
         workflow = PrepareWorkflow()
+        # Use absolute path so Claude knows exactly where to create things
+        abs_workspace_path = str(Path(self.config.workspace_dir).resolve())
         ctx = WorkflowContext(
             repo=item.repo,
             issue_number=item.ticket_id,
             issue_title=item.title,
-            workspace_path=self.config.workspace_dir,  # Prepare runs in workspace root
+            workspace_path=abs_workspace_path,  # Prepare runs in workspace root
             project_url=item.board_url,
             issue_body=issue_body,
             allowed_username=self.config.allowed_username,

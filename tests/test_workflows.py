@@ -335,7 +335,7 @@ class TestPrepareWorkflow:
         prompts = workflow.init(ctx)
 
         assert "Clone https://github.com/owner/repo.git" in prompts[0]
-        assert "to repo if missing" in prompts[0]
+        assert "to /tmp/workspaces/repo if missing" in prompts[0]
 
     def test_prepare_workflow_with_issue_body_includes_body_directly(self):
         """Test that with issue_body, prompt includes the body directly."""
@@ -369,7 +369,9 @@ class TestPrepareWorkflow:
         workflow = PrepareWorkflow()
         prompts = workflow.init(ctx)
 
-        assert "issue #123" in prompts[1]
+        # Issue number appears in the worktree path and branch instructions
+        assert "repo-issue-123" in prompts[1]
+        assert "(123-)" in prompts[1]
 
     def test_prepare_workflow_worktree_path_correct(self):
         """Test that worktree path is constructed correctly."""
