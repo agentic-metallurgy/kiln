@@ -12,7 +12,7 @@ You are running in **headless, non-interactive mode** as part of an automated wo
 
 This command accepts the following arguments:
 - Issue URL (required): The GitHub issue URL
-- `--base <branch>` (optional): The base branch for the PR. If specified, the PR will target this branch instead of the default branch. Use this when the issue has a parent issue with an open PR.
+- `--base <branch>` (optional): The base branch for the PR. If specified, the PR will target this branch instead of the default branch. This will be provided when the issue has a parent issue with an open PR.
 
 Example: `/prepare_implementation_github https://github.com/owner/repo/issues/123 --base 5-parent-feature-branch`
 
@@ -24,13 +24,13 @@ Extract from `$ARGUMENTS`:
 1. The issue URL
 2. The `--base` flag value (if present) - store this for use in PR creation
 
-### Step 2: Get Issue Content
+### Step 2: Get or Create Plan
+
+Get Issue Content:
 
 ```bash
 gh issue view <issue_url> --json body,title,number
 ```
-
-### Step 2: Get or Create Plan
 
 Check for plan section (between `<!-- kiln:plan -->` and `<!-- /kiln:plan -->`):
 
@@ -66,7 +66,7 @@ Check for plan section (between `<!-- kiln:plan -->` and `<!-- /kiln:plan -->`):
 - [ ] Code follows existing patterns
 ```
 
-Keep it simple - 2-4 tasks max. Do NOT explore the codebase.
+Keep it simple in the scenario where there's no plan provided: 2-4 tasks max. Do NOT explore the codebase in-depth.
 
 ### Step 3: Create Empty Commit and Draft PR
 
@@ -99,6 +99,7 @@ Keep it simple - 2-4 tasks max. Do NOT explore the codebase.
    ```
 
    **If `--base` was NOT provided** (standalone issue):
+
    ```bash
    gh pr create --draft --title "feat: <issue_title>" --body "$(cat <<'EOF'
    Closes #<issue_number>

@@ -1,3 +1,4 @@
+
 # Implement GitHub Issue (Single Task Mode)
 
 You are running in **headless, non-interactive mode** as part of an automated workflow.
@@ -20,24 +21,39 @@ Then filter results to find the PR that actually contains `Closes #<issue_number
 
 **If no matching PR exists**, fail with error: "No PR found. The workflow should have created it."
 
-### Step 1: Find Next Task
+### Step 1: Find Next TASK
 
-1. Parse the PR description for checkbox tasks
-2. Find the FIRST unchecked task: `- [ ] <task description>`
-3. If all tasks are checked (`- [x]`), report completion and exit
+The PR description contains **TASKs** (major work blocks) with **subtasks** (checkboxes):
 
-### Step 2: Implement the Task
+```
+## TASK 1: Some major feature
+- [ ] Subtask A
+- [ ] Subtask B
+
+## TASK 2: Another feature
+- [ ] Subtask C
+```
+
+1. Parse the PR description and identify all TASKs
+2. Find the **first TASK that has any unchecked subtasks**
+3. If all subtasks across all TASKs are checked (`- [x]`), report completion and exit
+
+### Step 2: Implement the Entire TASK
+
+Implement **ALL subtasks** under the identified TASK in this single iteration:
 
 1. Read the issue for context (research and plan sections)
-2. Implement ONLY the identified task
+2. Use **up to 5 subagents in parallel** to implement subtasks concurrently where possible
 3. Follow existing codebase patterns
 4. Write/update tests for the changes
-5. Run tests and linting to verify
+5. Run tests and linting to verify ALL changes work together
 
-### Step 3: Mark Task Complete
+**Key**: Do not exit after one subtask. Complete the entire TASK block before proceeding.
 
-1. Update the PR description to mark the task as complete:
-   - Change `- [ ] <task>` to `- [x] <task>`
+### Step 3: Mark All Subtasks Complete
+
+1. Update the PR description to mark ALL completed subtasks:
+   - Change `- [ ] <subtask>` to `- [x] <subtask>` for each one
 
 2. Use gh to update:
    ```bash
@@ -46,10 +62,10 @@ Then filter results to find the PR that actually contains `Closes #<issue_number
 
 ### Step 4: Commit and Push
 
-1. Stage and commit changes:
+1. Stage and commit all changes from the TASK:
    ```bash
    git add -A
-   git commit -m "feat: <brief task description>"
+   git commit -m "feat: <TASK description>"
    ```
 
 2. Push changes:
@@ -59,9 +75,9 @@ Then filter results to find the PR that actually contains `Closes #<issue_number
 
 ### Step 5: Exit
 
-After completing one task, exit. The workflow will check progress and call again if needed.
+After completing one TASK (all its subtasks), exit. The workflow will check progress and call again if more TASKs remain.
 
-If this was the last task (all tasks now complete), mark PR ready:
+If this was the last TASK (all subtasks across all TASKs now complete), mark PR ready:
 ```bash
 gh pr ready <pr_url>
 ```
@@ -70,13 +86,14 @@ gh pr ready <pr_url>
 
 When done:
 ```
-Completed task: <task description>
-Remaining tasks: <count>
+Completed TASK: <TASK description>
+Subtasks completed: <count>
+Remaining TASKs: <count>
 ```
 
 Or if all complete:
 ```
-All tasks complete - PR ready for review: <pr_url>
+All TASKs complete - PR ready for review: <pr_url>
 ```
 
 

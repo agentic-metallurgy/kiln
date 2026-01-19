@@ -18,17 +18,17 @@ logger = get_logger(__name__)
 
 
 def get_git_version() -> str:
-    """Get the current git version using git describe.
+    """Get the current git commit SHA (short).
 
     Returns:
-        Version string (e.g., 'v1.2.3', 'v1.2.3-5-g1234abc', or '1234abc')
+        Short commit SHA (e.g., '352de11')
         Returns 'unknown' if git is not available or not in a repo.
     """
     import subprocess
 
     try:
         result = subprocess.run(
-            ["git", "describe", "--tags", "--always"],
+            ["git", "rev-parse", "--short", "HEAD"],
             capture_output=True,
             text=True,
             check=True,

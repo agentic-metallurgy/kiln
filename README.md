@@ -13,12 +13,16 @@ A polling-based daemon that monitors GitHub Project Kanban boards and orchestrat
 
 ### 🔥 Create your GitHub Project Kanban Board
 
+Follow these steps:
+
 1. Create a new GitHub Project
 2. Delete all columns except Backlog
-3. Create these columns in order: Research, Plan, Implement, Validate, Done
-4. You should click "View" > "Fields" > check "Labels", then "Save View"
+3. Run kiln
+4. You should click "View" > "Fields" > check "Labels", then "Save View":
 
-**Your project board should look like this:**
+<img width="246" height="77" alt="image" src="https://github.com/user-attachments/assets/b051ccf5-02cb-416d-843a-e33963725452" />
+
+5. **Your project board should look like this:**
 
 <img width="640" alt="image" src="https://github.com/user-attachments/assets/04b6952f-7d0b-4ee8-9b94-e4bddfd66554" />
 

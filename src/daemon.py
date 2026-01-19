@@ -24,7 +24,7 @@ from src.config import Config, load_config
 from src.database import Database, ProjectMetadata
 from src.interfaces import TicketItem
 from src.labels import REQUIRED_LABELS, Labels
-from src.logger import clear_issue_context, get_logger, set_issue_context, setup_logging
+from src.logger import clear_issue_context, get_logger, log_message, set_issue_context, setup_logging
 from src.security import check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients.github import GitHubTicketClient
@@ -116,7 +116,7 @@ class WorkflowRunner:
                     logger.debug(
                         f"Executing prompt {i}/{len(prompts)} for workflow '{workflow.name}'"
                     )
-                    logger.debug(f"Prompt preview: {prompt[:200]}...")
+                    log_message(logger, "Prompt", prompt)
 
                     try:
                         model = self.config.stage_models.get(workflow_name)
@@ -206,7 +206,6 @@ class Daemon:
         "Plan": "Implement",
         # Implement → Validate is handled by existing WORKFLOW_CONFIG.next_status
     }
-
     def __init__(self, config: Config, version: str | None = None) -> None:
         """Initialize the daemon with configuration.
 
@@ -651,9 +650,14 @@ class Daemon:
             logger.debug(f"Skipping {key} - has '{running_label}' label (workflow running)")
             return False
 
-        # Skip if already complete (has complete_label) - except Implement which has no complete_label
+        # Skip if already complete (has complete_label)
         if complete_label and complete_label in item.labels:
             logger.debug(f"Skipping {key} - has '{complete_label}' label (workflow complete)")
+            return False
+
+        # Skip if implementation failed (requires manual intervention)
+        if Labels.IMPLEMENTATION_FAILED in item.labels:
+            logger.debug(f"Skipping {key} - has '{Labels.IMPLEMENTATION_FAILED}' label")
             return False
 
         actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
@@ -723,6 +727,53 @@ class Daemon:
             f"(stage complete, label added by allowed user '{actor}')"
         )
         self.ticket_client.update_item_status(item.item_id, yolo_next)
+
+    def _get_pr_for_issue(self, repo: str, issue_number: int) -> dict | None:
+        """Get the open PR that closes a specific issue.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            issue_number: Issue number
+
+        Returns:
+            Dict with PR info (number, body) or None if no PR found
+        """
+        try:
+            import json as json_module
+
+            # Extract owner/repo from hostname/owner/repo format
+            parts = repo.split("/", 1)
+            if len(parts) == 2:
+                hostname, owner_repo = parts
+                repo_arg = owner_repo if hostname == "github.com" else f"{hostname}/{owner_repo}"
+            else:
+                repo_arg = repo
+
+            result = subprocess.run(
+                [
+                    "gh",
+                    "pr",
+                    "list",
+                    "--repo",
+                    repo_arg,
+                    "--state",
+                    "open",
+                    "--search",
+                    f"closes #{issue_number}",
+                    "--json",
+                    "number,body",
+                    "--jq",
+                    ".[0]",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            if result.stdout.strip():
+                return json_module.loads(result.stdout)
+        except Exception as e:
+            logger.warning(f"Failed to get PR for issue #{issue_number}: {e}")
+        return None
 
     def _might_have_new_comments(self, item: TicketItem) -> bool:
         """Quick heuristic to check if item might have new comments.
@@ -1146,6 +1197,19 @@ class Daemon:
                 self.ticket_client.add_label(item.repo, item.ticket_id, complete_label)
                 logger.debug(f"Added '{complete_label}' label to {key}")
 
+            # Check if Implement workflow completed all tasks
+            if item.status == "Implement" and next_status:
+                from src.workflows.implement import count_checkboxes
+
+                pr_info = self._get_pr_for_issue(item.repo, item.ticket_id)
+                if pr_info:
+                    pr_body = pr_info.get("body", "")
+                    total_tasks, completed_tasks = count_checkboxes(pr_body)
+                    if total_tasks > 0 and completed_tasks == total_tasks:
+                        self.ticket_client.update_item_status(item.item_id, next_status)
+                        logger.info(f"All {total_tasks} tasks complete, moved {key} to '{next_status}'")
+                        next_status = None  # Prevent duplicate move below
+
             if next_status:
                 self.ticket_client.update_item_status(item.item_id, next_status)
                 logger.info(f"Moved {key} to '{next_status}' status")
@@ -1308,6 +1372,50 @@ class Daemon:
         else:
             logger.info("Auto-prepared worktree")
 
+        # Sync .claude/commands to the new worktree
+        self._sync_claude_commands(item)
+
+    def _sync_claude_commands(self, item: TicketItem) -> None:
+        """Sync .claude/commands from daemon repo to worktree.
+
+        This ensures worktrees have the latest commands even if they were
+        created from an older branch.
+
+        Args:
+            item: TicketItem to sync commands for
+        """
+        import shutil
+
+        # Construct worktree path (same logic as PrepareWorkflow)
+        repo_name = item.repo.split("/")[-1] if "/" in item.repo else item.repo
+        worktree_path = Path(self.config.workspace_dir) / f"{repo_name}-issue-{item.ticket_id}"
+
+        # Source commands from daemon's repo (where kiln is running from)
+        daemon_commands = Path(".claude/commands")
+        worktree_commands = worktree_path / ".claude" / "commands"
+
+        if not daemon_commands.exists():
+            logger.debug("No .claude/commands in daemon repo, skipping sync")
+            return
+
+        if not worktree_path.exists():
+            logger.warning(f"Worktree not found at {worktree_path}, skipping command sync")
+            return
+
+        try:
+            # Create .claude directory if it doesn't exist
+            worktree_commands.parent.mkdir(parents=True, exist_ok=True)
+
+            # Copy each command file (overwrite if exists)
+            for cmd_file in daemon_commands.glob("*.md"):
+                dest = worktree_commands / cmd_file.name
+                shutil.copy2(cmd_file, dest)
+                logger.debug(f"Synced command: {cmd_file.name}")
+
+            logger.info(f"Synced .claude/commands to {worktree_path}")
+        except Exception as e:
+            logger.warning(f"Failed to sync .claude/commands: {e}")
+
     def _run_workflow(
         self,
         workflow_name: str,
@@ -1332,6 +1440,9 @@ class Daemon:
 
         # Determine workspace path based on workflow
         workspace_path = self._get_worktree_path(item.repo, item.ticket_id)
+
+        # Sync .claude/commands to ensure worktree has latest commands
+        self._sync_claude_commands(item)
 
         # Rebase on first Research run (no research_ready label yet) - use cached labels
         if workflow_name == "Research":
@@ -1362,7 +1473,12 @@ class Daemon:
 
         # Run workflow
         try:
-            session_id = self.runner.run(workflow, ctx, workflow_name, resume_session)
+            # ImplementWorkflow has its own execute() method with internal loop
+            if workflow_name == "Implement" and hasattr(workflow, "execute"):
+                workflow.execute(ctx, self.config)
+                session_id = None  # No session resumption for implement workflow
+            else:
+                session_id = self.runner.run(workflow, ctx, workflow_name, resume_session)
             logger.info(f"Successfully completed workflow '{workflow_name}'")
 
             # Store the session ID for future resumption (must be a proper string)
@@ -1375,6 +1491,13 @@ class Daemon:
                 )
         except Exception as e:
             logger.error(f"Workflow '{workflow_name}' failed: {e}", exc_info=True)
+            # Add failure label for Implement workflow
+            if workflow_name == "Implement":
+                self.ticket_client.add_label(item.repo, item.ticket_id, Labels.IMPLEMENTATION_FAILED)
+                logger.info(
+                    f"Added '{Labels.IMPLEMENTATION_FAILED}' label to "
+                    f"{item.repo}#{item.ticket_id}"
+                )
             raise
 
 
@@ -1394,11 +1517,12 @@ def main() -> None:
             log_backups=config.log_backups,
         )
         logger.info("=== Agentic Metallurgy Daemon Starting ===")
+        logger.info(f"Logging to file: {config.log_file}")
         logger.debug("Configuration loaded successfully")
 
         # Get git version once at startup for consistent attribution
         git_version = get_git_version()
-        logger.info(f"Daemon version: {git_version}")
+        logger.info(f"Current kiln HEAD SHA: {git_version}")
 
         # Initialize OpenTelemetry if configured
         if config.otel_endpoint:

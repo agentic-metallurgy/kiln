@@ -109,7 +109,8 @@ def run_daemon(daemon_mode: bool = False) -> None:
     """Load config and run the daemon.
 
     Args:
-        daemon_mode: If True, log to file. If False, log to stdout.
+        daemon_mode: If True, log to file only (background mode).
+                     If False, log to both stdout and file.
     """
     from src.config import load_config
     from src.daemon import Daemon
@@ -155,21 +156,17 @@ def run_daemon(daemon_mode: bool = False) -> None:
                 print(f"      {result.message}")
         print()
 
-        if daemon_mode:
-            # Daemon mode: log to file
-            setup_logging(
-                log_file=config.log_file,
-                log_size=config.log_size,
-                log_backups=config.log_backups,
-            )
-        else:
-            # Default: log to stdout
-            setup_logging(log_file=None)
+        # Always log to file; stdout/stderr only in non-daemon mode
+        setup_logging(
+            log_file=config.log_file,
+            log_size=config.log_size,
+            log_backups=config.log_backups,
+            daemon_mode=daemon_mode,
+        )
 
         logger = get_logger(__name__)
         logger.info(f"=== Kiln Starting (v{__version__}) ===")
-        if daemon_mode:
-            logger.info(f"Logging to {config.log_file}")
+        logger.info(f"Logging to {config.log_file}")
 
         git_version = get_git_version()
         logger.info(f"Git version: {git_version}")
@@ -214,9 +211,8 @@ def main() -> None:
         "--daemon",
         "-d",
         action="store_true",
-        help="Run in daemon mode (log to file instead of stdout)",
+        help="Run in daemon mode (log to file only, no stdout)",
     )
-
     args = parser.parse_args()
 
     kiln_dir = get_kiln_dir()
