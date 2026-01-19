@@ -1,0 +1,91 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+
+# Test cache
+.pytest_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+*.cover
+
+# Ruff cache
+.ruff_cache/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Workspaces directory contents (keep the directory itself)
+workspaces/*
+!workspaces/.gitkeep
+thoughts/*
+
+# Logs
+*.log
+
+# Log directory
+logs/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# pytype
+.pytype/
+
+# IPython
+profile_default/
+ipython_config.py
+
+# .claude folder - only track commands, skills, agents
+# Everything else in .claude is ignored
+.claude/*
+!.claude/commands/
+!.claude/skills/
+!.claude/agents/
+state.db.backup
+.claude_stats
+.kiln/
+patches/

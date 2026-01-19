@@ -1,0 +1,299 @@
+"""Unit tests for the database module."""
+
+import tempfile
+from datetime import datetime
+from pathlib import Path
+
+import pytest
+
+from src.database import Database, IssueState
+
+
+@pytest.fixture
+def temp_db():
+    """Fixture providing a temporary database for tests."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".db", delete=False) as f:
+        db_path = f.name
+
+    # Create and yield the database
+    db = Database(db_path)
+    yield db
+
+    # Cleanup
+    db.close()
+    Path(db_path).unlink(missing_ok=True)
+
+
+@pytest.mark.unit
+class TestDatabase:
+    """Tests for Database class."""
+
+    def test_database_creation_and_initialization(self, temp_db):
+        """Test that Database creates and initializes correctly."""
+        assert temp_db.conn is not None
+        assert Path(temp_db.db_path).exists()
+
+        # Verify table was created
+        cursor = temp_db.conn.cursor()
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='issue_states'
+        """)
+        result = cursor.fetchone()
+        assert result is not None
+        assert result["name"] == "issue_states"
+
+    def test_database_table_schema(self, temp_db):
+        """Test that the issue_states table has the correct schema."""
+        cursor = temp_db.conn.cursor()
+        cursor.execute("PRAGMA table_info(issue_states)")
+        columns = {row["name"]: row for row in cursor.fetchall()}
+
+        assert "repo" in columns
+        assert "issue_number" in columns
+        assert "status" in columns
+        assert "last_updated" in columns
+
+        # Check primary key constraint
+        cursor.execute("""
+            SELECT sql FROM sqlite_master
+            WHERE type='table' AND name='issue_states'
+        """)
+        schema = cursor.fetchone()["sql"]
+        assert "PRIMARY KEY (repo, issue_number)" in schema
+
+    def test_update_issue_state_new_issue(self, temp_db):
+        """Test updating state for a new issue."""
+        temp_db.update_issue_state("owner/repo", 123, "Research")
+
+        # Verify the issue was inserted
+        cursor = temp_db.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM issue_states WHERE repo = ? AND issue_number = ?", ("owner/repo", 123)
+        )
+        row = cursor.fetchone()
+
+        assert row is not None
+        assert row["repo"] == "owner/repo"
+        assert row["issue_number"] == 123
+        assert row["status"] == "Research"
+        assert row["last_updated"] is not None
+
+    def test_update_issue_state_existing_issue(self, temp_db):
+        """Test updating state for an existing issue."""
+        # Insert initial state
+        temp_db.update_issue_state("owner/repo", 456, "Research")
+
+        # Update to new state
+        temp_db.update_issue_state("owner/repo", 456, "Plan")
+
+        # Verify the issue was updated (not duplicated)
+        cursor = temp_db.conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM issue_states WHERE repo = ? AND issue_number = ?",
+            ("owner/repo", 456),
+        )
+        count = cursor.fetchone()["count"]
+        assert count == 1
+
+        # Verify status was updated
+        cursor.execute(
+            "SELECT status FROM issue_states WHERE repo = ? AND issue_number = ?",
+            ("owner/repo", 456),
+        )
+        status = cursor.fetchone()["status"]
+        assert status == "Plan"
+
+    def test_get_issue_state_exists(self, temp_db):
+        """Test retrieving state for an existing issue."""
+        temp_db.update_issue_state("owner/repo", 789, "Implement")
+
+        issue_state = temp_db.get_issue_state("owner/repo", 789)
+
+        assert issue_state is not None
+        assert isinstance(issue_state, IssueState)
+        assert issue_state.repo == "owner/repo"
+        assert issue_state.issue_number == 789
+        assert issue_state.status == "Implement"
+        assert isinstance(issue_state.last_updated, datetime)
+
+    def test_get_issue_state_not_exists(self, temp_db):
+        """Test retrieving state for a non-existent issue returns None."""
+        issue_state = temp_db.get_issue_state("owner/repo", 999)
+        assert issue_state is None
+
+    def test_get_issue_state_different_repos(self, temp_db):
+        """Test that issues from different repos are kept separate."""
+        temp_db.update_issue_state("owner/repo1", 100, "Research")
+        temp_db.update_issue_state("owner/repo2", 100, "Plan")
+
+        state1 = temp_db.get_issue_state("owner/repo1", 100)
+        state2 = temp_db.get_issue_state("owner/repo2", 100)
+
+        assert state1 is not None
+        assert state2 is not None
+        assert state1.status == "Research"
+        assert state2.status == "Plan"
+
+    def test_context_manager_support(self):
+        """Test Database can be used as a context manager."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        try:
+            with Database(db_path) as db:
+                assert db.conn is not None
+                db.update_issue_state("owner/repo", 1, "Research")
+            # Context manager closes connection, but per-thread design
+            # creates new connection on next access (expected behavior)
+        finally:
+            Path(db_path).unlink(missing_ok=True)
+
+    def test_close_closes_connection(self, temp_db):
+        """Test that close() closes the current thread's connection."""
+        conn_before = temp_db.conn
+        temp_db.close()
+        # Per-thread design: accessing conn after close creates new connection
+        conn_after = temp_db.conn
+        assert conn_before is not conn_after
+
+    def test_operations_work_after_close(self, temp_db):
+        """Test that operations work after close (per-thread reconnection)."""
+        temp_db.update_issue_state("owner/repo", 1, "Research")
+        temp_db.close()
+
+        # Operations should work - they get a new connection
+        state = temp_db.get_issue_state("owner/repo", 1)
+        assert state is not None
+        assert state.status == "Research"
+
+    def test_timestamp_format_is_iso(self, temp_db):
+        """Test that timestamps are stored in ISO format."""
+        temp_db.update_issue_state("owner/repo", 1, "Research")
+
+        # Check raw database value
+        cursor = temp_db.conn.cursor()
+        cursor.execute(
+            "SELECT last_updated FROM issue_states WHERE repo = ? AND issue_number = ?",
+            ("owner/repo", 1),
+        )
+        raw_timestamp = cursor.fetchone()["last_updated"]
+
+        # Should be able to parse as ISO format
+        parsed = datetime.fromisoformat(raw_timestamp)
+        assert isinstance(parsed, datetime)
+
+    def test_update_issue_state_updates_timestamp(self, temp_db):
+        """Test that updating an issue also updates the timestamp."""
+        import time
+
+        temp_db.update_issue_state("owner/repo", 1, "Research")
+        first_state = temp_db.get_issue_state("owner/repo", 1)
+
+        time.sleep(0.01)
+        temp_db.update_issue_state("owner/repo", 1, "Plan")
+        second_state = temp_db.get_issue_state("owner/repo", 1)
+
+        assert second_state.last_updated > first_state.last_updated
+        assert second_state.status == "Plan"
+
+
+@pytest.mark.unit
+class TestIssueState:
+    """Tests for IssueState dataclass."""
+
+    def test_issue_state_creation(self):
+        """Test creating an IssueState instance."""
+        timestamp = datetime.now()
+        issue_state = IssueState(
+            repo="owner/repo", issue_number=123, status="Research", last_updated=timestamp
+        )
+
+        assert issue_state.repo == "owner/repo"
+        assert issue_state.issue_number == 123
+        assert issue_state.status == "Research"
+        assert issue_state.last_updated == timestamp
+
+    def test_issue_state_equality(self):
+        """Test IssueState equality comparison."""
+        timestamp = datetime.now()
+        state1 = IssueState("owner/repo", 123, "Research", timestamp)
+        state2 = IssueState("owner/repo", 123, "Research", timestamp)
+
+        assert state1 == state2
+
+    def test_issue_state_inequality(self):
+        """Test IssueState inequality comparison."""
+        timestamp = datetime.now()
+        state1 = IssueState("owner/repo", 123, "Research", timestamp)
+        state2 = IssueState("owner/repo", 123, "Plan", timestamp)
+
+        assert state1 != state2
+
+
+@pytest.mark.unit
+class TestCommentTimestampTracking:
+    """Tests for last_processed_comment_timestamp tracking."""
+
+    def test_update_issue_with_timestamp(self, temp_db):
+        """Test storing a comment timestamp with issue state."""
+        timestamp = "2024-01-15T10:30:00+00:00"
+        temp_db.update_issue_state(
+            "owner/repo", 42, "Research", last_processed_comment_timestamp=timestamp
+        )
+
+        state = temp_db.get_issue_state("owner/repo", 42)
+        assert state is not None
+        assert state.last_processed_comment_timestamp == timestamp
+
+    def test_timestamp_preserved_on_status_update(self, temp_db):
+        """Test that timestamp is preserved when status changes but timestamp not provided."""
+        timestamp = "2024-01-15T10:30:00+00:00"
+        temp_db.update_issue_state(
+            "owner/repo", 42, "Research", last_processed_comment_timestamp=timestamp
+        )
+
+        # Update status without providing timestamp
+        temp_db.update_issue_state("owner/repo", 42, "Plan")
+
+        state = temp_db.get_issue_state("owner/repo", 42)
+        assert state.status == "Plan"
+        assert state.last_processed_comment_timestamp == timestamp
+
+    def test_timestamp_updated_when_provided(self, temp_db):
+        """Test that timestamp is updated when a new one is provided."""
+        old_timestamp = "2024-01-15T10:30:00+00:00"
+        new_timestamp = "2024-01-15T11:45:00+00:00"
+
+        temp_db.update_issue_state(
+            "owner/repo", 42, "Research", last_processed_comment_timestamp=old_timestamp
+        )
+        temp_db.update_issue_state(
+            "owner/repo", 42, "Research", last_processed_comment_timestamp=new_timestamp
+        )
+
+        state = temp_db.get_issue_state("owner/repo", 42)
+        assert state.last_processed_comment_timestamp == new_timestamp
+
+    def test_timestamp_format_is_iso8601(self, temp_db):
+        """Test that timestamps are stored in ISO 8601 format."""
+        # Various valid ISO 8601 formats
+        timestamps = [
+            "2024-01-15T10:30:00Z",
+            "2024-01-15T10:30:00+00:00",
+            "2024-01-15T10:30:00.123456+00:00",
+        ]
+
+        for i, ts in enumerate(timestamps):
+            temp_db.update_issue_state(
+                "owner/repo", i, "Research", last_processed_comment_timestamp=ts
+            )
+            state = temp_db.get_issue_state("owner/repo", i)
+            assert state.last_processed_comment_timestamp == ts
+
+    def test_null_timestamp_for_new_issue(self, temp_db):
+        """Test that new issues have null timestamp."""
+        temp_db.update_issue_state("owner/repo", 42, "Research")
+
+        state = temp_db.get_issue_state("owner/repo", 42)
+        assert state.last_processed_comment_timestamp is None

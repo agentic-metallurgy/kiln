@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v1.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+            artifact: kiln-darwin-arm64
+          - os: macos-15-intel
+            arch: x86_64
+            artifact: kiln-darwin-x86_64
+          - os: ubuntu-latest
+            arch: x86_64
+            artifact: kiln-linux-x86_64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Update version in cli.py
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            VERSION="${{ inputs.tag }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${VERSION#v}"  # strip leading v
+          sed -i.bak "s/__version__ = \".*\"/__version__ = \"$VERSION\"/" src/cli.py
+          rm -f src/cli.py.bak
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller kiln.spec
+
+      - name: Rename artifact
+        run: |
+          mv dist/kiln dist/${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create checksums
+        run: |
+          cd artifacts
+          for dir in */; do
+            cd "$dir"
+            sha256sum * > ../$(basename "$dir").sha256
+            cd ..
+          done
+
+      - name: Create Release (this repo)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: Kiln ${{ inputs.tag || github.ref_name }}
+          files: |
+            artifacts/kiln-darwin-arm64/kiln-darwin-arm64
+            artifacts/kiln-darwin-x86_64/kiln-darwin-x86_64
+            artifacts/kiln-linux-x86_64/kiln-linux-x86_64
+            artifacts/*.sha256
+          generate_release_notes: true
+
+      - name: Push release to tap repo
+        env:
+          GH_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+        run: |
+          VERSION="${{ inputs.tag || github.ref_name }}"
+
+          # Create release in tap repo with same binaries
+          gh release create "$VERSION" \
+            --repo agentic-metallurgy/homebrew-tap \
+            --title "kiln $VERSION" \
+            --notes "Automated release from kiln-cli" \
+            artifacts/kiln-darwin-arm64/kiln-darwin-arm64 \
+            artifacts/kiln-darwin-x86_64/kiln-darwin-x86_64 \
+            artifacts/kiln-linux-x86_64/kiln-linux-x86_64 \
+            artifacts/*.sha256
+
+      - name: Update Homebrew formula
+        env:
+          GH_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+        run: |
+          VERSION="${{ inputs.tag || github.ref_name }}"
+          VERSION_NUM="${VERSION#v}"
+
+          # Get SHA256 checksums
+          SHA_ARM64=$(cat artifacts/kiln-darwin-arm64.sha256 | awk '{print $1}')
+          SHA_X86=$(cat artifacts/kiln-darwin-x86_64.sha256 | awk '{print $1}')
+          SHA_LINUX=$(cat artifacts/kiln-linux-x86_64.sha256 | awk '{print $1}')
+
+          # Clone tap repo
+          gh repo clone agentic-metallurgy/homebrew-tap /tmp/tap
+          cd /tmp/tap
+
+          # Update formula
+          cat > Formula/kiln.rb << 'EOF'
+          class Kiln < Formula
+            desc "GitHub project automation daemon with Claude-powered workflows"
+            homepage "https://github.com/agentic-metallurgy/kiln"
+            version "${VERSION_NUM}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/agentic-metallurgy/homebrew-tap/releases/download/v#{version}/kiln-darwin-arm64"
+                sha256 "${SHA_ARM64}"
+              else
+                url "https://github.com/agentic-metallurgy/homebrew-tap/releases/download/v#{version}/kiln-darwin-x86_64"
+                sha256 "${SHA_X86}"
+              end
+            end
+
+            on_linux do
+              url "https://github.com/agentic-metallurgy/homebrew-tap/releases/download/v#{version}/kiln-linux-x86_64"
+              sha256 "${SHA_LINUX}"
+            end
+
+            def install
+              binary_name = stable.url.split("/").last
+              bin.install binary_name => "kiln"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/kiln --version")
+            end
+          end
+          EOF
+          # Remove leading indentation from heredoc
+          sed -i 's/^          //' Formula/kiln.rb
+          # Substitute variables (heredoc was quoted to preserve Ruby #{})
+          sed -i "s/\${VERSION_NUM}/${VERSION_NUM}/g" Formula/kiln.rb
+          sed -i "s/\${SHA_ARM64}/${SHA_ARM64}/g" Formula/kiln.rb
+          sed -i "s/\${SHA_X86}/${SHA_X86}/g" Formula/kiln.rb
+          sed -i "s/\${SHA_LINUX}/${SHA_LINUX}/g" Formula/kiln.rb
+
+          # Commit and push
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          gh auth setup-git
+          git add Formula/kiln.rb
+          git commit -m "Update kiln to ${VERSION}"
+          git push

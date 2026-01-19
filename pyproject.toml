@@ -1,0 +1,110 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentic-metallurgy"
+version = "0.1.0"
+description = "GitHub Projects daemon with Claude-powered agentic workflows for intelligent project management"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Elon", email = "elon@example.com"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
+    "tenacity>=8.2.0",
+]
+
+[project.scripts]
+kiln = "src.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+    "pyinstaller>=6.0.0",
+]
+
+[tool.ruff]
+# Set the maximum line length to 100
+line-length = 100
+# Target Python 3.11+
+target-version = "py311"
+
+# Exclude common directories
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "*.egg-info",
+]
+
+[tool.ruff.lint]
+# Enable specific rule sets
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "ARG", # flake8-unused-arguments
+    "SIM", # flake8-simplify
+]
+
+# Ignore specific rules
+ignore = [
+    "E501",  # line too long (handled by line-length setting)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test files often have mock functions with unused args matching real signatures,
+# use nested with statements for clarity, and may need blind exception testing
+"tests/*" = ["ARG001", "ARG002", "ARG005", "SIM117", "B017", "F841"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+# Minimum version
+minversion = "7.4"
+# Test discovery patterns
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# Output options
+addopts = [
+    "-ra",              # Show extra test summary info for all except passed
+    "--strict-markers", # Raise error on unknown markers
+    "--strict-config",  # Raise error on invalid config
+    "--verbose",        # Verbose output
+]
+# Asyncio configuration
+asyncio_mode = "auto"
+# Markers for categorizing tests
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
