@@ -1,3 +1,2 @@
 - always edit the github issue description directly when updating research or plans — don't create local files or add amendment comments
-- running tests: @docs/_testing-latest.md
-- no claude attribution in comments, prs, commits, issues.
+- no claude or any user attribution needed in comments, prs, commits, issues
