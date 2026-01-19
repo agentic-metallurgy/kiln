@@ -9,6 +9,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Default paths relative to .kiln directory
 KILN_DIR = ".kiln"
@@ -56,6 +57,41 @@ class Config:
     otel_endpoint: str = ""
     otel_service_name: str = "kiln"
     claude_code_enable_telemetry: bool = False
+
+
+def _validate_project_urls_host(
+    project_urls: list[str],
+    github_token: str | None,
+    github_enterprise_host: str | None,
+    github_enterprise_token: str | None,
+) -> None:
+    """Validate PROJECT_URLS hostnames match the configured GitHub host.
+
+    Args:
+        project_urls: List of project URLs to validate
+        github_token: GitHub.com personal access token (if configured)
+        github_enterprise_host: GHES hostname (if configured)
+        github_enterprise_token: GHES personal access token (if configured)
+
+    Raises:
+        ValueError: If any PROJECT_URL hostname doesn't match the configured host
+    """
+    # Determine the expected host based on configuration
+    if github_enterprise_host and github_enterprise_token:
+        expected_host = github_enterprise_host
+    else:
+        # Default to github.com (either explicit token or gh auth login)
+        expected_host = "github.com"
+
+    for url in project_urls:
+        parsed = urlparse(url)
+        url_host = parsed.netloc
+
+        if url_host and url_host != expected_host:
+            raise ValueError(
+                f"PROJECT_URLS contains '{url_host}' but configured for '{expected_host}'. "
+                f"All project URLs must use the same GitHub host as your authentication config."
+            )
 
 
 def parse_config_file(config_path: Path) -> dict[str, str]:
@@ -144,6 +180,11 @@ def load_config_from_file(config_path: Path) -> Config:
     project_urls = [url.strip() for url in project_urls_str.split(",") if url.strip()]
     if not project_urls:
         raise ValueError("At least one project URL must be provided")
+
+    # Validate PROJECT_URLS hostnames match the configured GitHub host
+    _validate_project_urls_host(
+        project_urls, github_token, github_enterprise_host, github_enterprise_token
+    )
 
     allowed_username = data.get("ALLOWED_USERNAME", "").strip()
     if not allowed_username:
@@ -249,6 +290,11 @@ def load_config_from_env() -> Config:
     project_urls = [url.strip() for url in project_urls_env.split(",") if url.strip()]
     if not project_urls:
         raise ValueError("At least one project URL must be provided")
+
+    # Validate PROJECT_URLS hostnames match the configured GitHub host
+    _validate_project_urls_host(
+        project_urls, github_token, github_enterprise_host, github_enterprise_token
+    )
 
     poll_interval = int(os.environ.get("POLL_INTERVAL", "30"))
 
