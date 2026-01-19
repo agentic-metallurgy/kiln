@@ -187,6 +187,7 @@ def setup_logging(
     log_file: str | None = "./logs/kiln.log",
     log_size: int = 10 * 1024 * 1024,
     log_backups: int = 50,
+    daemon_mode: bool = False,
 ) -> None:
     """
     Configure the root logger with a standard format and level.
@@ -195,13 +196,15 @@ def setup_logging(
     Default level is INFO.
 
     Args:
-        log_file: Path to log file, or None for stdout-only mode
+        log_file: Path to log file. Required when daemon_mode=True.
         log_size: Max size in bytes before rotation. Default: 10MB
         log_backups: Number of backup files to keep. Default: 50
+        daemon_mode: If True, log to file only (no stdout/stderr).
+                     If False, log to both stdout/stderr and file.
 
     Format: "[%(asctime)s] %(levelname)s %(threadName)s %(name)s: %(message)s"
-    Output: stdout for INFO and DEBUG, stderr for WARNING and above,
-            and optionally to the specified log file.
+    Output: When daemon_mode=False: stdout for INFO/DEBUG, stderr for WARNING+, and file.
+            When daemon_mode=True: file only.
     """
     # Get log level from environment variable, default to INFO
     log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -220,39 +223,45 @@ def setup_logging(
     # Remove any existing handlers
     root_logger.handlers.clear()
 
-    # Create handler for INFO and DEBUG - outputs to stdout
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    stdout_handler.setLevel(logging.DEBUG)
-    stdout_handler.addFilter(lambda record: record.levelno < logging.WARNING)
-    stdout_handler.setFormatter(formatter)
+    # Add console handlers only in non-daemon mode
+    if not daemon_mode:
+        # Create handler for INFO and DEBUG - outputs to stdout
+        stdout_handler = logging.StreamHandler(sys.stdout)
+        stdout_handler.setLevel(logging.DEBUG)
+        stdout_handler.addFilter(lambda record: record.levelno < logging.WARNING)
+        stdout_handler.setFormatter(formatter)
 
-    # Create handler for WARNING and above - outputs to stderr
-    stderr_handler = logging.StreamHandler(sys.stderr)
-    stderr_handler.setLevel(logging.WARNING)
-    stderr_handler.setFormatter(formatter)
+        # Create handler for WARNING and above - outputs to stderr
+        stderr_handler = logging.StreamHandler(sys.stderr)
+        stderr_handler.setLevel(logging.WARNING)
+        stderr_handler.setFormatter(formatter)
 
-    # Add handlers to root logger
-    root_logger.addHandler(stdout_handler)
-    root_logger.addHandler(stderr_handler)
+        # Add handlers to root logger
+        root_logger.addHandler(stdout_handler)
+        root_logger.addHandler(stderr_handler)
 
-    # Add file handler for persistent logging (if log_file specified)
+    # Add file handler for persistent logging (always when log_file specified)
     if log_file:
-        # Plain context-aware formatter for file output (no ANSI colors)
-        plain_formatter = PlainContextAwareFormatter(log_format)
+        try:
+            # Plain context-aware formatter for file output (no ANSI colors)
+            plain_formatter = PlainContextAwareFormatter(log_format)
 
-        log_dir = os.path.dirname(log_file)
-        if log_dir:
-            os.makedirs(log_dir, exist_ok=True)
+            log_dir = os.path.dirname(log_file)
+            if log_dir:
+                os.makedirs(log_dir, exist_ok=True)
 
-        # DateRotatingFileHandler: configurable size and backup count, date in filenames
-        file_handler = DateRotatingFileHandler(
-            log_file,
-            maxBytes=log_size,
-            backupCount=log_backups,
-        )
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(plain_formatter)
-        root_logger.addHandler(file_handler)
+            # DateRotatingFileHandler: configurable size and backup count, date in filenames
+            file_handler = DateRotatingFileHandler(
+                log_file,
+                maxBytes=log_size,
+                backupCount=log_backups,
+            )
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(plain_formatter)
+            root_logger.addHandler(file_handler)
+            print(f"[logger] File handler added: {log_file}", file=sys.stderr)
+        except Exception as e:
+            print(f"[logger] Failed to create file handler: {e}", file=sys.stderr)
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -266,3 +275,22 @@ def get_logger(name: str) -> logging.Logger:
         A configured Logger instance
     """
     return logging.getLogger(name)
+
+
+def is_debug_mode() -> bool:
+    """Check if logging is set to DEBUG level."""
+    return logging.getLogger().level <= logging.DEBUG
+
+
+def log_message(logger: logging.Logger, label: str, content: str) -> None:
+    """Log message content - full in debug mode, truncated otherwise.
+
+    Args:
+        logger: The logger instance to use
+        label: A descriptive label for the log entry
+        content: The content to log (will be truncated if not in debug mode)
+    """
+    if is_debug_mode():
+        logger.debug(f"{label}:\n{content}")
+    else:
+        logger.debug(f"{label}: {content[:100]}...")

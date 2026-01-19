@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from src.interfaces import Comment, LinkedPullRequest, TicketItem
-from src.logger import get_logger
+from src.logger import get_logger, is_debug_mode
 
 logger = get_logger(__name__)
 
@@ -153,38 +153,55 @@ class GitHubTicketClient:
             logger.warning(f"Failed to get token scopes for {hostname}: {e.stderr}")
             return None
 
+    # Token prefix constants for type detection
+    CLASSIC_PAT_PREFIX = "ghp_"
+    FINE_GRAINED_PAT_PREFIX = "github_pat_"
+
     def validate_scopes(self, hostname: str = "github.com") -> bool:
-        """Validate that the token has all required OAuth scopes.
+        """Validate that the token has exactly the required OAuth scopes.
 
         Checks that the configured token has the scopes needed for Kiln operations:
         - repo: Repository access (issues, labels, comments)
         - read:org: Organization read access (projectV2 queries)
         - project: Project V2 read/write access
 
-        For fine-grained PATs, scope checking is not possible via API.
-        In this case, a warning is logged and validation passes.
+        Rejects tokens with missing scopes, excessive scopes, or any extra scopes.
+        Also rejects fine-grained PATs since their scopes cannot be validated via API.
 
         Args:
             hostname: GitHub hostname to validate (default: github.com)
 
         Returns:
-            True if validation passes (scopes present or cannot be checked)
+            True if validation passes (classic PAT with exact required scopes)
 
         Raises:
-            RuntimeError: If required scopes are missing
+            RuntimeError: If token is fine-grained, has wrong scopes, or validation fails
         """
         logger.debug(f"Validating GitHub token scopes for {hostname}")
+
+        # Check token prefix to detect fine-grained PATs early
+        token = self._get_token_for_host(hostname)
+        if token and token.startswith(self.FINE_GRAINED_PAT_PREFIX):
+            raise RuntimeError(
+                f"Fine-grained PAT detected for {hostname} (token starts with 'github_pat_'). "
+                "Kiln requires a classic Personal Access Token for scope validation. "
+                "Please create a classic PAT with ONLY these scopes: repo, read:org, project. "
+                "See: https://github.com/settings/tokens/new?scopes=repo,read:org,project"
+            )
 
         scopes = self._get_token_scopes(hostname)
 
         if scopes is None:
             # Could not determine scopes - likely fine-grained PAT
-            logger.warning(
+            # Fine-grained PATs don't expose scopes via API, so we can't validate them.
+            # Require classic PATs for security clarity.
+            raise RuntimeError(
                 f"Could not verify token scopes for {hostname}. "
-                "If using a fine-grained PAT, ensure it has the required permissions: "
-                "Issues (read/write), Metadata (read), and Projects (read/write)."
+                "This usually means you're using a fine-grained PAT, which Kiln does not support. "
+                "Please create a classic Personal Access Token with ONLY these scopes: "
+                "repo, read:org, project. "
+                "See: https://github.com/settings/tokens/new?scopes=repo,read:org,project"
             )
-            return True
 
         # Check for missing required scopes or excessive scopes
         missing = self.REQUIRED_SCOPES - scopes
@@ -1484,10 +1501,17 @@ class GitHubTicketClient:
                     "no token",
                 ]
             ):
-                raise RuntimeError(
-                    f"GitHub authentication failed for {hostname}. "
-                    f"Please set GITHUB_TOKEN in .kiln/config"
-                ) from e
+                if is_debug_mode():
+                    raise RuntimeError(
+                        f"GitHub authentication failed for {hostname}.\n"
+                        f"Please ensure GITHUB_TOKEN is set in .kiln/config or run 'gh auth login'.\n"
+                        f"Error: {e.stderr}"
+                    ) from e
+                else:
+                    raise RuntimeError(
+                        f"GitHub authentication failed for {hostname}. "
+                        f"Please set GITHUB_TOKEN in .kiln/config"
+                    ) from e
             raise
         except FileNotFoundError as e:
             logger.error("gh CLI not found. Please install GitHub CLI: https://cli.github.com/")
