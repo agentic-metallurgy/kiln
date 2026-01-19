@@ -1259,7 +1259,7 @@ class TestValidateScopes:
         with patch("subprocess.run") as mock_run:
             mock_run.return_value.stdout = mock_output
             mock_run.return_value.returncode = 0
-            with pytest.raises(RuntimeError, match="missing required scopes"):
+            with pytest.raises(RuntimeError, match="should ONLY have these scopes"):
                 github_client.validate_scopes("github.com")
 
     def test_validate_scopes_fine_grained_pat_logs_warning_and_passes(self, github_client):
@@ -1329,11 +1329,11 @@ class TestValidateScopes:
         with patch("subprocess.run") as mock_run:
             mock_run.return_value.stdout = mock_output
             mock_run.return_value.returncode = 0
-            with pytest.raises(RuntimeError, match="excessive scopes"):
+            with pytest.raises(RuntimeError, match="should ONLY have these scopes"):
                 github_client.validate_scopes("github.com")
 
-    def test_validate_scopes_excessive_scopes_error_lists_scopes(self, github_client):
-        """Test that error message lists which excessive scopes were found."""
+    def test_validate_scopes_excessive_scopes_error_provides_guidance(self, github_client):
+        """Test that error message provides guidance on required scopes."""
         mock_output = (
             "HTTP/2.0 200 OK\n"
             "X-OAuth-Scopes: repo, read:org, project, admin:org, delete_repo\n"
@@ -1348,8 +1348,9 @@ class TestValidateScopes:
                 github_client.validate_scopes("github.com")
 
             error_msg = str(exc_info.value)
-            assert "admin:org" in error_msg
-            assert "delete_repo" in error_msg
+            assert "project" in error_msg
+            assert "read:org" in error_msg
+            assert "repo" in error_msg
 
     def test_validate_scopes_multiple_excessive_scopes(self, github_client):
         """Test detection of multiple excessive scopes."""
@@ -1367,9 +1368,8 @@ class TestValidateScopes:
                 github_client.validate_scopes("github.com")
 
             error_msg = str(exc_info.value)
-            assert "admin:org" in error_msg
-            assert "workflow" in error_msg
-            assert "user" in error_msg
+            assert "should ONLY have these scopes" in error_msg
+            assert "too many or too few" in error_msg
 
     def test_validate_scopes_excessive_scopes_constant(self, github_client):
         """Test that EXCESSIVE_SCOPES contains expected dangerous scopes."""
@@ -2230,3 +2230,135 @@ class TestGetRepoRef:
         result = github_client._get_repo_ref("custom.github.com/owner/repo")
 
         assert result == "https://custom.github.com/owner/repo"
+
+
+@pytest.mark.unit
+class TestAuthenticationErrorHandling:
+    """Tests for authentication error handling in _run_gh_command."""
+
+    def test_auth_error_gh_auth_login(self, github_client):
+        """Test that 'gh auth login' error produces user-friendly message."""
+        import subprocess
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="To get started with GitHub CLI, please run:  gh auth login"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(RuntimeError) as exc_info:
+                github_client._run_gh_command(["api", "user"])
+
+            error_msg = str(exc_info.value)
+            assert "GitHub authentication failed" in error_msg
+            assert "GITHUB_TOKEN" in error_msg
+            assert "gh auth login" in error_msg
+
+    def test_auth_error_unauthorized(self, github_client):
+        """Test that unauthorized error produces user-friendly message."""
+        import subprocess
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="401 Unauthorized"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(RuntimeError) as exc_info:
+                github_client._run_gh_command(["api", "user"])
+
+            error_msg = str(exc_info.value)
+            assert "GitHub authentication failed" in error_msg
+            assert "GITHUB_TOKEN" in error_msg
+
+    def test_auth_error_not_logged_in(self, github_client):
+        """Test that 'not logged in' error produces user-friendly message."""
+        import subprocess
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="You are not logged in to any GitHub hosts"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(RuntimeError) as exc_info:
+                github_client._run_gh_command(["api", "user"])
+
+            error_msg = str(exc_info.value)
+            assert "GitHub authentication failed" in error_msg
+
+    def test_auth_error_no_token(self, github_client):
+        """Test that 'no token' error produces user-friendly message."""
+        import subprocess
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="no token found"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(RuntimeError) as exc_info:
+                github_client._run_gh_command(["api", "user"])
+
+            error_msg = str(exc_info.value)
+            assert "GitHub authentication failed" in error_msg
+
+    def test_auth_error_authentication_required(self, github_client):
+        """Test that 'authentication' error produces user-friendly message."""
+        import subprocess
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="authentication required"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(RuntimeError) as exc_info:
+                github_client._run_gh_command(["api", "user"])
+
+            error_msg = str(exc_info.value)
+            assert "GitHub authentication failed" in error_msg
+
+    def test_non_auth_error_raises_original(self, github_client):
+        """Test that non-authentication errors are re-raised as-is."""
+        import subprocess
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="some other error: network timeout"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(subprocess.CalledProcessError):
+                github_client._run_gh_command(["api", "user"])
+
+    def test_auth_error_empty_stderr(self, github_client):
+        """Test that empty stderr doesn't cause errors."""
+        import subprocess
+
+        error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="")
+
+        with patch("subprocess.run", side_effect=error):
+            # Should raise the original error since no auth indicators
+            with pytest.raises(subprocess.CalledProcessError):
+                github_client._run_gh_command(["api", "user"])
+
+    def test_auth_error_none_stderr(self, github_client):
+        """Test that None stderr doesn't cause errors."""
+        import subprocess
+
+        error = subprocess.CalledProcessError(1, ["gh", "api"], stderr=None)
+
+        with patch("subprocess.run", side_effect=error):
+            # Should raise the original error since no auth indicators
+            with pytest.raises(subprocess.CalledProcessError):
+                github_client._run_gh_command(["api", "user"])
+
+    def test_auth_error_includes_hostname(self, github_client):
+        """Test that error message includes hostname."""
+        import subprocess
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="gh auth login"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(RuntimeError) as exc_info:
+                github_client._run_gh_command(["api", "user"], hostname="github.mycompany.com")
+
+            error_msg = str(exc_info.value)
+            assert "github.mycompany.com" in error_msg

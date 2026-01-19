@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 # Version is set during build
-__version__ = "0.1.0"
+__version__ = "1.1.0"
 
 KILN_DIR = ".kiln"
 CONFIG_FILE = "config"

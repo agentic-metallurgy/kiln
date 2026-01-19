@@ -1471,6 +1471,24 @@ class GitHubTicketClient:
         except subprocess.CalledProcessError as e:
             logger.error(f"Command failed with exit code {e.returncode}")
             logger.error(f"Error output: {e.stderr}")
+            # Check for authentication errors and provide user-friendly message
+            error_output = (e.stderr or "").lower()
+            if any(
+                indicator in error_output
+                for indicator in [
+                    "gh auth login",
+                    "authentication",
+                    "unauthorized",
+                    "401",
+                    "not logged in",
+                    "no token",
+                ]
+            ):
+                raise RuntimeError(
+                    f"GitHub authentication failed for {hostname}.\n"
+                    f"Please ensure GITHUB_TOKEN is set in .kiln/config or run 'gh auth login'.\n"
+                    f"Error: {e.stderr}"
+                ) from e
             raise
         except FileNotFoundError as e:
             logger.error("gh CLI not found. Please install GitHub CLI: https://cli.github.com/")
