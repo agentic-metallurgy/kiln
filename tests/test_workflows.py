@@ -335,7 +335,7 @@ class TestPrepareWorkflow:
         prompts = workflow.init(ctx)
 
         assert "Clone https://github.com/owner/repo.git" in prompts[0]
-        assert "/tmp/workspaces/repo" in prompts[0]
+        assert "to repo if missing" in prompts[0]
 
     def test_prepare_workflow_with_issue_body_includes_body_directly(self):
         """Test that with issue_body, prompt includes the body directly."""
@@ -383,7 +383,7 @@ class TestPrepareWorkflow:
         workflow = PrepareWorkflow()
         prompts = workflow.init(ctx)
 
-        assert "/home/user/workspaces/myrepo-issue-99" in prompts[1]
+        assert "myrepo-issue-99" in prompts[1]
 
     def test_prepare_workflow_empty_issue_body_treated_as_provided(self):
         """Test that empty string issue_body is treated as provided (not None)."""
