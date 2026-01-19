@@ -1112,6 +1112,290 @@ class GitHubTicketClient:
             logger.error(f"Failed to get linked PRs for {repo}#{ticket_id}: {e}")
             return []
 
+    def get_parent_issue(self, repo: str, ticket_id: int) -> int | None:
+        """Get the parent issue number if this issue is a sub-issue.
+
+        Uses GitHub's sub-issues API to check if the given issue has a parent
+        issue set.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            ticket_id: Issue number
+
+        Returns:
+            Parent issue number if this issue has a parent, None otherwise
+        """
+        hostname, owner, repo_name = self._parse_repo(repo)
+
+        query = """
+        query($owner: String!, $repo: String!, $issueNumber: Int!) {
+          repository(owner: $owner, name: $repo) {
+            issue(number: $issueNumber) {
+              parent {
+                number
+              }
+            }
+          }
+        }
+        """
+
+        try:
+            # Sub-issues API requires special header
+            response = self._execute_graphql_query_with_headers(
+                query,
+                {
+                    "owner": owner,
+                    "repo": repo_name,
+                    "issueNumber": ticket_id,
+                },
+                headers=["GraphQL-Features: sub_issues"],
+                hostname=hostname,
+            )
+
+            issue_data = response.get("data", {}).get("repository", {}).get("issue")
+            if not issue_data:
+                logger.debug(f"No issue data found for {repo}#{ticket_id}")
+                return None
+
+            parent = issue_data.get("parent")
+            if parent is None:
+                logger.debug(f"Issue {repo}#{ticket_id} has no parent")
+                return None
+
+            parent_number = parent.get("number")
+            logger.info(f"Issue {repo}#{ticket_id} has parent issue #{parent_number}")
+            return parent_number
+
+        except Exception as e:
+            logger.error(f"Failed to get parent issue for {repo}#{ticket_id}: {e}")
+            return None
+
+    def get_pr_for_issue(
+        self, repo: str, ticket_id: int, state: str = "OPEN"
+    ) -> dict[str, str | int] | None:
+        """Get a PR that is linked to close this issue.
+
+        Queries the issue's closedByPullRequestsReferences to find PRs with
+        linking keywords (closes, fixes, resolves, etc.) pointing to this issue.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            ticket_id: Issue number
+            state: PR state filter (default: "OPEN")
+
+        Returns:
+            Dict with PR info (number, url, branch_name) or None if not found
+        """
+        _, owner, repo_name = self._parse_repo(repo)
+
+        query = """
+        query($owner: String!, $repo: String!, $issueNumber: Int!) {
+          repository(owner: $owner, name: $repo) {
+            issue(number: $issueNumber) {
+              closedByPullRequestsReferences(first: 10, includeClosedPrs: false) {
+                nodes {
+                  number
+                  url
+                  headRefName
+                  state
+                }
+              }
+            }
+          }
+        }
+        """
+
+        try:
+            response = self._execute_graphql_query(
+                query,
+                {
+                    "owner": owner,
+                    "repo": repo_name,
+                    "issueNumber": ticket_id,
+                },
+                repo=repo,
+            )
+
+            issue_data = response.get("data", {}).get("repository", {}).get("issue")
+            if not issue_data:
+                logger.debug(f"No issue data found for {repo}#{ticket_id}")
+                return None
+
+            pr_nodes = issue_data.get("closedByPullRequestsReferences", {}).get("nodes", [])
+
+            for pr in pr_nodes:
+                if pr is None:
+                    continue
+                if pr.get("state") == state:
+                    result = {
+                        "number": pr["number"],
+                        "url": pr["url"],
+                        "branch_name": pr["headRefName"],
+                    }
+                    logger.debug(f"Found {state} PR #{pr['number']} for {repo}#{ticket_id}")
+                    return result
+
+            logger.debug(f"No {state} PR found for {repo}#{ticket_id}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Failed to get PR for {repo}#{ticket_id}: {e}")
+            return None
+
+    def get_child_issues(self, repo: str, ticket_id: int) -> list[dict[str, int | str]]:
+        """Get child issues of a parent issue using sub-issues API.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            ticket_id: Parent issue number
+
+        Returns:
+            List of dicts with child issue info: {'number': int, 'state': str}
+            Empty list if no children or on error
+        """
+        hostname, owner, repo_name = self._parse_repo(repo)
+
+        query = """
+        query($owner: String!, $repo: String!, $issueNumber: Int!) {
+          repository(owner: $owner, name: $repo) {
+            issue(number: $issueNumber) {
+              subIssues(first: 50) {
+                nodes {
+                  number
+                  state
+                }
+              }
+            }
+          }
+        }
+        """
+
+        try:
+            response = self._execute_graphql_query_with_headers(
+                query,
+                {
+                    "owner": owner,
+                    "repo": repo_name,
+                    "issueNumber": ticket_id,
+                },
+                headers=["GraphQL-Features: sub_issues"],
+                hostname=hostname,
+            )
+
+            issue_data = response.get("data", {}).get("repository", {}).get("issue")
+            if not issue_data:
+                logger.debug(f"No issue data found for {repo}#{ticket_id}")
+                return []
+
+            sub_issues = issue_data.get("subIssues", {}).get("nodes", [])
+            children = []
+            for child in sub_issues:
+                if child:
+                    children.append({
+                        "number": child["number"],
+                        "state": child["state"],
+                    })
+
+            logger.debug(f"Found {len(children)} child issues for {repo}#{ticket_id}")
+            return children
+
+        except Exception as e:
+            logger.error(f"Failed to get child issues for {repo}#{ticket_id}: {e}")
+            return []
+
+    def get_pr_head_sha(self, repo: str, pr_number: int) -> str | None:
+        """Get the HEAD commit SHA of a pull request.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: Pull request number
+
+        Returns:
+            HEAD commit SHA, or None if not found
+        """
+        _, owner, repo_name = self._parse_repo(repo)
+
+        query = """
+        query($owner: String!, $repo: String!, $prNumber: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $prNumber) {
+              headRefOid
+            }
+          }
+        }
+        """
+
+        try:
+            response = self._execute_graphql_query(
+                query,
+                {
+                    "owner": owner,
+                    "repo": repo_name,
+                    "prNumber": pr_number,
+                },
+                repo=repo,
+            )
+
+            pr_data = response.get("data", {}).get("repository", {}).get("pullRequest")
+            if not pr_data:
+                logger.debug(f"No PR data found for {repo}#{pr_number}")
+                return None
+
+            sha = pr_data.get("headRefOid")
+            logger.debug(f"PR {repo}#{pr_number} HEAD SHA: {sha}")
+            return sha
+
+        except Exception as e:
+            logger.error(f"Failed to get HEAD SHA for PR {repo}#{pr_number}: {e}")
+            return None
+
+    def set_commit_status(
+        self,
+        repo: str,
+        sha: str,
+        state: str,
+        context: str,
+        description: str,
+        target_url: str | None = None,
+    ) -> bool:
+        """Set a commit status check on a commit.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            sha: Commit SHA to set status on
+            state: Status state ('pending', 'success', 'failure', 'error')
+            context: Status context identifier (e.g., 'kiln/child-issues')
+            description: Human-readable status description
+            target_url: Optional URL with more details
+
+        Returns:
+            True if status was set successfully, False otherwise
+        """
+        hostname, owner, repo_name = self._parse_repo(repo)
+
+        # Use REST API for commit statuses
+        endpoint = f"repos/{owner}/{repo_name}/statuses/{sha}"
+        payload = {
+            "state": state,
+            "context": context,
+            "description": description,
+        }
+        if target_url:
+            payload["target_url"] = target_url
+
+        try:
+            args = ["api", endpoint, "-X", "POST"]
+            for key, value in payload.items():
+                args.extend(["-f", f"{key}={value}"])
+
+            self._run_gh_command(args, hostname=hostname)
+            logger.info(f"Set commit status on {sha[:8]}: {state} ({context})")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to set commit status on {sha}: {e}")
+            return False
+
     def remove_pr_issue_link(self, repo: str, pr_number: int, issue_number: int) -> bool:
         """Remove the linking keyword from a PR body while preserving the issue reference.
 
@@ -1416,6 +1700,57 @@ class GitHubTicketClient:
 
         output = self._run_gh_command(
             ["api", "graphql", "--input", "-"],
+            input_data=json.dumps(payload),
+            hostname=hostname,
+        )
+
+        try:
+            response = json.loads(output)
+
+            if "errors" in response:
+                error_messages = [e.get("message", str(e)) for e in response["errors"]]
+                raise ValueError(f"GraphQL errors: {', '.join(error_messages)}")
+
+            return response
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            logger.debug(f"Raw output: {output}")
+            raise ValueError(f"Invalid JSON response from gh CLI: {e}") from e
+
+    def _execute_graphql_query_with_headers(
+        self,
+        query: str,
+        variables: dict[str, Any],
+        headers: list[str],
+        *,
+        hostname: str | None = None,
+        repo: str | None = None,
+    ) -> dict[str, Any]:
+        """Execute a GraphQL query with custom headers using gh CLI.
+
+        Args:
+            query: GraphQL query string
+            variables: Variables to pass to the query
+            headers: List of headers in "Name: Value" format
+            hostname: Explicit hostname (for board operations)
+            repo: Repository to look up hostname for (for repo operations)
+        """
+        if hostname is None:
+            hostname = self._get_hostname_for_repo(repo) if repo else "github.com"
+
+        payload = {
+            "query": query,
+            "variables": variables,
+        }
+
+        # Build command with headers
+        cmd_args = ["api", "graphql", "--input", "-"]
+        for header in headers:
+            cmd_args.extend(["-H", header])
+
+        output = self._run_gh_command(
+            cmd_args,
             input_data=json.dumps(payload),
             hostname=hostname,
         )

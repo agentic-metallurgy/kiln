@@ -1,4 +1,5 @@
-# Implement GitHub Issue (Single TASK Mode)
+
+# Implement GitHub Issue (Single Task Mode)
 
 You are running in **headless, non-interactive mode** as part of an automated workflow.
 
