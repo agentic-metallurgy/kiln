@@ -3,6 +3,7 @@
 import pytest
 
 from src.workflows.base import WorkflowContext
+from src.workflows.implement import ImplementWorkflow, count_checkboxes, count_tasks
 from src.workflows.plan import PlanWorkflow
 from src.workflows.prepare import PrepareWorkflow
 from src.workflows.process_comments import ProcessCommentsWorkflow
@@ -459,3 +460,643 @@ class TestPrepareWorkflow:
         # Should still use main branch since no parent PR exists
         assert "main branch" in prompts[1]
         assert "parent branch" not in prompts[1]
+
+
+@pytest.mark.unit
+class TestCountTasks:
+    """Tests for the count_tasks() helper function."""
+
+    def test_count_tasks_h2_header_format(self):
+        """Test counting tasks with ## TASK N: format."""
+        markdown = """
+## TASK 1: First task
+Some description here.
+
+## TASK 2: Second task
+Another description.
+"""
+        assert count_tasks(markdown) == 2
+
+    def test_count_tasks_h3_header_format(self):
+        """Test counting tasks with ### TASK N: format."""
+        markdown = """
+### TASK 1: First task
+Some description here.
+
+### TASK 2: Second task
+Another description.
+
+### TASK 3: Third task
+More description.
+"""
+        assert count_tasks(markdown) == 3
+
+    def test_count_tasks_bold_format(self):
+        """Test counting tasks with **TASK N**: format."""
+        markdown = """
+**TASK 1**: First task description.
+
+**TASK 2**: Second task description.
+"""
+        assert count_tasks(markdown) == 2
+
+    def test_count_tasks_case_insensitivity(self):
+        """Test that task matching is case insensitive."""
+        markdown = """
+## task 1: lowercase
+## Task 2: titlecase
+## TASK 3: uppercase
+**task 4**: bold lowercase
+"""
+        assert count_tasks(markdown) == 4
+
+    def test_count_tasks_empty_string(self):
+        """Test that empty string returns 0."""
+        assert count_tasks("") == 0
+
+    def test_count_tasks_no_tasks_present(self):
+        """Test text without any TASK blocks returns 0."""
+        markdown = """
+## Overview
+This is a document without any tasks.
+
+### Section 1
+Some content.
+
+- [ ] A checkbox but not a TASK
+"""
+        assert count_tasks(markdown) == 0
+
+    def test_count_tasks_multiple_formats_mixed(self):
+        """Test counting tasks with mixed header and bold formats."""
+        markdown = """
+## TASK 1: Header format
+Description.
+
+**TASK 2**: Bold format
+Description.
+
+### TASK 3: H3 header format
+Description.
+"""
+        assert count_tasks(markdown) == 3
+
+    def test_count_tasks_with_surrounding_content(self):
+        """Test tasks embedded in a larger document."""
+        markdown = """
+# Implementation Plan
+
+## Overview
+This plan outlines the work to be done.
+
+## TASK 1: Set up infrastructure
+- [ ] Create database
+- [ ] Configure server
+
+## TASK 2: Implement features
+- [ ] Add login
+- [ ] Add logout
+
+## Appendix
+Additional notes here.
+"""
+        assert count_tasks(markdown) == 2
+
+
+@pytest.mark.unit
+class TestCountCheckboxes:
+    """Tests for the count_checkboxes() helper function."""
+
+    def test_count_checkboxes_mixed_checked_unchecked(self):
+        """Test counting a mix of checked and unchecked checkboxes."""
+        markdown = """
+- [x] Completed task 1
+- [ ] Pending task 2
+- [x] Completed task 3
+- [ ] Pending task 4
+"""
+        total, completed = count_checkboxes(markdown)
+        assert total == 4
+        assert completed == 2
+
+    def test_count_checkboxes_all_checked(self):
+        """Test when all checkboxes are checked."""
+        markdown = """
+- [x] Task 1
+- [x] Task 2
+- [x] Task 3
+"""
+        total, completed = count_checkboxes(markdown)
+        assert total == 3
+        assert completed == 3
+
+    def test_count_checkboxes_all_unchecked(self):
+        """Test when all checkboxes are unchecked."""
+        markdown = """
+- [ ] Task 1
+- [ ] Task 2
+- [ ] Task 3
+- [ ] Task 4
+"""
+        total, completed = count_checkboxes(markdown)
+        assert total == 4
+        assert completed == 0
+
+    def test_count_checkboxes_empty_string(self):
+        """Test that empty string returns (0, 0)."""
+        total, completed = count_checkboxes("")
+        assert total == 0
+        assert completed == 0
+
+    def test_count_checkboxes_uppercase_x(self):
+        """Test that [X] uppercase is counted as checked."""
+        markdown = """
+- [X] Uppercase checked
+- [x] Lowercase checked
+- [ ] Unchecked
+"""
+        total, completed = count_checkboxes(markdown)
+        assert total == 3
+        assert completed == 2
+
+    def test_count_checkboxes_malformed_not_counted(self):
+        """Test that malformed checkboxes without proper space are not counted."""
+        markdown = """
+- [x] Valid checked
+- [ ] Valid unchecked
+- [] Malformed - no space inside brackets
+- [  ] Malformed - double space
+-[ ] Malformed - no space after dash
+"""
+        total, completed = count_checkboxes(markdown)
+        # Only the two valid checkboxes should be counted
+        assert total == 2
+        assert completed == 1
+
+
+@pytest.mark.unit
+class TestImplementWorkflow:
+    """Tests for ImplementWorkflow class."""
+
+    def test_implement_workflow_name(self):
+        """Test that ImplementWorkflow has the correct name."""
+        workflow = ImplementWorkflow()
+        assert workflow.name == "implement"
+
+    def test_implement_workflow_init_returns_empty_list(self, workflow_context):
+        """Test that init() returns an empty list.
+
+        ImplementWorkflow uses execute() instead of init() for its custom loop logic,
+        so init() should return an empty list.
+        """
+        workflow = ImplementWorkflow()
+        prompts = workflow.init(workflow_context)
+
+        assert isinstance(prompts, list)
+        assert len(prompts) == 0
+
+    def test_get_pr_for_issue_closes_keyword(self):
+        """Test that _get_pr_for_issue finds PR with 'closes #N' keyword."""
+        import json
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+        mock_result.stdout = json.dumps(
+            [{"number": 42, "body": "This PR closes #123\n\nSome description"}]
+        )
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 123)
+
+        assert result is not None
+        assert result["number"] == 42
+        mock_run.assert_called_once()
+
+    def test_get_pr_for_issue_fixes_keyword(self):
+        """Test that _get_pr_for_issue finds PR with 'fixes #N' keyword."""
+        import json
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+        mock_result.stdout = json.dumps([{"number": 55, "body": "Fixes #99 - bug fix"}])
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 99)
+
+        assert result is not None
+        assert result["number"] == 55
+        mock_run.assert_called_once()
+
+    def test_get_pr_for_issue_resolves_keyword(self):
+        """Test that _get_pr_for_issue finds PR with 'resolves #N' keyword."""
+        import json
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+        mock_result.stdout = json.dumps([{"number": 77, "body": "RESOLVES #200 in uppercase"}])
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 200)
+
+        assert result is not None
+        assert result["number"] == 77
+        mock_run.assert_called_once()
+
+    def test_get_pr_for_issue_no_matching_pr(self):
+        """Test that _get_pr_for_issue returns None when no PR matches."""
+        import json
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+        # PR exists but doesn't link to the issue we're looking for
+        mock_result.stdout = json.dumps([{"number": 42, "body": "Closes #999 - different issue"}])
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 123)
+
+        assert result is None
+
+    def test_get_pr_for_issue_subprocess_failure(self):
+        """Test that _get_pr_for_issue returns None on subprocess failure."""
+        import subprocess
+        from unittest.mock import patch
+
+        workflow = ImplementWorkflow()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(
+                returncode=1, cmd=["gh"], stderr="error"
+            )
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 123)
+
+        assert result is None
+
+    def test_get_pr_for_issue_json_parse_error(self):
+        """Test that _get_pr_for_issue returns None on JSON parse error."""
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+        mock_result.stdout = "not valid json"
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 123)
+
+        assert result is None
+
+    def test_get_pr_for_issue_empty_list_response(self):
+        """Test that _get_pr_for_issue returns None for empty PR list."""
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+        mock_result.stdout = "[]"
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 123)
+
+        assert result is None
+
+    def test_mark_pr_ready_success(self):
+        """Test that _mark_pr_ready calls gh pr ready with correct arguments."""
+        from unittest.mock import MagicMock, patch
+
+        workflow = ImplementWorkflow()
+        mock_result = MagicMock()
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            workflow._mark_pr_ready("github.com/owner/repo", 42)
+
+        mock_run.assert_called_once_with(
+            ["gh", "pr", "ready", "42", "--repo", "https://github.com/owner/repo"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    def test_mark_pr_ready_failure_logs_warning_no_raise(self):
+        """Test that _mark_pr_ready logs warning on failure but doesn't raise."""
+        import subprocess
+        from unittest.mock import patch
+
+        workflow = ImplementWorkflow()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(
+                returncode=1, cmd=["gh"], stderr="PR is already ready"
+            )
+            # Should not raise - just logs a warning
+            workflow._mark_pr_ready("github.com/owner/repo", 42)
+
+    def test_run_prompt_uses_stage_model_from_config(self, workflow_context):
+        """Test that _run_prompt selects model from config.stage_models for the stage."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        # Create a mock config with specific stage_models
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {
+            "implement": "sonnet",
+            "prepare_implementation": "haiku",
+            "Implement": "opus",  # Fallback
+        }
+        mock_config.claude_code_enable_telemetry = False
+
+        with patch("src.workflows.implement.run_claude") as mock_run_claude:
+            workflow._run_prompt(
+                prompt="/implement_github for issue",
+                ctx=workflow_context,
+                config=mock_config,
+                stage_name="implement",
+            )
+
+            mock_run_claude.assert_called_once()
+            call_kwargs = mock_run_claude.call_args
+            # Model should be "sonnet" from stage_models["implement"]
+            assert call_kwargs.kwargs["model"] == "sonnet"
+
+    def test_run_prompt_falls_back_to_implement_model(self, workflow_context):
+        """Test that _run_prompt falls back to 'Implement' model when stage not in config."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        # Create a mock config without the specific stage
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {
+            "Implement": "opus",  # Only the fallback is defined
+        }
+        mock_config.claude_code_enable_telemetry = False
+
+        with patch("src.workflows.implement.run_claude") as mock_run_claude:
+            workflow._run_prompt(
+                prompt="/implement_github for issue",
+                ctx=workflow_context,
+                config=mock_config,
+                stage_name="unknown_stage",  # Not in stage_models
+            )
+
+            mock_run_claude.assert_called_once()
+            call_kwargs = mock_run_claude.call_args
+            # Model should fall back to "opus" from stage_models["Implement"]
+            assert call_kwargs.kwargs["model"] == "opus"
+
+    def test_execute_creates_pr_when_none_exists(self, workflow_context):
+        """Test that execute() calls /prepare_implementation_github when no PR exists."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        # Mock config
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"prepare_implementation": "sonnet", "implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # First call: no PR found
+        # Second call: PR found after prepare_implementation_github
+        pr_responses = [
+            None,  # Initial check - no PR
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test\n- [x] Done",
+            },  # After prepare
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test\n- [x] Done",
+            },  # In loop (check state)
+        ]
+        call_count = {"value": 0}
+
+        def mock_get_pr_create(*_args, **_kwargs):
+            result = pr_responses[min(call_count["value"], len(pr_responses) - 1)]
+            call_count["value"] += 1
+            return result
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr_create),
+            patch.object(workflow, "_run_prompt") as mock_run,
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # Verify prepare_implementation was called
+        prepare_calls = [c for c in mock_run.call_args_list if "/prepare_implementation_github" in c[0][0]]
+        assert len(prepare_calls) == 1
+
+    def test_execute_fails_after_two_pr_creation_attempts(self, workflow_context):
+        """Test that execute() raises RuntimeError after 2 failed PR creation attempts."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        # Mock config
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"prepare_implementation": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # Always return None (no PR found)
+        with (
+            patch.object(workflow, "_get_pr_for_issue", return_value=None),
+            patch.object(workflow, "_run_prompt") as mock_run,
+            pytest.raises(RuntimeError, match="Failed to create PR.*after 2 attempts"),
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # Verify prepare_implementation was called twice
+        assert mock_run.call_count == 2
+
+    def test_execute_max_iterations_based_on_task_count(self, workflow_context):
+        """Test that execute() sets max_iterations based on TASK count in PR body."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # PR with 3 TASKs and always-incomplete checkboxes
+        pr_info = {
+            "number": 42,
+            "body": """Closes #42
+
+## TASK 1: First task
+- [ ] Subtask 1
+
+## TASK 2: Second task
+- [ ] Subtask 2
+
+## TASK 3: Third task
+- [ ] Subtask 3
+""",
+        }
+
+        iterations_run = {"count": 0}
+
+        def mock_run_prompt(*args, **kwargs):
+            iterations_run["count"] += 1
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", return_value=pr_info),
+            patch.object(workflow, "_run_prompt", side_effect=mock_run_prompt),
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # With 3 TASKs, max_iterations = 3, but stall detection kicks in after 2
+        # iterations with no progress (MAX_STALL_COUNT = 2)
+        # First iteration runs, second iteration sees no progress (stall_count=1),
+        # third iteration sees no progress (stall_count=2), loop exits
+        assert iterations_run["count"] == 2  # Exits due to stall detection
+
+    def test_execute_stall_detection(self, workflow_context):
+        """Test that execute() exits after MAX_STALL_COUNT iterations with no progress."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+        from src.workflows.implement import MAX_STALL_COUNT
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # PR with 5 TASKs (so max_iterations=5) that never makes progress
+        # This allows stall detection to trigger before max_iterations
+        pr_info = {
+            "number": 42,
+            "body": """Closes #42
+
+## TASK 1: Test 1
+- [x] Done task
+
+## TASK 2: Test 2
+- [ ] Pending task 1
+
+## TASK 3: Test 3
+- [ ] Pending task 2
+
+## TASK 4: Test 4
+- [ ] Pending task 3
+
+## TASK 5: Test 5
+- [ ] Pending task 4
+""",
+        }
+
+        iterations_run = {"count": 0}
+
+        def mock_run_prompt(*_args, **_kwargs):
+            iterations_run["count"] += 1
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", return_value=pr_info),
+            patch.object(workflow, "_run_prompt", side_effect=mock_run_prompt),
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # With 5 TASKs, max_iterations=5
+        # Iteration 1: completed=1, last_completed=-1, no stall (stall_count stays 0), run prompt, last_completed=1
+        # Iteration 2: completed=1, last_completed=1, stall_count=1, run prompt
+        # Iteration 3: completed=1, last_completed=1, stall_count=2 (>=MAX_STALL_COUNT), exit BEFORE running
+        # So MAX_STALL_COUNT iterations run (stall detected on iteration 3 before running)
+        assert iterations_run["count"] == MAX_STALL_COUNT
+
+    def test_execute_completion_detection(self, workflow_context):
+        """Test that execute() exits and marks PR ready when all checkboxes complete."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # PR with 2 TASKs, starts incomplete, then becomes complete after 1 implementation
+        # Need 2+ TASKs so max_iterations >= 2, allowing the implementation loop to run
+        pr_responses = [
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test 1\n- [ ] Task 1\n\n## TASK 2: Test 2\n- [ ] Task 2",
+            },  # Initial check (sets max_iterations=2)
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test 1\n- [ ] Task 1\n\n## TASK 2: Test 2\n- [ ] Task 2",
+            },  # Loop iteration 1: get PR state
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test 1\n- [x] Task 1\n\n## TASK 2: Test 2\n- [x] Task 2",
+            },  # Loop iteration 2: all complete
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test 1\n- [x] Task 1\n\n## TASK 2: Test 2\n- [x] Task 2",
+            },  # Final check
+        ]
+        call_count = {"value": 0}
+
+        def mock_get_pr_completion(*_args, **_kwargs):
+            result = pr_responses[min(call_count["value"], len(pr_responses) - 1)]
+            call_count["value"] += 1
+            return result
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr_completion),
+            patch.object(workflow, "_run_prompt") as mock_run,
+            patch.object(workflow, "_mark_pr_ready") as mock_ready,
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # Implementation should run once, then completion detected on second check
+        assert mock_run.call_count == 1
+        # PR should be marked ready
+        mock_ready.assert_called_once_with(workflow_context.repo, 42)
+
+    def test_execute_pr_disappearance_raises_error(self, workflow_context):
+        """Test that execute() raises RuntimeError if PR disappears during execution."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # PR exists initially with 2 TASKs, then disappears in loop
+        pr_responses = [
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test 1\n- [ ] Task 1\n\n## TASK 2: Test 2\n- [ ] Task 2",
+            },  # Initial check (sets max_iterations=2)
+            None,  # Disappeared in loop
+        ]
+        call_count = {"value": 0}
+
+        def mock_get_pr_disappear(*_args, **_kwargs):
+            result = pr_responses[min(call_count["value"], len(pr_responses) - 1)]
+            call_count["value"] += 1
+            return result
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr_disappear),
+            patch.object(workflow, "_run_prompt"),
+            pytest.raises(RuntimeError, match="PR disappeared"),
+        ):
+            workflow.execute(workflow_context, mock_config)
