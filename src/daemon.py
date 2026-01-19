@@ -31,6 +31,7 @@ from src.ticket_clients.github import GitHubTicketClient
 from src.workflows import (
     ImplementWorkflow,
     PlanWorkflow,
+    PrepareImplementationWorkflow,
     PrepareWorkflow,
     ResearchWorkflow,
     TestAccessWorkflow,
@@ -51,6 +52,20 @@ class _BackoffState:
 
     def __init__(self, attempt_number: int):
         self.attempt_number = attempt_number
+
+
+def count_checkboxes(markdown_text: str) -> tuple[int, int]:
+    """Count total and completed checkboxes in markdown text.
+
+    Args:
+        markdown_text: Markdown content to parse
+
+    Returns:
+        Tuple of (total_tasks, completed_tasks)
+    """
+    checked = len(re.findall(r"- \[x\]", markdown_text, re.IGNORECASE))
+    unchecked = len(re.findall(r"- \[ \]", markdown_text))
+    return checked + unchecked, checked
 
 
 class WorkflowRunner:
@@ -165,6 +180,7 @@ class Daemon:
     WORKFLOW_MAP = {
         "Research": ResearchWorkflow,
         "Plan": PlanWorkflow,
+        "Preparing Implementation": PrepareImplementationWorkflow,
         "Implement": ImplementWorkflow,
         "Test Access": TestAccessWorkflow,
     }
@@ -183,6 +199,12 @@ class Daemon:
             "running_label": Labels.PLANNING,
             "complete_label": Labels.PLAN_READY,
             "next_status": None,  # Human decides when to advance
+        },
+        "Preparing Implementation": {
+            "workflow": PrepareImplementationWorkflow,
+            "running_label": Labels.PREPARING_IMPLEMENTATION,
+            "complete_label": None,
+            "next_status": "Implement",
         },
         "Implement": {
             "workflow": ImplementWorkflow,
@@ -206,6 +228,9 @@ class Daemon:
         "Plan": "Implement",
         # Implement → Validate is handled by existing WORKFLOW_CONFIG.next_status
     }
+
+    # Ralph loop maximum iterations (safety limit)
+    RALPH_MAX_ITERATIONS = 8
 
     def __init__(self, config: Config, version: str | None = None) -> None:
         """Initialize the daemon with configuration.
@@ -656,6 +681,10 @@ class Daemon:
             logger.debug(f"Skipping {key} - has '{complete_label}' label (workflow complete)")
             return False
 
+        # Ralph loop logic for Implement status: use checkbox-based iteration
+        if item.status == "Implement":
+            return self._should_trigger_ralph_iteration(item)
+
         actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
         if not check_actor_allowed(actor, self.config.allowed_username, key):
             return False
@@ -723,6 +752,111 @@ class Daemon:
             f"(stage complete, label added by allowed user '{actor}')"
         )
         self.ticket_client.update_item_status(item.item_id, yolo_next)
+
+    def _get_pr_for_issue(self, repo: str, issue_number: int) -> dict | None:
+        """Get the open PR that closes a specific issue.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            issue_number: Issue number
+
+        Returns:
+            Dict with PR info (number, body) or None if no PR found
+        """
+        try:
+            import json as json_module
+
+            # Extract owner/repo from hostname/owner/repo format
+            parts = repo.split("/", 1)
+            if len(parts) == 2:
+                hostname, owner_repo = parts
+                repo_arg = owner_repo if hostname == "github.com" else f"{hostname}/{owner_repo}"
+            else:
+                repo_arg = repo
+
+            result = subprocess.run(
+                [
+                    "gh",
+                    "pr",
+                    "list",
+                    "--repo",
+                    repo_arg,
+                    "--state",
+                    "open",
+                    "--search",
+                    f"closes #{issue_number}",
+                    "--json",
+                    "number,body",
+                    "--jq",
+                    ".[0]",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            if result.stdout.strip():
+                return json_module.loads(result.stdout)
+        except Exception as e:
+            logger.warning(f"Failed to get PR for issue #{issue_number}: {e}")
+        return None
+
+    def _should_trigger_ralph_iteration(self, item: TicketItem) -> bool:
+        """Check if another Ralph loop iteration should be triggered.
+
+        Checks:
+        1. PR exists with checkbox task list
+        2. Unchecked tasks remain
+        3. Iteration limit not exceeded (8)
+        4. Progress was made since last iteration
+
+        Args:
+            item: TicketItem in Implement status
+
+        Returns:
+            True if another iteration should run
+        """
+        key = f"{item.repo}#{item.ticket_id}"
+
+        # Get PR for this issue
+        pr_info = self._get_pr_for_issue(item.repo, item.ticket_id)
+        if not pr_info:
+            logger.debug(f"No PR found for {key}, cannot run Ralph iteration")
+            return False
+
+        pr_body = pr_info.get("body", "")
+        total_tasks, completed_tasks = count_checkboxes(pr_body)
+
+        if total_tasks == 0:
+            logger.debug(f"No checkbox tasks in PR for {key}")
+            return False
+
+        # All tasks complete
+        if completed_tasks == total_tasks:
+            logger.info(f"Ralph: All {total_tasks} tasks complete for {key}")
+            return False
+
+        # Get stored iteration state
+        stored = self.database.get_issue_state(item.repo, item.ticket_id)
+        iteration_count = stored.ralph_iteration_count or 0 if stored else 0
+        last_completed = stored.ralph_last_completed_count if stored else None
+
+        # Check iteration limit
+        if iteration_count >= self.RALPH_MAX_ITERATIONS:
+            logger.warning(f"Ralph: Hit iteration limit ({self.RALPH_MAX_ITERATIONS}) for {key}")
+            return False
+
+        # Check for stall (no progress since last iteration)
+        if last_completed is not None and last_completed == completed_tasks:
+            logger.warning(
+                f"Ralph: No progress detected for {key} (stuck at {completed_tasks}/{total_tasks})"
+            )
+            return False
+
+        logger.info(
+            f"Ralph: Triggering iteration {iteration_count + 1} for {key} "
+            f"({completed_tasks}/{total_tasks} tasks complete)"
+        )
+        return True
 
     def _might_have_new_comments(self, item: TicketItem) -> bool:
         """Quick heuristic to check if item might have new comments.
@@ -1145,6 +1279,35 @@ class Daemon:
             if complete_label:
                 self.ticket_client.add_label(item.repo, item.ticket_id, complete_label)
                 logger.debug(f"Added '{complete_label}' label to {key}")
+
+            # Update Ralph iteration tracking for Implement status
+            if item.status == "Implement":
+                pr_info = self._get_pr_for_issue(item.repo, item.ticket_id)
+                if pr_info:
+                    pr_body = pr_info.get("body", "")
+                    total_tasks, completed_tasks = count_checkboxes(pr_body)
+                    stored = self.database.get_issue_state(item.repo, item.ticket_id)
+                    iteration_count = (stored.ralph_iteration_count or 0) + 1 if stored else 1
+                    self.database.update_issue_state(
+                        item.repo,
+                        item.ticket_id,
+                        item.status,
+                        ralph_iteration_count=iteration_count,
+                        ralph_last_completed_count=completed_tasks,
+                    )
+                    logger.info(
+                        f"Ralph: Updated iteration count to {iteration_count} "
+                        f"({completed_tasks}/{total_tasks} tasks complete)"
+                    )
+
+                    # Check if all tasks are complete - if so, move to next status
+                    if total_tasks > 0 and completed_tasks == total_tasks:
+                        if next_status:
+                            self.ticket_client.update_item_status(item.item_id, next_status)
+                            logger.info(
+                                f"Ralph: All tasks complete, moved {key} to '{next_status}' status"
+                            )
+                        next_status = None  # Prevent duplicate move below
 
             if next_status:
                 self.ticket_client.update_item_status(item.item_id, next_status)

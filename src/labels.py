@@ -25,6 +25,7 @@ class Labels:
 
     # Workflow running labels (indicate in-progress state)
     PREPARING = "preparing"
+    PREPARING_IMPLEMENTATION = "preparing_implementation"
     RESEARCHING = "researching"
     PLANNING = "planning"
     IMPLEMENTING = "implementing"
@@ -50,6 +51,10 @@ class Labels:
 REQUIRED_LABELS: dict[str, LabelConfig] = {
     Labels.PREPARING: {
         "description": "Prepare workflow in progress",
+        "color": "FFA500",  # Orange
+    },
+    Labels.PREPARING_IMPLEMENTATION: {
+        "description": "Preparing Implementation workflow in progress",
         "color": "FFA500",  # Orange
     },
     Labels.RESEARCHING: {

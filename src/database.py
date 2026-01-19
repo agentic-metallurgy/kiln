@@ -50,6 +50,8 @@ class IssueState:
         research_session_id: Claude session ID for Research workflow
         plan_session_id: Claude session ID for Plan workflow
         implement_session_id: Claude session ID for Implement workflow
+        ralph_iteration_count: Number of Ralph loop iterations completed
+        ralph_last_completed_count: Number of tasks completed in last iteration (for stall detection)
     """
 
     repo: str
@@ -63,6 +65,8 @@ class IssueState:
     research_session_id: str | None = None
     plan_session_id: str | None = None
     implement_session_id: str | None = None
+    ralph_iteration_count: int | None = None
+    ralph_last_completed_count: int | None = None
 
 
 class Database:
@@ -147,6 +151,14 @@ class Database:
                     conn.execute("ALTER TABLE issue_states ADD COLUMN plan_session_id TEXT")
                 if "implement_session_id" not in columns:
                     conn.execute("ALTER TABLE issue_states ADD COLUMN implement_session_id TEXT")
+                if "ralph_iteration_count" not in columns:
+                    conn.execute(
+                        "ALTER TABLE issue_states ADD COLUMN ralph_iteration_count INTEGER"
+                    )
+                if "ralph_last_completed_count" not in columns:
+                    conn.execute(
+                        "ALTER TABLE issue_states ADD COLUMN ralph_last_completed_count INTEGER"
+                    )
 
                 # Create project_metadata table for caching project status options
                 conn.execute("""
@@ -191,7 +203,8 @@ class Database:
             """
             SELECT repo, issue_number, status, last_updated, branch_name, project_url,
                    last_processed_comment_timestamp, last_known_comment_count,
-                   research_session_id, plan_session_id, implement_session_id
+                   research_session_id, plan_session_id, implement_session_id,
+                   ralph_iteration_count, ralph_last_completed_count
             FROM issue_states
             WHERE repo = ? AND issue_number = ?
             """,
@@ -212,6 +225,8 @@ class Database:
                 research_session_id=row["research_session_id"],
                 plan_session_id=row["plan_session_id"],
                 implement_session_id=row["implement_session_id"],
+                ralph_iteration_count=row["ralph_iteration_count"],
+                ralph_last_completed_count=row["ralph_last_completed_count"],
             )
         return None
 
@@ -227,6 +242,8 @@ class Database:
         research_session_id: str | None = None,
         plan_session_id: str | None = None,
         implement_session_id: str | None = None,
+        ralph_iteration_count: int | None = None,
+        ralph_last_completed_count: int | None = None,
     ) -> None:
         """
         Update or insert the state of an issue.
@@ -245,6 +262,8 @@ class Database:
             research_session_id: Claude session ID for Research workflow (optional, preserved if not provided)
             plan_session_id: Claude session ID for Plan workflow (optional, preserved if not provided)
             implement_session_id: Claude session ID for Implement workflow (optional, preserved if not provided)
+            ralph_iteration_count: Ralph loop iteration count (optional, preserved if not provided)
+            ralph_last_completed_count: Ralph loop last completed count (optional, preserved if not provided)
         """
         conn = self._get_conn()
 
@@ -265,6 +284,10 @@ class Database:
                 plan_session_id = existing.plan_session_id
             if implement_session_id is None:
                 implement_session_id = existing.implement_session_id
+            if ralph_iteration_count is None:
+                ralph_iteration_count = existing.ralph_iteration_count
+            if ralph_last_completed_count is None:
+                ralph_last_completed_count = existing.ralph_last_completed_count
 
         with conn:
             conn.execute(
@@ -272,8 +295,9 @@ class Database:
                 INSERT OR REPLACE INTO issue_states
                 (repo, issue_number, status, last_updated, branch_name, project_url,
                  last_processed_comment_timestamp, last_known_comment_count,
-                 research_session_id, plan_session_id, implement_session_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 research_session_id, plan_session_id, implement_session_id,
+                 ralph_iteration_count, ralph_last_completed_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     repo,
@@ -287,6 +311,8 @@ class Database:
                     research_session_id,
                     plan_session_id,
                     implement_session_id,
+                    ralph_iteration_count,
+                    ralph_last_completed_count,
                 ),
             )
 

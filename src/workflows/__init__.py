@@ -15,6 +15,7 @@ from src.workflows.base import Workflow, WorkflowContext
 from src.workflows.implement import ImplementWorkflow
 from src.workflows.plan import PlanWorkflow
 from src.workflows.prepare import PrepareWorkflow
+from src.workflows.prepare_implementation import PrepareImplementationWorkflow
 from src.workflows.process_comments import ProcessCommentsWorkflow
 from src.workflows.research import ResearchWorkflow
 from src.workflows.test_access import TestAccessWorkflow
@@ -23,6 +24,7 @@ __all__ = [
     "Workflow",
     "WorkflowContext",
     "PrepareWorkflow",
+    "PrepareImplementationWorkflow",
     "ResearchWorkflow",
     "PlanWorkflow",
     "ImplementWorkflow",
