@@ -25,7 +25,6 @@ class Labels:
 
     # Workflow running labels (indicate in-progress state)
     PREPARING = "preparing"
-    PREPARING_IMPLEMENTATION = "preparing_implementation"
     RESEARCHING = "researching"
     PLANNING = "planning"
     IMPLEMENTING = "implementing"
@@ -45,16 +44,15 @@ class Labels:
     YOLO_FAILED = "yolo_failed"
     RESET = "reset"
 
+    # Failure labels
+    IMPLEMENTATION_FAILED = "implementation_failed"
+
 
 # Required labels with descriptions and colors for automatic creation
 # These labels are created in repositories when the daemon initializes
 REQUIRED_LABELS: dict[str, LabelConfig] = {
     Labels.PREPARING: {
         "description": "Prepare workflow in progress",
-        "color": "FFA500",  # Orange
-    },
-    Labels.PREPARING_IMPLEMENTATION: {
-        "description": "Preparing Implementation workflow in progress",
         "color": "FFA500",  # Orange
     },
     Labels.RESEARCHING: {
@@ -101,17 +99,9 @@ REQUIRED_LABELS: dict[str, LabelConfig] = {
         "description": "Clear kiln content and move issue to Backlog",
         "color": "3B82F6",  # Blue
     },
+    Labels.IMPLEMENTATION_FAILED: {
+        "description": "Implementation workflow failed after retries",
+        "color": "DC2626",  # Red
+    },
 }
 
-# Labels to remove during a reset operation
-RESET_LABELS = [
-    Labels.RESEARCH_READY,
-    Labels.PLAN_READY,
-    Labels.RESEARCHING,
-    Labels.PLANNING,
-    Labels.IMPLEMENTING,
-    Labels.REVIEWING,
-    Labels.EDITING,
-    Labels.YOLO,
-    Labels.YOLO_FAILED,
-]

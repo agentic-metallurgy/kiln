@@ -8,19 +8,20 @@ You are running in **headless, non-interactive mode** as part of an automated wo
 
 ## Execution Flow
 
-### Step 0: Check PR Status
+### Step 0: Get PR Info
 
-1. Find the PR for this issue:
-   ```bash
-   gh pr list --state open --search "closes #<issue_number>" --json number,url --jq '.[0]'
-   ```
+Find the PR for this issue:
 
-2. If no PR exists, fail with: "No draft PR found. Run Preparing Implementation first."
+```bash
+gh pr list --state open --search "closes #<issue_number>" --json number,url --jq '.[0]'
+```
 
-3. Get the PR description:
-   ```bash
-   gh pr view <pr_number> --json body --jq '.body'
-   ```
+**If no PR exists**, fail with error: "No PR found. The workflow should have created it."
+
+Get the PR description:
+```bash
+gh pr view <pr_number> --json body --jq '.body'
+```
 
 ### Step 1: Find Next Task
 
@@ -59,13 +60,11 @@ You are running in **headless, non-interactive mode** as part of an automated wo
    git push
    ```
 
-### Step 5: Check Completion Status
+### Step 5: Exit
 
-Count remaining tasks:
-- If unchecked tasks remain: Exit (daemon will re-trigger)
-- If all tasks complete: Mark PR ready for review
+After completing one task, exit. The workflow will check progress and call again if needed.
 
-If all tasks complete:
+If this was the last task (all tasks now complete), mark PR ready:
 ```bash
 gh pr ready <pr_url>
 ```

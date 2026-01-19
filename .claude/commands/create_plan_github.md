@@ -56,8 +56,9 @@ When this command is invoked with a GitHub issue reference:
 ### Step 3: Create and Post the Plan
 
 - If the research states a selected approach (e.g., "Selected: X" or a specific recommended solution), follow that decision / solution path.
-- Only make autonomous decisions for unresolved questions. 
+- Only make autonomous decisions for unresolved questions.
 - When multiple approaches exist, do not ask for input, choose the one that: Best matches existing codebase patterns, is simplest to implement, and has the clearest path forward to addressing the issue as defined.
+- **Ensure implementation steps are organized around verifiable milestones.**
 
 **Post the plan directly to the issue description**:
 1. Get the current body using `gh` (NOT REST API, NOT curl):
@@ -98,16 +99,14 @@ The plan section MUST:
 
 ## Current State Analysis
 
-[What exists now, what's missing, key constraints discovered]
-
-## Desired End State
-
-[A specification of the desired end state after this plan is complete, and how to verify it]
-
 ### Key Discoveries:
 - [Important finding with file:line reference]
 - [Pattern to follow]
 - [Constraint to work within]
+
+## Desired End State
+
+[A specification of the desired end state after this plan is complete, and how to verify it]
 
 ## What We're NOT Doing
 
@@ -119,48 +118,36 @@ The plan section MUST:
 
 ---
 
-<details open>
-<summary><h2>Phase 1: [Descriptive Name]</h2></summary>
+### TASK 1: [Task Name] [PRIORITY LEVEL]
+**Status:** NOT STARTED
+**Milestone:** [What completing this task achieves - a verifiable outcome]
 
-### Overview
-[What this phase accomplishes]
+- [ ] Subtask 1
+- [ ] Subtask 2
+- [ ] Subtask 3
 
-### Changes Required:
+**Validation:** [How to verify this task is complete - command to run or behavior to observe]
 
-#### 1. [Component/File Group]
+**Requirements from spec:**
+- [Requirement 1 from the issue/research]
+- [Requirement 2 from the issue/research]
 
-<details>
-<summary><code>path/to/file.ext:LINE_NUMBER</code></summary>
+**Files to Create:**
+- `path/to/new_file.ext` - [Brief description of purpose]
 
-```diff
- // Context line (unchanged)
--// Line being removed or modified
-+// New or modified line
-```
+**Files to Modify:**
+- `path/to/existing_file.ext` - [What changes are needed]
 
-</details>
-
-### Success Criteria:
-
-#### Automated Verification:
-- [ ] Tests pass: `pytest tests/`
-- [ ] Type checking passes: `mypy src/`
-- [ ] Linting passes: `make lint`
-
-#### Manual Verification:
-- [ ] Feature works as expected when tested
-- [ ] Edge case handling verified
-
-</details>
+**Implementation Details:**
+[Any additional context, API endpoints, feature specifics, etc.]
 
 ---
 
-<details open>
-<summary><h2>Phase 2: [Descriptive Name]</h2></summary>
+### TASK 2: [Task Name] [PRIORITY LEVEL]
+**Status:** NOT STARTED
+**Milestone:** [Verifiable outcome]
 
-[Similar structure with collapsible diff blocks...]
-
-</details>
+[Same structure as above...]
 
 ---
 
@@ -188,6 +175,139 @@ The plan section MUST:
 <!-- /kiln:plan -->
 ````
 
+## Task Format Reference
+
+The following is a **FORMAT EXAMPLE ONLY**. The specific domain (ESP32, hardware, web interfaces, etc.) is irrelevant to your task — focus only on the **structure and level of detail** expected:
+
+````markdown
+### TASK 6: Web Interface [HIGH PRIORITY]
+**Status:** COMPLETED
+**Milestone:** HTML/JavaScript control interface on port 80
+
+- [x] Set up HTTP server on receptacle controller (port 80)
+- [x] Create HTML page with game state display
+- [x] Implement real-time state updates (WebSocket or polling)
+- [x] Add controls to change game state (reset, trigger states)
+- [x] Add game mode selector (free match vs ordered)
+- [x] Style the interface for easy use
+
+**Validation:** Both projects compile successfully with web interface ✓
+
+**Requirements from spec:**
+- See current game state ✓
+- Control the state ✓
+- Reset the state ✓
+- Change game mode ✓
+
+**Files Created:**
+- `receptacle_controller/include/web_server.h` - WebGameServer class definition with:
+  - GameMode enum (UNORDERED, ORDERED)
+  - Callback types for accessing game state
+  - HTTP route handlers for API endpoints
+- `receptacle_controller/src/web_server.cpp` - Web server implementation with:
+  - ESPAsyncWebServer for non-blocking HTTP handling
+  - Embedded HTML/CSS/JS interface (PROGMEM)
+  - REST API endpoints: `/api/status`, `/api/reset`, `/api/mode`, `/api/test`
+  - Mobile-friendly responsive design with dark theme
+
+**Files Modified:**
+- `receptacle_controller/platformio.ini` - Added ESPAsyncWebServer-esphome library
+- `receptacle_controller/src/main.cpp` - Integrated WebGameServer with callbacks
+
+**Web Interface Features:**
+- Real-time status display with 1-second auto-refresh
+- 4 receptacle state indicators (Empty/Correct/Wrong)
+- Game state badge (IDLE/PLAYING/WIN with pulse animation on WIN)
+- Hose controller connection status indicator
+- Reset Game button (red)
+- Game Mode selector dropdown (Free Match / Ordered Match)
+- Test Mode button (purple)
+- Error message display for connection issues
+
+**API Endpoints:**
+- `GET /` - Serve HTML interface
+- `GET /api/status` - JSON game state (state, matches, clientConnected, mode)
+- `POST /api/reset` - Reset game to initial state
+- `POST /api/mode?mode=0|1` - Set game mode (0=Free, 1=Ordered)
+- `POST /api/test` - Trigger test mode
+
+**Hardware Testing:**
+- Upload firmware to receptacle controller ESP32
+- Connect to "PipePuzzle" WiFi network
+- Access http://192.168.4.1 in browser
+- Verify status updates and controls work
+
+---
+
+### TASK 7: Ordered Game Mode [MEDIUM PRIORITY]
+**Status:** COMPLETED
+**Milestone:** Second game mode with sequence matching
+
+- [x] Add game mode enum (FREE_MATCH, ORDERED_MATCH)
+- [x] Implement order tracking for ordered mode
+- [x] Add "blink count" animation for receptacles (1x, 2x, 3x, 4x blinks)
+- [x] Validate sequence in ordered mode
+- [x] Trigger glitch animation for wrong sequence
+- [x] Integrate with web interface for mode switching
+
+**Validation:** Both projects compile successfully with ordered mode ✓
+
+**Files Modified:**
+- `hose_controller/include/animation.h` - Added BLINK state to HoseAnimationState enum
+- `hose_controller/src/animation.cpp` - Implemented updateBlink() with blink count support:
+  - Blinks N times where N is the sequence position (1-4)
+  - 150ms on/off interval
+  - Pause between blink cycles for clear visual indication
+- `hose_controller/include/wifi_client.h` - Added BlinkCountCallback for BLINK message handling
+- `hose_controller/src/wifi_client.cpp` - Added BLINK message parsing and callback
+- `hose_controller/include/wifi_config.h` - Added MSG_BLINK command and STATE_BLINK constant
+- `hose_controller/src/main.cpp` - Added onBlinkCount callback and setHoseBlinkCount function
+
+- `receptacle_controller/include/animation.h` - Added BLINK state to ReceptacleAnimationState enum
+- `receptacle_controller/src/animation.cpp` - Implemented updateBlink() for receptacles
+- `receptacle_controller/include/game_logic.h` - Added:
+  - GameModeLogic enum (UNORDERED, ORDERED)
+  - _nextExpectedIndex for sequence tracking
+  - OrderSequenceCallback type
+  - setGameMode(), getGameMode(), getNextExpectedIndex() methods
+- `receptacle_controller/src/game_logic.cpp` - Implemented ordered mode logic:
+  - processDetection() validates both correct hose AND correct order in ordered mode
+  - Advances _nextExpectedIndex on correct match
+  - Triggers OrderSequenceCallback on sequence position change
+- `receptacle_controller/include/wifi_server.h` - Added sendBlinkCount() method
+- `receptacle_controller/src/wifi_server.cpp` - Implemented sendBlinkCount()
+- `receptacle_controller/include/wifi_config.h` - Added MSG_BLINK and STATE_BLINK
+- `receptacle_controller/src/main.cpp` - Integrated ordered mode:
+  - setBlinkState() function sets BLINK animation on both controllers
+  - setupOrderedModeBlinkIndicators() initializes all receptacles with blink counts
+  - onOrderSequenceChange() callback updates blink indicators on progression
+  - Web interface mode change syncs with GameLogic mode
+
+**Ordered Mode Behavior:**
+1. When ordered mode is activated via web interface:
+   - All receptacles enter BLINK state
+   - Receptacle 0 blinks 1x, receptacle 1 blinks 2x, etc. to indicate sequence
+   - Same blink pattern is sent to corresponding hoses via WiFi
+2. Players must match receptacles in order (0 → 1 → 2 → 3)
+3. Correct match in order → MATCHED animation, sequence advances
+4. Wrong match OR out-of-order → GLITCH animation
+5. All 4 correct in order → WIN celebration
+
+**Requirements from spec:** ✓
+- Receptacles blink once, twice, thrice, etc. to indicate order ✓
+- Wrong order triggers glitch animation ✓
+- Must match both correct receptacle AND correct order ✓
+
+**Hardware Testing:**
+- Upload firmware to both ESP32 controllers
+- Connect to "PipePuzzle" WiFi and access http://192.168.4.1
+- Select "Ordered Match" from game mode dropdown
+- Observe receptacles blinking to indicate sequence (1x, 2x, 3x, 4x)
+- Test matching in correct order (should show MATCHED animations)
+- Test matching out of order (should show GLITCH animation)
+- Complete all 4 in order to trigger celebration
+````
+
 ## Important Guidelines
 
 1. **Be Autonomous**:
@@ -207,61 +327,40 @@ The plan section MUST:
    - Think about edge cases
    - Include "what we're NOT doing"
 
-4. **Be Concise with Code**:
-   - Show only diffs, NOT full file contents
-   - Use `diff` syntax with +/- to show additions/removals
-   - Include just enough context lines to locate the change
-   - For new methods/functions, show only the new code (not surrounding file)
-   - For tests, list test names rather than full implementations
-   - Wrap each diff block in `<details>` tags with the file path as summary
+4. **Organize Around Verifiable Milestones**:
+   - Each TASK should have a clear, verifiable milestone
+   - The milestone describes what completing the task achieves
+   - Include validation steps that can confirm the milestone is met
+   - Link requirements back to the original spec/issue
 
-5. **Use Collapsible Sections**:
-   - Wrap each phase in `<details open>` tags (expanded by default, but collapsible)
-   - Wrap diff blocks in `<details>` tags (collapsed by default)
-   - When writing plan, collapse the research section in `<details>` tags
+5. **Be Detailed About Files**:
+   - Separate "Files to Create" from "Files to Modify"
+   - For each file, describe what it contains or what changes are needed
+   - Include implementation details like class names, methods, endpoints
+   - This serves as a reference during implementation
+
+6. **Use Collapsible Sections Sparingly**:
+   - Use `<details>` tags to collapse the research section when writing the plan
+   - Tasks themselves should be visible (not collapsed) for easy scanning
    - Always include blank line after `<summary>` and before `</details>` for GitHub markdown rendering
 
-6. **Track Progress**:
+7. **Track Progress**:
    - Use TodoWrite to track planning tasks
    - Update todos as you complete research
 
-7. **No Open Questions in Final Plan**:
+8. **No Open Questions in Final Plan**:
    - If you encounter open questions during planning, research more
    - Do NOT write the plan with unresolved questions
    - The implementation plan must be complete and actionable
    - Every decision must be made before finalizing the plan
    - Note assumptions where you made autonomous decisions
 
-## Success Criteria Guidelines
+## Priority Levels
 
-**Always separate success criteria into two categories:**
-
-1. **Automated Verification** (can be run by execution agents):
-   - Commands that can be run: `pytest`, `mypy`, `make lint`, etc.
-   - Specific files that should exist
-   - Code compilation/type checking
-   - Automated test suites
-
-2. **Manual Verification** (requires human testing):
-   - UI/UX functionality
-   - Performance under real conditions
-   - Edge cases that are hard to automate
-   - User acceptance criteria
-
-**Format example:**
-```markdown
-### Success Criteria:
-
-#### Automated Verification:
-- [ ] All unit tests pass: `pytest tests/`
-- [ ] No type errors: `mypy src/`
-- [ ] No linting errors: `make lint`
-
-#### Manual Verification:
-- [ ] New feature appears correctly in logs
-- [ ] Performance is acceptable under load
-- [ ] Error messages are clear
-```
+Use these priority levels for tasks:
+- **[HIGH PRIORITY]** - Core functionality, blocking other tasks
+- **[MEDIUM PRIORITY]** - Important but not blocking
+- **[LOW PRIORITY]** - Nice to have, can be deferred
 
 ## Common Patterns
 

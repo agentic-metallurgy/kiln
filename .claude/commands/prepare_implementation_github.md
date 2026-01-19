@@ -1,4 +1,4 @@
-# Prepare Implementation (Create Draft PR with Task List)
+# Prepare Implementation (Create Draft PR with Plan)
 
 You are running in **headless, non-interactive mode** as part of an automated workflow.
 
@@ -14,28 +14,7 @@ You are running in **headless, non-interactive mode** as part of an automated wo
 2. Extract the plan section (between `<!-- kiln:plan -->` and `<!-- /kiln:plan -->`)
 3. If no plan section exists, fail with an error message
 
-### Step 2: Extract Task List
-
-From the plan, extract all actionable tasks. Look for:
-- Checkboxes: `- [ ] Task description`
-- Numbered items under "Changes Required" or similar headers
-- Phase summaries with specific implementation steps
-
-Create a flat checkbox list of all tasks in the order they should be executed.
-
-**Example output format:**
-```markdown
-## Implementation Tasks
-
-- [ ] Add new fields to IssueState dataclass in src/database.py
-- [ ] Add database migration for new columns
-- [ ] Create PrepareImplementationWorkflow class
-- [ ] Add label constant to Labels class
-- [ ] Update WORKFLOW_MAP in daemon.py
-- [ ] Run tests and fix any failures
-```
-
-### Step 3: Create Empty Commit and Draft PR
+### Step 2: Create Empty Commit and Draft PR
 
 1. Create an empty commit to establish the PR:
    ```bash
@@ -47,16 +26,12 @@ Create a flat checkbox list of all tasks in the order they should be executed.
    git push -u origin HEAD
    ```
 
-3. Create draft PR with task list as description:
+3. Create draft PR with the **entire plan section** as the description:
    ```bash
    gh pr create --draft --title "feat: <issue_title>" --body "$(cat <<'EOF'
    Closes #<issue_number>
 
-   ## Implementation Tasks
-
-   - [ ] Task 1
-   - [ ] Task 2
-   ...
+   <paste entire plan section here, including all TASKs with their checkboxes>
 
    ---
 
@@ -65,12 +40,13 @@ Create a flat checkbox list of all tasks in the order they should be executed.
    )"
    ```
 
-### Step 4: Report Completion
+**Important**: Copy-paste the entire plan section from the issue into the PR body. Do NOT try to extract or reformat tasks - preserve the full plan with all context, file references, and implementation details.
+
+### Step 3: Report Completion
 
 Output:
 ```
 Done - Draft PR created: <pr_url>
-Tasks extracted: <count>
 ```
 
 
