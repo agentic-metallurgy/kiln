@@ -8,9 +8,23 @@ You are running in **headless, non-interactive mode** as part of an automated wo
 - Do NOT explore the codebase or use Task agents
 - Keep it simple and fast
 
+## Arguments
+
+This command accepts the following arguments:
+- Issue URL (required): The GitHub issue URL
+- `--base <branch>` (optional): The base branch for the PR. If specified, the PR will target this branch instead of the default branch. Use this when the issue has a parent issue with an open PR.
+
+Example: `/prepare_implementation_github https://github.com/owner/repo/issues/123 --base 5-parent-feature-branch`
+
 ## Execution Flow
 
-### Step 1: Get Issue Content
+### Step 1: Parse Arguments
+
+Extract from `$ARGUMENTS`:
+1. The issue URL
+2. The `--base` flag value (if present) - store this for use in PR creation
+
+### Step 2: Get Issue Content
 
 ```bash
 gh issue view <issue_url> --json body,title,number
@@ -67,6 +81,24 @@ Keep it simple - 2-4 tasks max. Do NOT explore the codebase.
    ```
 
 3. Create draft PR with the plan:
+
+   **If `--base` was provided** (child issue with parent PR):
+   ```bash
+   gh pr create --draft --base <base_branch> --title "feat: <issue_title>" --body "$(cat <<'EOF'
+   Closes #<issue_number>
+
+   > **Note**: This PR targets the parent branch `<base_branch>` and will be merged into the parent PR, not directly into main.
+
+   <plan content here>
+
+   ---
+
+   *This PR uses iterative implementation. Tasks are completed one at a time.*
+   EOF
+   )"
+   ```
+
+   **If `--base` was NOT provided** (standalone issue):
    ```bash
    gh pr create --draft --title "feat: <issue_title>" --body "$(cat <<'EOF'
    Closes #<issue_number>
