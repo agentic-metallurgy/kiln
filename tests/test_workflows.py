@@ -791,3 +791,61 @@ class TestImplementWorkflow:
             )
             # Should not raise - just logs a warning
             workflow._mark_pr_ready("github.com/owner/repo", 42)
+
+    def test_run_prompt_uses_stage_model_from_config(self, workflow_context):
+        """Test that _run_prompt selects model from config.stage_models for the stage."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        # Create a mock config with specific stage_models
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {
+            "implement": "sonnet",
+            "prepare_implementation": "haiku",
+            "Implement": "opus",  # Fallback
+        }
+        mock_config.claude_code_enable_telemetry = False
+
+        with patch("src.workflows.implement.run_claude") as mock_run_claude:
+            workflow._run_prompt(
+                prompt="/implement_github for issue",
+                ctx=workflow_context,
+                config=mock_config,
+                stage_name="implement",
+            )
+
+            mock_run_claude.assert_called_once()
+            call_kwargs = mock_run_claude.call_args
+            # Model should be "sonnet" from stage_models["implement"]
+            assert call_kwargs.kwargs["model"] == "sonnet"
+
+    def test_run_prompt_falls_back_to_implement_model(self, workflow_context):
+        """Test that _run_prompt falls back to 'Implement' model when stage not in config."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        # Create a mock config without the specific stage
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {
+            "Implement": "opus",  # Only the fallback is defined
+        }
+        mock_config.claude_code_enable_telemetry = False
+
+        with patch("src.workflows.implement.run_claude") as mock_run_claude:
+            workflow._run_prompt(
+                prompt="/implement_github for issue",
+                ctx=workflow_context,
+                config=mock_config,
+                stage_name="unknown_stage",  # Not in stage_models
+            )
+
+            mock_run_claude.assert_called_once()
+            call_kwargs = mock_run_claude.call_args
+            # Model should fall back to "opus" from stage_models["Implement"]
+            assert call_kwargs.kwargs["model"] == "opus"
