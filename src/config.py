@@ -287,6 +287,12 @@ def load_config_from_env() -> Config:
             "Please set the hostname of your GitHub Enterprise Server."
         )
 
+    # Set tokens in environment so Claude subprocesses can use gh CLI
+    if github_token:
+        os.environ["GITHUB_TOKEN"] = github_token
+    if github_enterprise_token:
+        os.environ["GITHUB_TOKEN"] = github_enterprise_token
+
     # PROJECT_URLS: comma-separated list of project URLs
     project_urls_env = os.environ.get("PROJECT_URLS")
     if not project_urls_env:
