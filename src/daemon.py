@@ -252,6 +252,9 @@ class Daemon:
         self.workspace_manager = WorkspaceManager(config.workspace_dir)
         logger.debug(f"Workspace manager initialized with dir: {config.workspace_dir}")
 
+        # Sync .claude/ to workspaces/ so all worktrees inherit commands/agents
+        self._sync_claude_to_workspaces()
+
         self.runner = WorkflowRunner(config, version=version)
 
         self.comment_processor = CommentProcessor(
@@ -1384,54 +1387,40 @@ class Daemon:
         else:
             logger.info("Auto-prepared worktree")
 
-        # Sync .claude/commands to the new worktree
-        self._sync_claude_commands(item)
+    def _sync_claude_to_workspaces(self) -> None:
+        """Sync .claude/ from bundled binary to workspaces/ directory.
 
-    def _sync_claude_commands(self, item: TicketItem) -> None:
-        """Sync .claude/commands from daemon repo to worktree.
-
-        This ensures worktrees have the latest commands even if they were
-        created from an older branch.
-
-        Args:
-            item: TicketItem to sync commands for
+        This copies the entire .claude/ folder (commands, agents, skills) to
+        the workspaces directory once. All worktrees underneath will inherit
+        these via Claude Code's parent directory lookup.
         """
         import shutil
 
-        # Construct worktree path (same logic as PrepareWorkflow)
-        repo_name = item.repo.split("/")[-1] if "/" in item.repo else item.repo
-        worktree_path = Path(self.config.workspace_dir) / f"{repo_name}-issue-{item.ticket_id}"
-
-        # Source commands from daemon's repo (where kiln is running from)
-        # PyInstaller sets sys._MEIPASS when running from bundle, else use repo root
+        # Source .claude from bundle or repo root
         if hasattr(sys, "_MEIPASS"):
             base_path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
         else:
             base_path = Path(__file__).parent.parent  # repo root
-        daemon_commands = base_path / ".claude" / "commands"
-        worktree_commands = worktree_path / ".claude" / "commands"
 
-        if not daemon_commands.exists():
-            logger.debug("No .claude/commands in daemon repo, skipping sync")
-            return
+        source_claude = base_path / ".claude"
+        dest_claude = Path(self.config.workspace_dir) / ".claude"
 
-        if not worktree_path.exists():
-            logger.warning(f"Worktree not found at {worktree_path}, skipping command sync")
+        if not source_claude.exists():
+            logger.debug("No .claude/ in source, skipping sync")
             return
 
         try:
-            # Create .claude directory if it doesn't exist
-            worktree_commands.parent.mkdir(parents=True, exist_ok=True)
+            # Ensure workspaces directory exists
+            Path(self.config.workspace_dir).mkdir(parents=True, exist_ok=True)
 
-            # Copy each command file (overwrite if exists)
-            for cmd_file in daemon_commands.glob("*.md"):
-                dest = worktree_commands / cmd_file.name
-                shutil.copy2(cmd_file, dest)
-                logger.debug(f"Synced command: {cmd_file.name}")
+            # Remove existing .claude/ and copy fresh
+            if dest_claude.exists():
+                shutil.rmtree(dest_claude)
+            shutil.copytree(source_claude, dest_claude)
 
-            logger.info(f"Synced .claude/commands to {worktree_path}")
+            logger.info(f"Synced .claude/ to {self.config.workspace_dir}")
         except Exception as e:
-            logger.warning(f"Failed to sync .claude/commands: {e}")
+            logger.warning(f"Failed to sync .claude/ to workspaces: {e}")
 
     def _run_workflow(
         self,
@@ -1457,9 +1446,6 @@ class Daemon:
 
         # Determine workspace path based on workflow
         workspace_path = self._get_worktree_path(item.repo, item.ticket_id)
-
-        # Sync .claude/commands to ensure worktree has latest commands
-        self._sync_claude_commands(item)
 
         # Rebase on first Research run (no research_ready label yet) - use cached labels
         if workflow_name == "Research":
