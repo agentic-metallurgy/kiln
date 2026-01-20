@@ -6,6 +6,7 @@ On subsequent runs, it loads the config and starts the daemon.
 """
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -62,6 +63,43 @@ BANNER_PLAIN = f"""
 def get_kiln_dir() -> Path:
     """Get the .kiln directory path in the current working directory."""
     return Path.cwd() / KILN_DIR
+
+
+def extract_claude_resources() -> Path:
+    """Extract bundled Claude resources to .kiln/ directory.
+
+    Copies commands, agents, and skills from the bundled .claude/ folder
+    (or repo root in development) to .kiln/commands, .kiln/agents, .kiln/skills.
+
+    This is called on every startup to ensure the latest resources are available.
+
+    Returns:
+        Path to the .kiln directory containing extracted resources
+    """
+    kiln_dir = get_kiln_dir()
+
+    # Source .claude from bundle or repo root
+    base_path = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else Path(__file__).parent.parent  # type: ignore[attr-defined]
+
+    source_claude = base_path / ".claude"
+
+    if not source_claude.exists():
+        return kiln_dir
+
+    # Extract each subdirectory (commands, agents, skills)
+    for subdir in ["commands", "agents", "skills"]:
+        src = source_claude / subdir
+        dest = kiln_dir / subdir
+
+        if not src.exists():
+            continue
+
+        # Remove existing and copy fresh
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(src, dest)
+
+    return kiln_dir
 
 
 def print_banner() -> None:
@@ -130,14 +168,20 @@ def run_daemon(daemon_mode: bool = False) -> None:
         print("  ✓ claude CLI found")
         print()
 
-        # Phase 2: Load and validate config
+        # Phase 2: Extract Claude resources to .kiln/
+        print("Extracting Claude resources...")
+        extract_claude_resources()
+        print("  ✓ Resources extracted to .kiln/")
+        print()
+
+        # Phase 3: Load and validate config
         print("Loading configuration...")
         config = load_config()
         print("  ✓ PROJECT_URLS configured")
         print("  ✓ ALLOWED_USERNAMES configured")
         print()
 
-        # Phase 3: Validate project columns
+        # Phase 4: Validate project columns
         print("Validating project boards...")
 
         # Build tokens dict for client
