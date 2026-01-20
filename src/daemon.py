@@ -24,7 +24,14 @@ from src.config import Config, load_config
 from src.database import Database, ProjectMetadata
 from src.interfaces import TicketItem
 from src.labels import REQUIRED_LABELS, Labels
-from src.logger import clear_issue_context, get_logger, log_message, set_issue_context, setup_logging
+from src.logger import (
+    _extract_org_from_url,
+    clear_issue_context,
+    get_logger,
+    log_message,
+    set_issue_context,
+    setup_logging,
+)
 from src.security import check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients import get_github_client
@@ -1664,11 +1671,19 @@ def main() -> None:
         # Load configuration first (needed for log settings)
         config = load_config()
 
-        # Setup logging with config
+        # Extract org name from first project URL for log masking
+        org_name = None
+        if config.project_urls:
+            org_name = _extract_org_from_url(config.project_urls[0])
+
+        # Setup logging with config (including GHES masking)
         setup_logging(
             log_file=config.log_file,
             log_size=config.log_size,
             log_backups=config.log_backups,
+            mask_ghes_logs=config.mask_ghes_logs,
+            ghes_host=config.github_enterprise_host,
+            org_name=org_name,
         )
         logger.info("=== Agentic Metallurgy Daemon Starting ===")
         logger.info(f"Logging to file: {config.log_file}")
