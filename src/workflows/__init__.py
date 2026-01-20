@@ -8,7 +8,6 @@ Available workflows:
 - ResearchWorkflow: Analyzes issues and explores the codebase
 - PlanWorkflow: Creates detailed implementation plans
 - ImplementWorkflow: Executes the implementation plan
-- TestAccessWorkflow: Simple test to verify GitHub access works
 """
 
 from src.workflows.base import Workflow, WorkflowContext
@@ -17,7 +16,6 @@ from src.workflows.plan import PlanWorkflow
 from src.workflows.prepare import PrepareWorkflow
 from src.workflows.process_comments import ProcessCommentsWorkflow
 from src.workflows.research import ResearchWorkflow
-from src.workflows.test_access import TestAccessWorkflow
 
 __all__ = [
     "Workflow",
@@ -27,5 +25,4 @@ __all__ = [
     "PlanWorkflow",
     "ImplementWorkflow",
     "ProcessCommentsWorkflow",
-    "TestAccessWorkflow",
 ]
