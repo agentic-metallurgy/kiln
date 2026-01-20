@@ -14,6 +14,27 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+
+class ImplementationIncompleteError(Exception):
+    """Raised when implementation exits without completing all tasks.
+
+    This exception is used to signal that the implementation workflow exited
+    without completing all tasks due to stall detection, max iterations reached,
+    or no checkbox tasks found. The daemon catches this to apply the
+    'implementation_failed' label.
+    """
+
+    def __init__(self, reason: str, message: str):
+        """Initialize the exception.
+
+        Args:
+            reason: Short reason code (stall, max_iterations, no_tasks)
+            message: Human-readable description of what happened
+        """
+        self.reason = reason
+        super().__init__(message)
+
+
 # Constants for the implementation loop
 DEFAULT_MAX_ITERATIONS = 8  # Fallback if no TASKs detected
 MAX_STALL_COUNT = 2  # Stop after 2 iterations with no progress
