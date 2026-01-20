@@ -725,6 +725,104 @@ class TestGetIssueBody:
 
 
 @pytest.mark.unit
+class TestGetTicketLabels:
+    """Tests for GitHubTicketClient.get_ticket_labels()."""
+
+    def test_get_ticket_labels_returns_multiple_labels(self, github_client):
+        """Test fetching issue labels returns a set of label names."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "issue": {
+                        "labels": {
+                            "nodes": [
+                                {"name": "bug"},
+                                {"name": "priority:high"},
+                                {"name": "yolo"},
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            labels = github_client.get_ticket_labels("owner/repo", 42)
+
+        assert labels == {"bug", "priority:high", "yolo"}
+
+    def test_get_ticket_labels_returns_empty_set_for_no_labels(self, github_client):
+        """Test that an empty set is returned when issue has no labels."""
+        mock_response = {"data": {"repository": {"issue": {"labels": {"nodes": []}}}}}
+
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            labels = github_client.get_ticket_labels("owner/repo", 42)
+
+        assert labels == set()
+
+    def test_get_ticket_labels_returns_empty_set_for_nonexistent_issue(self, github_client):
+        """Test that empty set is returned when issue doesn't exist."""
+        mock_response = {"data": {"repository": {"issue": None}}}
+
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            labels = github_client.get_ticket_labels("owner/repo", 99999)
+
+        assert labels == set()
+
+    def test_get_ticket_labels_returns_empty_set_on_api_error(self, github_client):
+        """Test that API errors return empty set."""
+        with patch.object(
+            github_client, "_execute_graphql_query", side_effect=Exception("API error")
+        ):
+            labels = github_client.get_ticket_labels("owner/repo", 42)
+
+        assert labels == set()
+
+    def test_get_ticket_labels_makes_correct_api_call(self, github_client):
+        """Test that the correct GraphQL query is made with proper structure."""
+        mock_response = {
+            "data": {"repository": {"issue": {"labels": {"nodes": [{"name": "test"}]}}}}
+        }
+
+        with patch.object(
+            github_client, "_execute_graphql_query", return_value=mock_response
+        ) as mock_query:
+            github_client.get_ticket_labels("test-owner/test-repo", 123)
+
+            call_args = mock_query.call_args
+            query = call_args[0][0]
+            variables = call_args[0][1]
+
+            assert "repository(owner: $owner, name: $repo)" in query
+            assert "issue(number: $issueNumber)" in query
+            assert "labels(first: 100)" in query
+            assert "nodes" in query
+            assert "name" in query
+            assert variables["owner"] == "test-owner"
+            assert variables["repo"] == "test-repo"
+            assert variables["issueNumber"] == 123
+
+    def test_get_ticket_labels_handles_null_label_nodes(self, github_client):
+        """Test handling of null entries in label nodes."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "issue": {
+                        "labels": {
+                            "nodes": [{"name": "valid-label"}, None, {"name": "another-label"}]
+                        }
+                    }
+                }
+            }
+        }
+
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            labels = github_client.get_ticket_labels("owner/repo", 42)
+
+        assert labels == {"valid-label", "another-label"}
+
+
+@pytest.mark.unit
 class TestGetLastProjectStatusActor:
     """Tests for GitHubTicketClient.get_last_status_actor()."""
 
@@ -1030,7 +1128,9 @@ class TestTokenManagement:
 
     def test_get_token_for_host_found(self):
         """Test getting token for a configured host."""
-        client = GitHubTicketClient(tokens={"github.com": "ghp_abc", "custom.github.com": "ghp_xyz"})
+        client = GitHubTicketClient(
+            tokens={"github.com": "ghp_abc", "custom.github.com": "ghp_xyz"}
+        )
 
         assert client._get_token_for_host("github.com") == "ghp_abc"
         assert client._get_token_for_host("custom.github.com") == "ghp_xyz"
@@ -2323,9 +2423,7 @@ class TestAuthenticationErrorHandling:
         """Test that unauthorized error produces user-friendly message."""
         import subprocess
 
-        error = subprocess.CalledProcessError(
-            1, ["gh", "api"], stderr="401 Unauthorized"
-        )
+        error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="401 Unauthorized")
 
         with patch("subprocess.run", side_effect=error):
             with pytest.raises(RuntimeError) as exc_info:
@@ -2354,9 +2452,7 @@ class TestAuthenticationErrorHandling:
         """Test that 'no token' error produces user-friendly message."""
         import subprocess
 
-        error = subprocess.CalledProcessError(
-            1, ["gh", "api"], stderr="no token found"
-        )
+        error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="no token found")
 
         with patch("subprocess.run", side_effect=error):
             with pytest.raises(RuntimeError) as exc_info:
@@ -2369,9 +2465,7 @@ class TestAuthenticationErrorHandling:
         """Test that 'authentication' error produces user-friendly message."""
         import subprocess
 
-        error = subprocess.CalledProcessError(
-            1, ["gh", "api"], stderr="authentication required"
-        )
+        error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="authentication required")
 
         with patch("subprocess.run", side_effect=error):
             with pytest.raises(RuntimeError) as exc_info:
@@ -2418,9 +2512,7 @@ class TestAuthenticationErrorHandling:
         """Test that error message includes hostname."""
         import subprocess
 
-        error = subprocess.CalledProcessError(
-            1, ["gh", "api"], stderr="gh auth login"
-        )
+        error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="gh auth login")
 
         with patch("subprocess.run", side_effect=error):
             with pytest.raises(RuntimeError) as exc_info:
@@ -2436,17 +2528,7 @@ class TestGetParentIssue:
 
     def test_get_parent_issue_returns_parent_number(self, github_client):
         """Test that get_parent_issue returns parent issue number when present."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": {
-                        "parent": {
-                            "number": 42
-                        }
-                    }
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": {"parent": {"number": 42}}}}}
 
         with patch.object(
             github_client, "_execute_graphql_query_with_headers", return_value=mock_response
@@ -2457,15 +2539,7 @@ class TestGetParentIssue:
 
     def test_get_parent_issue_returns_none_when_no_parent(self, github_client):
         """Test that get_parent_issue returns None when issue has no parent."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": {
-                        "parent": None
-                    }
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": {"parent": None}}}}
 
         with patch.object(
             github_client, "_execute_graphql_query_with_headers", return_value=mock_response
@@ -2485,15 +2559,7 @@ class TestGetParentIssue:
 
     def test_get_parent_issue_uses_sub_issues_header(self, github_client):
         """Test that get_parent_issue sends the GraphQL-Features: sub_issues header."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": {
-                        "parent": None
-                    }
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": {"parent": None}}}}
 
         with patch.object(
             github_client, "_execute_graphql_query_with_headers", return_value=mock_response
@@ -2525,7 +2591,7 @@ class TestGetPrForIssue:
                                     "number": 99,
                                     "url": "https://github.com/owner/repo/pull/99",
                                     "headRefName": "feature-branch",
-                                    "state": "OPEN"
+                                    "state": "OPEN",
                                 }
                             ]
                         }
@@ -2554,14 +2620,14 @@ class TestGetPrForIssue:
                                     "number": 88,
                                     "url": "https://github.com/owner/repo/pull/88",
                                     "headRefName": "old-branch",
-                                    "state": "CLOSED"
+                                    "state": "CLOSED",
                                 },
                                 {
                                     "number": 99,
                                     "url": "https://github.com/owner/repo/pull/99",
                                     "headRefName": "feature-branch",
-                                    "state": "OPEN"
-                                }
+                                    "state": "OPEN",
+                                },
                             ]
                         }
                     }
@@ -2588,7 +2654,7 @@ class TestGetPrForIssue:
                                     "number": 88,
                                     "url": "https://github.com/owner/repo/pull/88",
                                     "headRefName": "old-branch",
-                                    "state": "CLOSED"
+                                    "state": "CLOSED",
                                 }
                             ]
                         }
@@ -2614,15 +2680,7 @@ class TestGetPrForIssue:
     def test_get_pr_for_issue_handles_empty_nodes(self, github_client):
         """Test that get_pr_for_issue handles empty PR nodes list."""
         mock_response = {
-            "data": {
-                "repository": {
-                    "issue": {
-                        "closedByPullRequestsReferences": {
-                            "nodes": []
-                        }
-                    }
-                }
-            }
+            "data": {"repository": {"issue": {"closedByPullRequestsReferences": {"nodes": []}}}}
         }
 
         with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
@@ -2667,10 +2725,9 @@ class TestExecuteGraphqlQueryWithHeaders:
 
     def test_execute_graphql_query_with_headers_raises_on_errors(self, github_client):
         """Test that GraphQL errors are raised."""
-        mock_response = json.dumps({
-            "data": None,
-            "errors": [{"message": "Field 'parent' doesn't exist"}]
-        })
+        mock_response = json.dumps(
+            {"data": None, "errors": [{"message": "Field 'parent' doesn't exist"}]}
+        )
 
         with patch.object(github_client, "_run_gh_command", return_value=mock_response):
             with pytest.raises(ValueError) as exc_info:
@@ -2715,15 +2772,7 @@ class TestGetChildIssues:
 
     def test_get_child_issues_returns_empty_when_no_children(self, github_client):
         """Test that get_child_issues returns empty list when no children."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": {
-                        "subIssues": {"nodes": []}
-                    }
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": {"subIssues": {"nodes": []}}}}}
 
         with patch.object(
             github_client, "_execute_graphql_query_with_headers", return_value=mock_response
@@ -2743,9 +2792,7 @@ class TestGetChildIssues:
 
     def test_get_child_issues_uses_sub_issues_header(self, github_client):
         """Test that get_child_issues sends the sub_issues header."""
-        mock_response = {
-            "data": {"repository": {"issue": {"subIssues": {"nodes": []}}}}
-        }
+        mock_response = {"data": {"repository": {"issue": {"subIssues": {"nodes": []}}}}}
 
         with patch.object(
             github_client, "_execute_graphql_query_with_headers", return_value=mock_response
@@ -2764,15 +2811,7 @@ class TestGetPrHeadSha:
 
     def test_get_pr_head_sha_returns_sha(self, github_client):
         """Test that get_pr_head_sha returns the HEAD SHA."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "pullRequest": {
-                        "headRefOid": "abc123def456"
-                    }
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"pullRequest": {"headRefOid": "abc123def456"}}}}
 
         with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             sha = github_client.get_pr_head_sha("github.com/owner/repo", 42)
@@ -2781,13 +2820,7 @@ class TestGetPrHeadSha:
 
     def test_get_pr_head_sha_returns_none_when_no_pr(self, github_client):
         """Test that get_pr_head_sha returns None when PR not found."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "pullRequest": None
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"pullRequest": None}}}
 
         with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             sha = github_client.get_pr_head_sha("github.com/owner/repo", 42)
@@ -2844,9 +2877,7 @@ class TestSetCommitStatus:
 
     def test_set_commit_status_returns_false_on_error(self, github_client):
         """Test that set_commit_status returns False on API errors."""
-        with patch.object(
-            github_client, "_run_gh_command", side_effect=Exception("API error")
-        ):
+        with patch.object(github_client, "_run_gh_command", side_effect=Exception("API error")):
             result = github_client.set_commit_status(
                 repo="github.com/owner/repo",
                 sha="abc123",
