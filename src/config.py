@@ -186,6 +186,8 @@ def load_config_from_file(config_path: Path) -> Config:
         os.environ["GITHUB_TOKEN"] = github_token
     if github_enterprise_token:
         os.environ["GITHUB_TOKEN"] = github_enterprise_token
+        # gh CLI uses GH_ENTERPRISE_TOKEN for GHES authentication
+        os.environ["GH_ENTERPRISE_TOKEN"] = github_enterprise_token
 
     # Parse required fields
     project_urls_str = data.get("PROJECT_URLS", "")
@@ -318,6 +320,8 @@ def load_config_from_env() -> Config:
         os.environ["GITHUB_TOKEN"] = github_token
     if github_enterprise_token:
         os.environ["GITHUB_TOKEN"] = github_enterprise_token
+        # gh CLI uses GH_ENTERPRISE_TOKEN for GHES authentication
+        os.environ["GH_ENTERPRISE_TOKEN"] = github_enterprise_token
 
     # PROJECT_URLS: comma-separated list of project URLs
     project_urls_env = os.environ.get("PROJECT_URLS")
