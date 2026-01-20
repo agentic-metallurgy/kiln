@@ -132,6 +132,31 @@ def create_claude_symlinks() -> None:
         link.symlink_to(source)
 
 
+def cleanup_claude_symlinks() -> None:
+    """Remove symlinks in ~/.claude/ that point to .kiln/ resources.
+
+    Removes symlinks at ~/.claude/{commands,agents,skills}/kiln/ that were
+    created by create_claude_symlinks(). This is called during daemon shutdown
+    to clean up kiln's footprint.
+
+    Errors are logged as warnings but do not cause crashes.
+    """
+    from src.logger import get_logger
+
+    logger = get_logger(__name__)
+    claude_home = Path.home() / ".claude"
+
+    for subdir in ["commands", "agents", "skills"]:
+        link = claude_home / subdir / "kiln"
+
+        try:
+            if link.is_symlink():
+                link.unlink()
+                logger.debug(f"Removed symlink {link}")
+        except Exception as e:
+            logger.warning(f"Failed to remove symlink {link}: {e}")
+
+
 def print_banner() -> None:
     """Print the kiln ASCII banner with fire gradient."""
     print(get_banner())

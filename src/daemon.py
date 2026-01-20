@@ -458,6 +458,8 @@ class Daemon:
 
     def stop(self) -> None:
         """Stop the daemon gracefully."""
+        from src.cli import cleanup_claude_symlinks
+
         logger.debug("Stopping daemon")
         self._running = False
 
@@ -475,6 +477,13 @@ class Daemon:
             logger.debug("Database connection closed")
         except Exception as e:
             logger.error(f"Error closing database: {e}")
+
+        # Clean up Claude symlinks
+        try:
+            cleanup_claude_symlinks()
+            logger.debug("Claude symlinks cleaned up")
+        except Exception as e:
+            logger.warning(f"Error cleaning up Claude symlinks: {e}")
 
         logger.debug("Daemon stopped")
 
