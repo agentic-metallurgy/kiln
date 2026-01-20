@@ -551,22 +551,29 @@ class Daemon:
 
             # YOLO: Move Backlog issues with yolo label to Research
             for item in all_items:
-                if (
-                    item.status == "Backlog"
-                    and Labels.YOLO in item.labels
-                    and item.state != "CLOSED"
-                ):
-                    key = f"{item.repo}#{item.ticket_id}"
-                    actor = self.ticket_client.get_label_actor(
-                        item.repo, item.ticket_id, Labels.YOLO
-                    )
-                    if not check_actor_allowed(actor, self.config.allowed_username, key, "YOLO"):
-                        continue
-                    logger.info(
-                        f"YOLO: Starting auto-progression for {key} from Backlog "
-                        f"(label added by allowed user '{actor}')"
-                    )
-                    self.ticket_client.update_item_status(item.item_id, "Research")
+                # Fast path: if not in cached labels, definitely not present
+                if Labels.YOLO not in item.labels:
+                    continue
+                if item.status != "Backlog" or item.state == "CLOSED":
+                    continue
+
+                key = f"{item.repo}#{item.ticket_id}"
+
+                # Fresh check: verify yolo label is still present (may have been removed since poll started)
+                if not self._has_yolo_label(item.repo, item.ticket_id):
+                    logger.debug(f"YOLO: Skipping Backlog→Research for {key} - yolo label was removed")
+                    continue
+
+                actor = self.ticket_client.get_label_actor(
+                    item.repo, item.ticket_id, Labels.YOLO
+                )
+                if not check_actor_allowed(actor, self.config.allowed_username, key, "YOLO"):
+                    continue
+                logger.info(
+                    f"YOLO: Starting auto-progression for {key} from Backlog "
+                    f"(label added by allowed user '{actor}')"
+                )
+                self.ticket_client.update_item_status(item.item_id, "Research")
 
             # Handle reset label: clear kiln content and move issue to Backlog
             for item in all_items:
@@ -725,6 +732,8 @@ class Daemon:
         """Advance an item to the next YOLO status.
 
         Validates that the yolo label was added by an allowed user before advancing.
+        Also verifies the label is still present (fresh check) in case it was removed
+        after _should_yolo_advance() returned True but before this method runs.
 
         Args:
             item: TicketItem to advance
@@ -733,6 +742,11 @@ class Daemon:
         yolo_next = self.YOLO_PROGRESSION.get(item.status)
 
         if not yolo_next:
+            return
+
+        # Fresh check: verify yolo label is still present before advancing
+        if not self._has_yolo_label(item.repo, item.ticket_id):
+            logger.info(f"YOLO: Skipping advancement for {key} - yolo label was removed")
             return
 
         actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.YOLO)
