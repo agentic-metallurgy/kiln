@@ -1759,6 +1759,64 @@ class TestClosePr:
 
 
 @pytest.mark.unit
+class TestDeleteBranch:
+    """Tests for GitHubTicketClient.delete_branch() method."""
+
+    def test_delete_branch_success(self, github_client):
+        """Test successfully deleting a branch."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            result = github_client.delete_branch("github.com/owner/repo", "feature-branch")
+
+        assert result is True
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0][0]
+        assert call_args == ["api", "repos/owner/repo/git/refs/heads/feature-branch", "-X", "DELETE"]
+
+    def test_delete_branch_returns_false_when_not_found(self, github_client):
+        """Test that False is returned when branch doesn't exist."""
+        error = subprocess.CalledProcessError(1, "gh")
+        error.stderr = "HTTP 404: Not Found"
+        with patch.object(github_client, "_run_gh_command", side_effect=error):
+            result = github_client.delete_branch("github.com/owner/repo", "nonexistent-branch")
+
+        assert result is False
+
+    def test_delete_branch_returns_false_on_error(self, github_client):
+        """Test that False is returned on API error."""
+        error = subprocess.CalledProcessError(1, "gh")
+        error.stderr = "API error"
+        with patch.object(github_client, "_run_gh_command", side_effect=error):
+            result = github_client.delete_branch("github.com/owner/repo", "feature-branch")
+
+        assert result is False
+
+    def test_delete_branch_handles_slashes_in_name(self, github_client):
+        """Test that branch names with slashes are URL-encoded."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            github_client.delete_branch("github.com/owner/repo", "feature/my-feature")
+
+        call_args = mock_run.call_args[0][0]
+        # Branch name with slash should be URL-encoded
+        assert call_args == ["api", "repos/owner/repo/git/refs/heads/feature%2Fmy-feature", "-X", "DELETE"]
+
+    def test_delete_branch_uses_hostname_for_ghes(self, github_client):
+        """Test that hostname is passed for GHES compatibility."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            github_client.delete_branch("github.example.com/myorg/myrepo", "feature-branch")
+
+        mock_run.assert_called_once()
+        assert mock_run.call_args[1]["hostname"] == "github.example.com"
+
+    def test_delete_branch_parses_repo_correctly(self, github_client):
+        """Test that repo is parsed correctly for API endpoint."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            github_client.delete_branch("github.com/my-org/my-repo", "fix-bug")
+
+        call_args = mock_run.call_args[0][0]
+        assert "repos/my-org/my-repo/git/refs/heads/fix-bug" in call_args[1]
+
+
+@pytest.mark.unit
 class TestLinkedPullRequest:
     """Tests for LinkedPullRequest dataclass."""
 

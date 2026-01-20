@@ -208,3 +208,15 @@ class TicketClient(Protocol):
             True if PR was closed successfully, False otherwise
         """
         ...
+
+    def delete_branch(self, repo: str, branch_name: str) -> bool:
+        """Delete a remote branch.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            branch_name: Name of the branch to delete
+
+        Returns:
+            True if branch was deleted successfully, False otherwise
+        """
+        ...

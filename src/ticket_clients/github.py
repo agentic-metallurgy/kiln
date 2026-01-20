@@ -1483,6 +1483,35 @@ class GitHubTicketClient:
             logger.warning(f"Failed to close PR #{pr_number} in {repo}: {e.stderr}")
             return False
 
+    def delete_branch(self, repo: str, branch_name: str) -> bool:
+        """Delete a remote branch.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            branch_name: Name of the branch to delete
+
+        Returns:
+            True if branch was deleted successfully, False otherwise
+        """
+        hostname, owner, repo_name = self._parse_repo(repo)
+        # URL-encode the branch name for the API path
+        encoded_branch = branch_name.replace("/", "%2F")
+        endpoint = f"repos/{owner}/{repo_name}/git/refs/heads/{encoded_branch}"
+
+        try:
+            args = ["api", endpoint, "-X", "DELETE"]
+            self._run_gh_command(args, hostname=hostname)
+            logger.info(f"Deleted branch '{branch_name}' in {repo}")
+            return True
+        except subprocess.CalledProcessError as e:
+            # Branch may not exist or already be deleted
+            error_output = (e.stderr or "").lower()
+            if "not found" in error_output or "404" in error_output:
+                logger.debug(f"Branch '{branch_name}' not found in {repo}")
+            else:
+                logger.warning(f"Failed to delete branch '{branch_name}' in {repo}: {e.stderr}")
+            return False
+
     def _remove_closes_keyword(self, body: str, issue_number: int) -> str:
         """Remove linking keywords for a specific issue from PR body text.
 
