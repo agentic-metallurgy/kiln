@@ -688,7 +688,7 @@ class Daemon:
         Returns:
             True if item should be advanced to next YOLO status
         """
-        # Must have yolo label
+        # Fast path: if not in cached labels, definitely not present
         if Labels.YOLO not in item.labels:
             return False
 
@@ -710,7 +710,16 @@ class Daemon:
             return False
 
         complete_label = config["complete_label"]
-        return bool(complete_label and complete_label in item.labels)
+        if not (complete_label and complete_label in item.labels):
+            return False
+
+        # Fresh check: verify yolo label is still present (may have been removed since poll started)
+        if not self._has_yolo_label(item.repo, item.ticket_id):
+            key = f"{item.repo}#{item.ticket_id}"
+            logger.debug(f"YOLO: Skipping advancement for {key} - yolo label was removed")
+            return False
+
+        return True
 
     def _yolo_advance(self, item: TicketItem) -> None:
         """Advance an item to the next YOLO status.
