@@ -660,6 +660,11 @@ class Daemon:
             logger.debug(f"Skipping {key} - has '{Labels.IMPLEMENTATION_FAILED}' label")
             return False
 
+        # Skip if research previously failed (requires manual intervention)
+        if item.status == "Research" and Labels.RESEARCH_FAILED in item.labels:
+            logger.debug(f"Skipping {key} - has '{Labels.RESEARCH_FAILED}' label")
+            return False
+
         actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
         if not check_actor_allowed(actor, self.config.allowed_username, key):
             return False
