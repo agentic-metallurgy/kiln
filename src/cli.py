@@ -102,6 +102,36 @@ def extract_claude_resources() -> Path:
     return kiln_dir
 
 
+def create_claude_symlinks() -> None:
+    """Create symlinks in ~/.claude/ pointing to .kiln/ resources.
+
+    Creates symlinks at ~/.claude/{commands,agents,skills}/kiln/ pointing to
+    the corresponding directories in .kiln/. This allows Claude Code to discover
+    kiln's resources via the global ~/.claude/ directory.
+
+    Existing symlinks are removed before creating new ones to ensure freshness.
+    Parent directories are created if needed.
+    """
+    kiln_dir = get_kiln_dir()
+    claude_home = Path.home() / ".claude"
+
+    for subdir in ["commands", "agents", "skills"]:
+        source = kiln_dir / subdir
+        if not source.exists():
+            continue
+
+        # Create parent directory if needed (e.g., ~/.claude/commands/)
+        link_parent = claude_home / subdir
+        link_parent.mkdir(parents=True, exist_ok=True)
+
+        # Create symlink at ~/.claude/{subdir}/kiln -> .kiln/{subdir}
+        link = link_parent / "kiln"
+
+        # Unlink existing symlink (if any) and create fresh
+        link.unlink(missing_ok=True)
+        link.symlink_to(source)
+
+
 def print_banner() -> None:
     """Print the kiln ASCII banner with fire gradient."""
     print(get_banner())
@@ -172,6 +202,12 @@ def run_daemon(daemon_mode: bool = False) -> None:
         print("Extracting Claude resources...")
         extract_claude_resources()
         print("  ✓ Resources extracted to .kiln/")
+        print()
+
+        # Phase 2b: Create symlinks in ~/.claude/
+        print("Creating Claude symlinks...")
+        create_claude_symlinks()
+        print("  ✓ Symlinks created in ~/.claude/")
         print()
 
         # Phase 3: Load and validate config
