@@ -236,7 +236,9 @@ class Daemon:
         logger.debug(f"Database initialized at {config.database_path}")
 
         tokens: dict[str, str] = {}
-        if config.github_token:
+        if config.github_enterprise_host and config.github_enterprise_token:
+            tokens[config.github_enterprise_host] = config.github_enterprise_token
+        elif config.github_token:
             tokens["github.com"] = config.github_token
         self.ticket_client = GitHubTicketClient(tokens)
         logger.debug("Ticket client initialized")
@@ -1455,6 +1457,9 @@ class Daemon:
 
         # Determine workspace path based on workflow
         workspace_path = self._get_worktree_path(item.repo, item.ticket_id)
+
+        # Copy .claude/ to ensure worktree has latest commands/skills/agents
+        self._copy_claude_to_worktree(workspace_path)
 
         # Rebase on first Research run (no research_ready label yet) - use cached labels
         if workflow_name == "Research":
