@@ -613,3 +613,131 @@ class TestExtractOrgFromUrl:
         """Test None is returned for malformed URLs."""
         assert _extract_org_from_url("not-a-url") is None
         assert _extract_org_from_url("/orgs/") is None
+
+
+@pytest.mark.integration
+class TestMaskingIntegration:
+    """Integration tests for log masking functionality."""
+
+    def teardown_method(self):
+        """Clean up root logger and issue context after each test."""
+        root = logging.getLogger()
+        root.handlers.clear()
+        root.setLevel(logging.WARNING)
+        clear_issue_context()
+
+    def test_masked_output_in_log_file(self, tmp_path, monkeypatch):
+        """Test that GHES hostname and org are masked in log file output."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+
+        log_file = tmp_path / "logs" / "test.log"
+        ghes_host = "github.enterprise.com"
+        org_name = "secret-org"
+
+        # Setup logging with masking enabled
+        setup_logging(
+            log_file=str(log_file),
+            mask_ghes_logs=True,
+            ghes_host=ghes_host,
+            org_name=org_name,
+        )
+
+        # Set issue context with GHES hostname and org
+        set_issue_context(f"{ghes_host}/{org_name}/my-repo", 123)
+
+        # Log messages containing sensitive data
+        test_logger = get_logger("test.integration.masking")
+        test_logger.info(f"Processing {ghes_host}/{org_name}/my-repo#123")
+        test_logger.info(f"Fetching from https://{ghes_host}/orgs/{org_name}/projects/5")
+        test_logger.warning(f"Issue at {ghes_host}/{org_name}/another-repo")
+
+        # Force flush handlers
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+
+        # Read log file content
+        log_content = log_file.read_text()
+
+        # Verify GHES hostname is masked
+        assert ghes_host not in log_content, f"GHES host '{ghes_host}' should be masked"
+        assert "<GHES>" in log_content, "Log should contain <GHES> placeholder"
+
+        # Verify org name is masked
+        assert f"/{org_name}/" not in log_content, f"Org '{org_name}' should be masked in paths"
+        assert f"/orgs/{org_name}" not in log_content, f"Org '{org_name}' should be masked in project URLs"
+        assert "/<ORG>/" in log_content, "Log should contain /<ORG>/ placeholder"
+        assert "/orgs/<ORG>" in log_content, "Log should contain /orgs/<ORG> placeholder"
+
+        # Verify the repo name (non-sensitive) is still present
+        assert "my-repo" in log_content, "Repo name should be preserved"
+
+    def test_unmasked_output_when_disabled(self, tmp_path, monkeypatch):
+        """Test that logs are not masked when mask_ghes_logs is False."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+
+        log_file = tmp_path / "logs" / "test.log"
+        ghes_host = "github.enterprise.com"
+        org_name = "secret-org"
+
+        # Setup logging with masking DISABLED
+        setup_logging(
+            log_file=str(log_file),
+            mask_ghes_logs=False,
+            ghes_host=ghes_host,
+            org_name=org_name,
+        )
+
+        # Set issue context
+        set_issue_context(f"{ghes_host}/{org_name}/my-repo", 123)
+
+        # Log a message
+        test_logger = get_logger("test.integration.unmasked")
+        test_logger.info(f"Processing {ghes_host}/{org_name}/my-repo#123")
+
+        # Force flush handlers
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+
+        # Read log file content
+        log_content = log_file.read_text()
+
+        # Verify GHES hostname is NOT masked
+        assert ghes_host in log_content, f"GHES host '{ghes_host}' should NOT be masked"
+        assert "<GHES>" not in log_content, "Log should NOT contain <GHES> placeholder"
+
+        # Verify org name is NOT masked
+        assert f"/{org_name}/" in log_content, f"Org '{org_name}' should NOT be masked"
+
+    def test_unmasked_output_for_github_com(self, tmp_path, monkeypatch):
+        """Test that logs are not masked when host is github.com."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+
+        log_file = tmp_path / "logs" / "test.log"
+        ghes_host = "github.com"
+        org_name = "public-org"
+
+        # Setup logging with masking enabled but for github.com
+        setup_logging(
+            log_file=str(log_file),
+            mask_ghes_logs=True,
+            ghes_host=ghes_host,
+            org_name=org_name,
+        )
+
+        # Set issue context
+        set_issue_context(f"{ghes_host}/{org_name}/my-repo", 123)
+
+        # Log a message
+        test_logger = get_logger("test.integration.github_com")
+        test_logger.info(f"Processing {ghes_host}/{org_name}/my-repo#123")
+
+        # Force flush handlers
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+
+        # Read log file content
+        log_content = log_file.read_text()
+
+        # Verify github.com is NOT masked
+        assert ghes_host in log_content, "github.com should NOT be masked"
+        assert "<GHES>" not in log_content, "Log should NOT contain <GHES> placeholder"

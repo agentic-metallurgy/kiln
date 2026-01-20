@@ -168,18 +168,48 @@ class ColoredFormatter(logging.Formatter):
 class ContextAwareFormatter(ColoredFormatter):
     """Formatter that injects issue context from contextvars."""
 
+    def __init__(
+        self, fmt: str | None = None, masking_filter: "MaskingFilter | None" = None
+    ) -> None:
+        """Initialize the formatter.
+
+        Args:
+            fmt: Format string for log messages.
+            masking_filter: Optional MaskingFilter to apply to issue_context.
+        """
+        super().__init__(fmt)
+        self.masking_filter = masking_filter
+
     def format(self, record: logging.LogRecord) -> str:
         """Format the log record with issue context."""
-        record.issue_context = get_issue_context()
+        issue_context = get_issue_context()
+        if self.masking_filter:
+            issue_context = self.masking_filter._mask_value(issue_context)
+        record.issue_context = issue_context
         return super().format(record)
 
 
 class PlainContextAwareFormatter(logging.Formatter):
     """Plain formatter (no colors) that injects issue context from contextvars."""
 
+    def __init__(
+        self, fmt: str | None = None, masking_filter: "MaskingFilter | None" = None
+    ) -> None:
+        """Initialize the formatter.
+
+        Args:
+            fmt: Format string for log messages.
+            masking_filter: Optional MaskingFilter to apply to issue_context.
+        """
+        super().__init__(fmt)
+        self.masking_filter = masking_filter
+
     def format(self, record: logging.LogRecord) -> str:
         """Format the log record with issue context."""
-        record.issue_context = get_issue_context()
+        issue_context = get_issue_context()
+        if self.masking_filter:
+            issue_context = self.masking_filter._mask_value(issue_context)
+        record.issue_context = issue_context
         return super().format(record)
 
 
@@ -308,11 +338,16 @@ def setup_logging(
     log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
 
-    # Create context-aware colored formatter
+    # Create masking filter if enabled and GHES is configured
+    masking_filter = None
+    if mask_ghes_logs and ghes_host and ghes_host != "github.com":
+        masking_filter = MaskingFilter(ghes_host, org_name)
+
+    # Create context-aware colored formatter (with optional masking)
     log_format = (
         "[%(asctime)s] %(levelname)s %(issue_context)s %(threadName)s %(name)s: %(message)s"
     )
-    formatter = ContextAwareFormatter(log_format)
+    formatter = ContextAwareFormatter(log_format, masking_filter=masking_filter)
 
     # Configure root logger
     root_logger = logging.getLogger()
@@ -320,11 +355,6 @@ def setup_logging(
 
     # Remove any existing handlers
     root_logger.handlers.clear()
-
-    # Create masking filter if enabled and GHES is configured
-    masking_filter = None
-    if mask_ghes_logs and ghes_host and ghes_host != "github.com":
-        masking_filter = MaskingFilter(ghes_host, org_name)
 
     # Add console handlers only in non-daemon mode
     if not daemon_mode:
@@ -350,8 +380,10 @@ def setup_logging(
     # Add file handler for persistent logging (always when log_file specified)
     if log_file:
         try:
-            # Plain context-aware formatter for file output (no ANSI colors)
-            plain_formatter = PlainContextAwareFormatter(log_format)
+            # Plain context-aware formatter for file output (no ANSI colors, with optional masking)
+            plain_formatter = PlainContextAwareFormatter(
+                log_format, masking_filter=masking_filter
+            )
 
             log_dir = os.path.dirname(log_file)
             if log_dir:
