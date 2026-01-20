@@ -24,7 +24,13 @@ from src.config import Config, load_config
 from src.database import Database, ProjectMetadata
 from src.interfaces import TicketItem
 from src.labels import REQUIRED_LABELS, Labels
-from src.logger import clear_issue_context, get_logger, log_message, set_issue_context, setup_logging
+from src.logger import (
+    clear_issue_context,
+    get_logger,
+    log_message,
+    set_issue_context,
+    setup_logging,
+)
 from src.security import check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients.github import GitHubTicketClient
@@ -36,6 +42,7 @@ from src.workflows import (
     Workflow,
     WorkflowContext,
 )
+from src.workflows.implement import ImplementationIncompleteError
 from src.workspace import WorkspaceError, WorkspaceManager
 
 logger = get_logger(__name__)
@@ -1496,6 +1503,15 @@ class Daemon:
                 logger.info(
                     f"Saved {workflow_name} session for future resumption: {session_id[:8]}..."
                 )
+        except ImplementationIncompleteError as e:
+            logger.warning(f"Implementation incomplete for {workflow_name}: {e} (reason: {e.reason})")
+            if workflow_name == "Implement":
+                self.ticket_client.add_label(item.repo, item.ticket_id, Labels.IMPLEMENTATION_FAILED)
+                logger.info(
+                    f"Added '{Labels.IMPLEMENTATION_FAILED}' label to "
+                    f"{item.repo}#{item.ticket_id} (reason: {e.reason})"
+                )
+            raise
         except Exception as e:
             logger.error(f"Workflow '{workflow_name}' failed: {e}", exc_info=True)
             # Add failure label for Implement workflow
