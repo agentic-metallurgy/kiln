@@ -14,6 +14,27 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+
+class ImplementationIncompleteError(Exception):
+    """Raised when implementation exits without completing all tasks.
+
+    This exception is used to signal that the implementation workflow exited
+    without completing all tasks due to stall detection, max iterations reached,
+    or no checkbox tasks found. The daemon catches this to apply the
+    'implementation_failed' label.
+    """
+
+    def __init__(self, reason: str, message: str):
+        """Initialize the exception.
+
+        Args:
+            reason: Short reason code (stall, max_iterations, no_tasks)
+            message: Human-readable description of what happened
+        """
+        self.reason = reason
+        super().__init__(message)
+
+
 # Constants for the implementation loop
 DEFAULT_MAX_ITERATIONS = 8  # Fallback if no TASKs detected
 MAX_STALL_COUNT = 2  # Stop after 2 iterations with no progress
@@ -172,7 +193,10 @@ class ImplementWorkflow:
 
             if total_tasks == 0:
                 logger.warning(f"No checkbox tasks found in PR for {key}")
-                break
+                raise ImplementationIncompleteError(
+                    reason="no_tasks",
+                    message=f"No checkbox tasks found in PR for {key}",
+                )
 
             # Check if all tasks complete
             if completed_tasks == total_tasks:
@@ -187,7 +211,11 @@ class ImplementWorkflow:
                         f"No progress after {MAX_STALL_COUNT} iterations for {key} "
                         f"(stuck at {completed_tasks}/{total_tasks})"
                     )
-                    break
+                    raise ImplementationIncompleteError(
+                        reason="stall",
+                        message=f"No progress after {MAX_STALL_COUNT} iterations for {key} "
+                        f"(stuck at {completed_tasks}/{total_tasks})",
+                    )
             else:
                 stall_count = 0
 
@@ -220,6 +248,14 @@ class ImplementWorkflow:
             pr_number = pr_info.get("number")
             if total_tasks > 0 and completed_tasks == total_tasks and pr_number:
                 self._mark_pr_ready(ctx.repo, pr_number)
+            elif iteration >= max_iterations:
+                # Hit max iterations without completing all tasks
+                logger.warning(f"Hit max iterations ({max_iterations}) for {key}")
+                raise ImplementationIncompleteError(
+                    reason="max_iterations",
+                    message=f"Hit max iterations ({max_iterations}) for {key} "
+                    f"({completed_tasks}/{total_tasks} tasks complete)",
+                )
 
     def _mark_pr_ready(self, repo: str, pr_number: int) -> None:
         """Mark a draft PR as ready for review.
