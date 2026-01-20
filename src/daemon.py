@@ -33,7 +33,6 @@ from src.workflows import (
     PlanWorkflow,
     PrepareWorkflow,
     ResearchWorkflow,
-    TestAccessWorkflow,
     Workflow,
     WorkflowContext,
 )
@@ -166,7 +165,6 @@ class Daemon:
         "Research": ResearchWorkflow,
         "Plan": PlanWorkflow,
         "Implement": ImplementWorkflow,
-        "Test Access": TestAccessWorkflow,
     }
 
     # Workflow configuration with labels for state tracking
@@ -189,12 +187,6 @@ class Daemon:
             "running_label": Labels.IMPLEMENTING,
             "complete_label": None,  # Moves to Validate instead
             "next_status": "Validate",
-        },
-        "Test Access": {
-            "workflow": TestAccessWorkflow,
-            "running_label": Labels.TESTING_ACCESS,
-            "complete_label": None,
-            "next_status": None,
         },
     }
 
