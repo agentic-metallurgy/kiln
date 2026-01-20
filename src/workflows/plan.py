@@ -32,7 +32,7 @@ class PlanWorkflow:
 
         prompts = [
             # Prompt 1: Create implementation plan and post to GitHub issue
-            f"""/kiln:create_plan_github for issue {issue_url}. Do this ONLY if the issue description doesn't already contain `<!-- kiln:plan -->`.""",
+            f"""/kiln-create_plan_github for issue {issue_url}. Do this ONLY if the issue description doesn't already contain `<!-- kiln:plan -->`.""",
         ]
 
         logger.debug(f"Plan workflow prompt: {prompts[0]}")

@@ -33,7 +33,7 @@ from src.logger import (
 )
 from src.security import check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
-from src.ticket_clients.github import GitHubTicketClient
+from src.ticket_clients import get_github_client
 from src.workflows import (
     ImplementWorkflow,
     PlanWorkflow,
@@ -219,11 +219,6 @@ class Daemon:
             f"max_concurrent_workflows={config.max_concurrent_workflows}"
         )
 
-        # Create symlinks for kiln slash commands (cleanup happens on shutdown)
-        from src.cli import create_claude_symlinks
-
-        create_claude_symlinks()
-
         self.config = config
         self.version = version
         self._running = False
@@ -252,8 +247,16 @@ class Daemon:
             tokens[config.github_enterprise_host] = config.github_enterprise_token
         elif config.github_token:
             tokens["github.com"] = config.github_token
-        self.ticket_client = GitHubTicketClient(tokens)
-        logger.debug("Ticket client initialized")
+
+        # Create the appropriate GitHub client based on version
+        self.ticket_client = get_github_client(
+            tokens=tokens,
+            enterprise_version=config.github_enterprise_version,
+        )
+        logger.info(f"Ticket client initialized: {self.ticket_client.client_description}")
+
+        # Log feature availability for the selected client
+        self._log_client_features()
 
         self.workspace_manager = WorkspaceManager(config.workspace_dir)
         logger.debug(f"Workspace manager initialized with dir: {config.workspace_dir}")
@@ -279,6 +282,55 @@ class Daemon:
         self._validate_github_connections()
 
         logger.debug("Daemon initialization complete")
+
+    def _log_client_features(self) -> None:
+        """Log feature availability for the selected GitHub client.
+
+        This helps users understand which features are available or limited
+        based on their GitHub configuration (github.com vs GHES version).
+        """
+        client = self.ticket_client
+
+        if not client.supports_sub_issues:
+            logger.info(
+                f"  - Sub-issues (parent/child relationships) are disabled "
+                f"({client.client_description} does not support sub-issues API)"
+            )
+
+        if not client.supports_status_actor_check:
+            logger.warning(
+                f"  - Status change actor verification is disabled "
+                f"({client.client_description} does not support project timeline events)"
+            )
+            logger.warning(
+                "    Security note: Cannot verify who changed project status. "
+                "Ensure only authorized users have project write access."
+            )
+
+        # Log any specific notes about linked PR detection
+        if hasattr(client, 'check_merged_changes_for_issue'):
+            # GHES 3.14 uses alternative implementation
+            logger.info(
+                f"  - Merged PR detection: Using timelineItems + CLOSED_EVENT "
+                f"(closedByPullRequestsReferences unavailable in {client.client_description})"
+            )
+
+    def _get_hostname_from_url(self, url: str) -> str:
+        """Extract hostname from a GitHub URL.
+
+        Args:
+            url: GitHub URL (e.g., https://github.com/orgs/myorg/projects/1)
+
+        Returns:
+            Hostname (e.g., "github.com"), defaults to "github.com" if parsing fails
+        """
+        try:
+            parts = url.split("/")
+            if len(parts) >= 3 and parts[0] in ("http:", "https:") and parts[1] == "":
+                return parts[2]
+        except (IndexError, ValueError):
+            pass
+        return "github.com"
 
     def _validate_github_connections(self) -> None:
         """Validate GitHub connections for all configured project URLs.
@@ -470,8 +522,6 @@ class Daemon:
 
     def stop(self) -> None:
         """Stop the daemon gracefully."""
-        from src.cli import cleanup_claude_symlinks
-
         logger.debug("Stopping daemon")
         self._running = False
 
@@ -489,13 +539,6 @@ class Daemon:
             logger.debug("Database connection closed")
         except Exception as e:
             logger.error(f"Error closing database: {e}")
-
-        # Clean up Claude symlinks
-        try:
-            cleanup_claude_symlinks()
-            logger.debug("Claude symlinks cleaned up")
-        except Exception as e:
-            logger.warning(f"Error cleaning up Claude symlinks: {e}")
 
         logger.debug("Daemon stopped")
 
@@ -563,22 +606,30 @@ class Daemon:
 
             # YOLO: Move Backlog issues with yolo label to Research
             for item in all_items:
-                if (
-                    item.status == "Backlog"
-                    and Labels.YOLO in item.labels
-                    and item.state != "CLOSED"
-                ):
-                    key = f"{item.repo}#{item.ticket_id}"
-                    actor = self.ticket_client.get_label_actor(
-                        item.repo, item.ticket_id, Labels.YOLO
-                    )
-                    if not check_actor_allowed(actor, self.config.allowed_username, key, "YOLO"):
-                        continue
-                    logger.info(
-                        f"YOLO: Starting auto-progression for {key} from Backlog "
-                        f"(label added by allowed user '{actor}')"
-                    )
-                    self.ticket_client.update_item_status(item.item_id, "Research")
+                # Fast path: if not in cached labels, definitely not present
+                if Labels.YOLO not in item.labels:
+                    continue
+                if item.status != "Backlog" or item.state == "CLOSED":
+                    continue
+
+                key = f"{item.repo}#{item.ticket_id}"
+
+                # Fresh check: verify yolo label is still present (may have been removed since poll started)
+                if not self._has_yolo_label(item.repo, item.ticket_id):
+                    logger.debug(f"YOLO: Skipping Backlog→Research for {key} - yolo label was removed")
+                    continue
+
+                actor = self.ticket_client.get_label_actor(
+                    item.repo, item.ticket_id, Labels.YOLO
+                )
+                if not check_actor_allowed(actor, self.config.allowed_username, key, "YOLO"):
+                    continue
+                logger.info(
+                    f"YOLO: Starting auto-progression for {key} from Backlog "
+                    f"(label added by allowed user '{actor}')"
+                )
+                hostname = self._get_hostname_from_url(item.board_url)
+                self.ticket_client.update_item_status(item.item_id, "Research", hostname=hostname)
 
             # Handle reset label: clear kiln content and move issue to Backlog
             for item in all_items:
@@ -680,11 +731,23 @@ class Daemon:
             logger.debug(f"Skipping {key} - has '{Labels.RESEARCH_FAILED}' label")
             return False
 
-        actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
-        if not check_actor_allowed(actor, self.config.allowed_username, key):
-            return False
-
-        logger.info(f"Workflow trigger: {key} in '{item.status}' by allowed user '{actor}'")
+        # Check actor authorization if supported by the client
+        if self.ticket_client.supports_status_actor_check:
+            actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
+            if not check_actor_allowed(actor, self.config.allowed_username, key):
+                return False
+            logger.info(f"Workflow trigger: {key} in '{item.status}' by allowed user '{actor}'")
+        else:
+            # GHES 3.14 doesn't support project status timeline events
+            # Log the limitation and allow the workflow to proceed
+            logger.warning(
+                f"Workflow trigger: {key} in '{item.status}' - "
+                f"actor check unavailable ({self.ticket_client.client_description})"
+            )
+            logger.warning(
+                "  Security note: Cannot verify who changed status. "
+                "Ensure only authorized users have project write access."
+            )
         return True
 
     def _should_yolo_advance(self, item: TicketItem) -> bool:
@@ -700,7 +763,7 @@ class Daemon:
         Returns:
             True if item should be advanced to next YOLO status
         """
-        # Must have yolo label
+        # Fast path: if not in cached labels, definitely not present
         if Labels.YOLO not in item.labels:
             return False
 
@@ -722,12 +785,23 @@ class Daemon:
             return False
 
         complete_label = config["complete_label"]
-        return bool(complete_label and complete_label in item.labels)
+        if not (complete_label and complete_label in item.labels):
+            return False
+
+        # Fresh check: verify yolo label is still present (may have been removed since poll started)
+        if not self._has_yolo_label(item.repo, item.ticket_id):
+            key = f"{item.repo}#{item.ticket_id}"
+            logger.debug(f"YOLO: Skipping advancement for {key} - yolo label was removed")
+            return False
+
+        return True
 
     def _yolo_advance(self, item: TicketItem) -> None:
         """Advance an item to the next YOLO status.
 
         Validates that the yolo label was added by an allowed user before advancing.
+        Also verifies the label is still present (fresh check) in case it was removed
+        after _should_yolo_advance() returned True but before this method runs.
 
         Args:
             item: TicketItem to advance
@@ -738,6 +812,11 @@ class Daemon:
         if not yolo_next:
             return
 
+        # Fresh check: verify yolo label is still present before advancing
+        if not self._has_yolo_label(item.repo, item.ticket_id):
+            logger.info(f"YOLO: Skipping advancement for {key} - yolo label was removed")
+            return
+
         actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.YOLO)
         if not check_actor_allowed(actor, self.config.allowed_username, key, "YOLO"):
             return
@@ -746,7 +825,30 @@ class Daemon:
             f"YOLO: Advancing {key} from '{item.status}' to '{yolo_next}' "
             f"(stage complete, label added by allowed user '{actor}')"
         )
-        self.ticket_client.update_item_status(item.item_id, yolo_next)
+        hostname = self._get_hostname_from_url(item.board_url)
+        self.ticket_client.update_item_status(item.item_id, yolo_next, hostname=hostname)
+
+    def _has_yolo_label(self, repo: str, issue_number: int) -> bool:
+        """Check if issue currently has yolo label (fresh from GitHub).
+
+        This fetches fresh label data from GitHub to handle the case where
+        a user removes the yolo label mid-workflow. Using cached item.labels
+        would miss this change.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            issue_number: Issue number
+
+        Returns:
+            True if yolo label is currently present, False otherwise.
+            Returns False on any error (fail-safe: don't advance if uncertain).
+        """
+        try:
+            current_labels = self.ticket_client.get_issue_labels(repo, issue_number)
+            return Labels.YOLO in current_labels
+        except Exception as e:
+            logger.warning(f"Could not fetch current labels for {repo}#{issue_number}: {e}")
+            return False  # Fail safe - don't advance if we can't verify
 
     def _get_pr_for_issue(self, repo: str, issue_number: int) -> dict | None:
         """Get the open PR that closes a specific issue.
@@ -880,7 +982,8 @@ class Daemon:
         # Archive the project item
         reason = item.state_reason or "manual close"
         logger.info(f"Auto-archiving issue (reason: {reason})")
-        if self.ticket_client.archive_item(metadata.project_id, item.item_id):
+        hostname = self._get_hostname_from_url(item.board_url)
+        if self.ticket_client.archive_item(metadata.project_id, item.item_id, hostname=hostname):
             logger.info("Archived from project board")
 
     def _maybe_cleanup_closed(self, item: TicketItem) -> None:
@@ -948,7 +1051,8 @@ class Daemon:
         # Move to Done
         logger.info(f"Moving {item.repo}#{item.ticket_id} to Done (PR merged, issue closed)")
         try:
-            self.ticket_client.update_item_status(item.item_id, "Done")
+            hostname = self._get_hostname_from_url(item.board_url)
+            self.ticket_client.update_item_status(item.item_id, "Done", hostname=hostname)
             logger.info(f"Moved {item.repo}#{item.ticket_id} to Done")
         except Exception as e:
             logger.error(f"Failed to move {item.repo}#{item.ticket_id} to Done: {e}")
@@ -973,7 +1077,8 @@ class Daemon:
         # Set to Backlog
         logger.info(f"Setting {item.repo}#{item.ticket_id} to Backlog (no status)")
         try:
-            self.ticket_client.update_item_status(item.item_id, "Backlog")
+            hostname = self._get_hostname_from_url(item.board_url)
+            self.ticket_client.update_item_status(item.item_id, "Backlog", hostname=hostname)
             logger.info(f"Set {item.repo}#{item.ticket_id} to Backlog")
         except Exception as e:
             logger.error(f"Failed to set {item.repo}#{item.ticket_id} to Backlog: {e}")
@@ -1027,6 +1132,9 @@ class Daemon:
             except Exception as e:
                 logger.warning(f"RESET: Failed to cleanup worktree for {key}: {e}")
 
+        # Close open PRs and delete their branches
+        self._close_prs_and_delete_branches(item)
+
         # Remove linking keywords from related PRs (severs PR-issue relationship)
         self._remove_pr_issue_links(item)
 
@@ -1043,7 +1151,8 @@ class Daemon:
 
         # Move issue to Backlog
         try:
-            self.ticket_client.update_item_status(item.item_id, "Backlog")
+            hostname = self._get_hostname_from_url(item.board_url)
+            self.ticket_client.update_item_status(item.item_id, "Backlog", hostname=hostname)
             logger.info(f"RESET: Moved {key} to Backlog")
         except Exception as e:
             logger.error(f"RESET: Failed to move {key} to Backlog: {e}")
@@ -1128,6 +1237,34 @@ class Daemon:
             logger.info(f"RESET: Cleared kiln content from {key}")
         except subprocess.CalledProcessError as e:
             logger.error(f"RESET: Failed to clear kiln content from {key}: {e.stderr}")
+
+    def _close_prs_and_delete_branches(self, item: TicketItem) -> None:
+        """Close open PRs and delete their branches for an issue during reset.
+
+        Args:
+            item: TicketItem being reset
+        """
+        key = f"{item.repo}#{item.ticket_id}"
+
+        try:
+            linked_prs = self.ticket_client.get_linked_prs(item.repo, item.ticket_id)
+        except Exception as e:
+            logger.warning(f"RESET: Failed to get linked PRs for {key}: {e}")
+            return
+
+        for pr in linked_prs:
+            # Skip merged PRs - branch may be protected or needed
+            if pr.merged:
+                logger.debug(f"RESET: Skipping merged PR #{pr.number} for {key}")
+                continue
+
+            # Close the PR first
+            if self.ticket_client.close_pr(item.repo, pr.number):
+                logger.info(f"RESET: Closed PR #{pr.number} for {key}")
+
+            # Delete the branch if we have the name
+            if pr.branch_name and self.ticket_client.delete_branch(item.repo, pr.branch_name):
+                logger.info(f"RESET: Deleted branch '{pr.branch_name}' for {key}")
 
     def _remove_pr_issue_links(self, item: TicketItem) -> None:
         """Remove linking keywords from PRs that are linked to this issue.
@@ -1264,20 +1401,30 @@ class Daemon:
                     pr_body = pr_info.get("body", "")
                     total_tasks, completed_tasks = count_checkboxes(pr_body)
                     if total_tasks > 0 and completed_tasks == total_tasks:
-                        self.ticket_client.update_item_status(item.item_id, next_status)
+                        hostname = self._get_hostname_from_url(item.board_url)
+                        self.ticket_client.update_item_status(item.item_id, next_status, hostname=hostname)
                         logger.info(f"All {total_tasks} tasks complete, moved {key} to '{next_status}'")
                         next_status = None  # Prevent duplicate move below
 
             if next_status:
-                self.ticket_client.update_item_status(item.item_id, next_status)
+                hostname = self._get_hostname_from_url(item.board_url)
+                self.ticket_client.update_item_status(item.item_id, next_status, hostname=hostname)
                 logger.info(f"Moved {key} to '{next_status}' status")
 
             # YOLO mode: auto-advance to next workflow status
+            # Re-check yolo label to handle removal during workflow execution
             if Labels.YOLO in item.labels and not next_status:
                 yolo_next = self.YOLO_PROGRESSION.get(item.status)
                 if yolo_next:
-                    self.ticket_client.update_item_status(item.item_id, yolo_next)
-                    logger.info(f"YOLO: Auto-advanced {key} from '{item.status}' to '{yolo_next}'")
+                    # Fresh check - yolo may have been removed while workflow was running
+                    if self._has_yolo_label(item.repo, item.ticket_id):
+                        hostname = self._get_hostname_from_url(item.board_url)
+                        self.ticket_client.update_item_status(item.item_id, yolo_next, hostname=hostname)
+                        logger.info(f"YOLO: Auto-advanced {key} from '{item.status}' to '{yolo_next}'")
+                    else:
+                        logger.info(
+                            f"YOLO: Skipping advancement for {key} - yolo label was removed during workflow"
+                        )
 
             # After workflow completes, update last_processed_comment timestamp to skip
             # any comments posted during the workflow (prevents daemon from treating

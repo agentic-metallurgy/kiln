@@ -1,5 +1,5 @@
 ---
-name: create-worktree-from-issues
+name: kiln-create-worktree-from-issues
 description: Create git worktree from GitHub issues. Use when user says "create a worktree for issue X" or similar requests involving worktrees and issue numbers.
 ---
 

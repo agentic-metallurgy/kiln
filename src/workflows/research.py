@@ -33,7 +33,7 @@ class ResearchWorkflow:
 
         prompts = [
             # Prompt 1: Read and understand the issue
-            f"/kiln:research_codebase_github for issue {issue_url}. Edit the issue DESCRIPTION to append a research section - ONLY if the issue description doesn't already contain `<!-- kiln:research -->`. IMPORTANT: The research section MUST be wrapped in `<!-- kiln:research -->` and `<!-- /kiln:research -->` markers.",
+            f"/kiln-research_codebase_github for issue {issue_url}. Edit the issue DESCRIPTION to append a research section - ONLY if the issue description doesn't already contain `<!-- kiln:research -->`. IMPORTANT: The research section MUST be wrapped in `<!-- kiln:research -->` and `<!-- /kiln:research -->` markers.",
         ]
 
         logger.debug(f"Research workflow prompt: {prompts[0]}")

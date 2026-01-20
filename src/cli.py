@@ -102,15 +102,17 @@ def extract_claude_resources() -> Path:
     return kiln_dir
 
 
-def create_claude_symlinks() -> None:
-    """Create symlinks in ~/.claude/ pointing to .kiln/ resources.
+def install_claude_resources() -> None:
+    """Copy kiln resources to ~/.claude/ for Claude Code to discover.
 
-    Creates symlinks at ~/.claude/{commands,agents,skills}/kiln/ pointing to
-    the corresponding directories in .kiln/. This allows Claude Code to discover
-    kiln's resources via the global ~/.claude/ directory.
+    Copies kiln-prefixed commands, agents, and skills from .kiln/ to ~/.claude/.
+    Files are copied directly (not into a subdirectory), overwriting existing files.
 
-    Existing symlinks are removed before creating new ones to ensure freshness.
-    Parent directories are created if needed.
+    This approach avoids symlink issues where Claude Code may recreate directories
+    on startup, removing symlinks.
+
+    Raises:
+        RuntimeError: If resources cannot be written to ~/.claude/
     """
     from src.logger import get_logger
 
@@ -119,57 +121,84 @@ def create_claude_symlinks() -> None:
     kiln_dir = get_kiln_dir()
     claude_home = Path.home() / ".claude"
 
-    logger.debug(f"Creating Claude symlinks from {kiln_dir} to {claude_home}")
+    # Define exactly which resources to install (excludes arch-eval.md)
+    RESOURCES_TO_INSTALL = {
+        "commands": [
+            "kiln-create_plan_github.md",
+            "kiln-create_plan_simple.md",
+            "kiln-implement_github.md",
+            "kiln-prepare_implementation_github.md",
+            "kiln-research_codebase_github.md",
+        ],
+        "agents": [
+            "kiln-codebase-analyzer.md",
+            "kiln-codebase-locator.md",
+            "kiln-codebase-pattern-finder.md",
+            "kiln-pr-review.md",
+            "kiln-thoughts-analyzer.md",
+            "kiln-thoughts-locator.md",
+            "kiln-web-search-researcher.md",
+        ],
+        "skills": [
+            "kiln-create-worktree-from-issues",
+            "kiln-edit-github-issue-components",
+        ],
+    }
 
-    created_count = 0
-    for subdir in ["commands", "agents", "skills"]:
-        source = kiln_dir / subdir
-        if not source.exists():
-            logger.debug(f"Skipping {subdir}: source {source} does not exist")
+    logger.debug(f"Installing kiln resources from {kiln_dir} to {claude_home}")
+
+    installed_count = 0
+    errors = []
+
+    for subdir, items in RESOURCES_TO_INSTALL.items():
+        source_dir = kiln_dir / subdir
+        dest_dir = claude_home / subdir
+
+        if not source_dir.exists():
+            logger.debug(f"Skipping {subdir}: source {source_dir} does not exist")
             continue
 
-        # Create parent directory if needed (e.g., ~/.claude/commands/)
-        link_parent = claude_home / subdir
-        link_parent.mkdir(parents=True, exist_ok=True)
-
-        # Create symlink at ~/.claude/{subdir}/kiln -> .kiln/{subdir}
-        link = link_parent / "kiln"
-
-        # Unlink existing symlink (if any) and create fresh
-        link.unlink(missing_ok=True)
-        link.symlink_to(source)
-        logger.debug(f"Created symlink: {link} -> {source}")
-        created_count += 1
-
-    if created_count > 0:
-        logger.info(f"Created {created_count} Claude symlink(s) in {claude_home}")
-    else:
-        logger.warning(f"No Claude symlinks created - no resources found in {kiln_dir}")
-
-
-def cleanup_claude_symlinks() -> None:
-    """Remove symlinks in ~/.claude/ that point to .kiln/ resources.
-
-    Removes symlinks at ~/.claude/{commands,agents,skills}/kiln/ that were
-    created by create_claude_symlinks(). This is called during daemon shutdown
-    to clean up kiln's footprint.
-
-    Errors are logged as warnings but do not cause crashes.
-    """
-    from src.logger import get_logger
-
-    logger = get_logger(__name__)
-    claude_home = Path.home() / ".claude"
-
-    for subdir in ["commands", "agents", "skills"]:
-        link = claude_home / subdir / "kiln"
-
+        # Ensure destination directory exists
         try:
-            if link.is_symlink():
-                link.unlink()
-                logger.debug(f"Removed symlink {link}")
+            dest_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
-            logger.warning(f"Failed to remove symlink {link}: {e}")
+            errors.append(f"Failed to create {dest_dir}: {e}")
+            continue
+
+        for item in items:
+            src = source_dir / item
+            dest = dest_dir / item
+
+            if not src.exists():
+                logger.warning(f"Source not found: {src}")
+                continue
+
+            try:
+                if src.is_dir():
+                    # Skills are directories - remove existing and copy
+                    if dest.exists():
+                        shutil.rmtree(dest)
+                    shutil.copytree(src, dest)
+                else:
+                    # Commands/agents are files - copy with overwrite
+                    shutil.copy2(src, dest)
+
+                logger.debug(f"Installed: {dest}")
+                installed_count += 1
+            except Exception as e:
+                errors.append(f"Failed to copy {src} to {dest}: {e}")
+
+    if errors:
+        error_msg = f"Failed to install kiln resources:\n" + "\n".join(errors)
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    if installed_count > 0:
+        logger.info(f"Installed {installed_count} kiln resource(s) to {claude_home}")
+    else:
+        logger.warning(f"No kiln resources installed - check {kiln_dir}")
+
+
 
 
 def print_banner() -> None:
@@ -244,10 +273,10 @@ def run_daemon(daemon_mode: bool = False) -> None:
         print("  ✓ Resources extracted to .kiln/")
         print()
 
-        # Phase 2b: Create symlinks in ~/.claude/
-        print("Creating Claude symlinks...")
-        create_claude_symlinks()
-        print("  ✓ Symlinks created in ~/.claude/")
+        # Phase 2b: Install kiln resources to ~/.claude/
+        print("Installing kiln resources to ~/.claude/...")
+        install_claude_resources()
+        print("  ✓ Kiln resources installed")
         print()
 
         # Phase 3: Load and validate config

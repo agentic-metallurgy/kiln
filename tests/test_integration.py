@@ -14,8 +14,9 @@ from unittest.mock import MagicMock, Mock, call, patch
 import pytest
 
 from src.claude_runner import ClaudeResult, ClaudeRunnerError, ClaudeTimeoutError, run_claude
+from src.config import Config
 from src.daemon import Daemon, WorkflowRunner
-from src.interfaces import Comment, TicketItem
+from src.interfaces import Comment, LinkedPullRequest, TicketItem
 from src.labels import REQUIRED_LABELS, Labels
 from src.ticket_clients.github import GitHubTicketClient
 from src.workspace import WorkspaceError, WorkspaceManager
@@ -2162,4 +2163,405 @@ Plan data.
             assert "Plan data" not in cleaned_body
             # Verify original description is preserved
             assert original_description in cleaned_body
+
+
+@pytest.mark.unit
+class TestDaemonYoloLabelRemoval:
+    """Tests for YOLO label removal stopping automatic progression."""
+
+    @pytest.fixture
+    def daemon(self, temp_workspace_dir):
+        """Create a daemon instance for testing."""
+        config = Config(
+            github_token="test-token",
+            project_urls=["https://github.com/orgs/test/projects/1"],
+            watched_statuses=["Research", "Plan", "Implement"],
+            workspace_dir=temp_workspace_dir,
+            poll_interval=60,
+            allowed_username="test-user",
+        )
+        with patch.object(GitHubTicketClient, "validate_connection"):
+            with patch.object(GitHubTicketClient, "validate_scopes"):
+                daemon = Daemon(config)
+                daemon.ticket_client = MagicMock()
+                yield daemon
+                daemon.stop()
+
+    def test_has_yolo_label_returns_true_when_present(self, daemon):
+        """Test _has_yolo_label returns True when yolo label is present."""
+        daemon.ticket_client.get_issue_labels.return_value = {"yolo", "bug", "enhancement"}
+
+        result = daemon._has_yolo_label("github.com/owner/repo", 42)
+
+        assert result is True
+        daemon.ticket_client.get_issue_labels.assert_called_once_with("github.com/owner/repo", 42)
+
+    def test_has_yolo_label_returns_false_when_absent(self, daemon):
+        """Test _has_yolo_label returns False when yolo label is not present."""
+        daemon.ticket_client.get_issue_labels.return_value = {"bug", "enhancement"}
+
+        result = daemon._has_yolo_label("github.com/owner/repo", 42)
+
+        assert result is False
+
+    def test_has_yolo_label_returns_false_on_api_error(self, daemon):
+        """Test _has_yolo_label returns False (fail-safe) on API errors."""
+        daemon.ticket_client.get_issue_labels.side_effect = Exception("API error")
+
+        result = daemon._has_yolo_label("github.com/owner/repo", 42)
+
+        assert result is False
+
+    def test_should_yolo_advance_returns_false_when_label_removed(self, daemon):
+        """Test _should_yolo_advance returns False when yolo label was removed."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels={"yolo", "research_ready"},  # Cached labels still have yolo
+        )
+
+        # Fresh check shows yolo was removed
+        daemon.ticket_client.get_issue_labels.return_value = {"research_ready"}
+
+        result = daemon._should_yolo_advance(item)
+
+        assert result is False
+        daemon.ticket_client.get_issue_labels.assert_called_once()
+
+    def test_should_yolo_advance_returns_true_when_label_still_present(self, daemon):
+        """Test _should_yolo_advance returns True when yolo label is still present."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels={"yolo", "research_ready"},
+        )
+
+        # Fresh check shows yolo is still present
+        daemon.ticket_client.get_issue_labels.return_value = {"yolo", "research_ready"}
+
+        result = daemon._should_yolo_advance(item)
+
+        assert result is True
+
+    def test_yolo_advance_skips_when_label_removed(self, daemon):
+        """Test _yolo_advance does not advance when yolo label was removed."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels={"yolo", "research_ready"},
+        )
+
+        # Fresh check shows yolo was removed
+        daemon.ticket_client.get_issue_labels.return_value = {"research_ready"}
+
+        daemon._yolo_advance(item)
+
+        # Should not update status
+        daemon.ticket_client.update_item_status.assert_not_called()
+
+    def test_yolo_advance_proceeds_when_label_present(self, daemon):
+        """Test _yolo_advance proceeds when yolo label is still present."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels={"yolo", "research_ready"},
+        )
+
+        # Fresh check shows yolo is still present
+        daemon.ticket_client.get_issue_labels.return_value = {"yolo", "research_ready"}
+        daemon.ticket_client.get_label_actor.return_value = "test-user"
+
+        daemon._yolo_advance(item)
+
+        # Should update status
+        daemon.ticket_client.update_item_status.assert_called_once_with("PVI_123", "Plan")
+
+
+class TestDaemonClosePrsAndDeleteBranches:
+    """Tests for Daemon._close_prs_and_delete_branches() method."""
+
+    @pytest.fixture
+    def daemon(self, temp_workspace_dir):
+        """Create a daemon instance for testing."""
+        config = MagicMock()
+        config.poll_interval = 60
+        config.watched_statuses = ["Research", "Plan"]
+        config.max_concurrent_workflows = 2
+        config.database_path = f"{temp_workspace_dir}/test.db"
+        config.workspace_dir = temp_workspace_dir
+        config.project_urls = []
+        config.stage_models = {}
+
+        with patch("src.ticket_clients.github.GitHubTicketClient"):
+            daemon = Daemon(config)
+            daemon.ticket_client = MagicMock()
+            yield daemon
+            daemon.stop()
+
+    def test_close_pr_and_delete_branch_for_open_pr(self, daemon):
+        """Test that open PRs are closed and their branches are deleted."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature-branch",
+            )
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = True
+        daemon.ticket_client.delete_branch.return_value = True
+
+        daemon._close_prs_and_delete_branches(item)
+
+        daemon.ticket_client.get_linked_prs.assert_called_once_with(
+            "github.com/owner/repo", 42
+        )
+        daemon.ticket_client.close_pr.assert_called_once_with(
+            "github.com/owner/repo", 100
+        )
+        daemon.ticket_client.delete_branch.assert_called_once_with(
+            "github.com/owner/repo", "42-feature-branch"
+        )
+
+    def test_skip_merged_pr(self, daemon):
+        """Test that merged PRs are skipped (not closed, branch not deleted)."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="MERGED",
+                merged=True,
+                branch_name="42-feature-branch",
+            )
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+
+        daemon._close_prs_and_delete_branches(item)
+
+        daemon.ticket_client.get_linked_prs.assert_called_once()
+        daemon.ticket_client.close_pr.assert_not_called()
+        daemon.ticket_client.delete_branch.assert_not_called()
+
+    def test_continue_processing_on_close_failure(self, daemon):
+        """Test that branch deletion is attempted even if PR close fails."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature-branch",
+            )
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = False  # Failure
+        daemon.ticket_client.delete_branch.return_value = True
+
+        daemon._close_prs_and_delete_branches(item)
+
+        # Both methods should be called even if close_pr fails
+        daemon.ticket_client.close_pr.assert_called_once()
+        daemon.ticket_client.delete_branch.assert_called_once()
+
+    def test_multiple_prs_processed(self, daemon):
+        """Test that all linked PRs are processed."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature-branch-1",
+            ),
+            LinkedPullRequest(
+                number=101,
+                url="https://github.com/owner/repo/pull/101",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature-branch-2",
+            ),
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = True
+        daemon.ticket_client.delete_branch.return_value = True
+
+        daemon._close_prs_and_delete_branches(item)
+
+        assert daemon.ticket_client.close_pr.call_count == 2
+        assert daemon.ticket_client.delete_branch.call_count == 2
+
+    def test_no_linked_prs(self, daemon):
+        """Test handling when there are no linked PRs."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        daemon._close_prs_and_delete_branches(item)
+
+        daemon.ticket_client.get_linked_prs.assert_called_once()
+        daemon.ticket_client.close_pr.assert_not_called()
+        daemon.ticket_client.delete_branch.assert_not_called()
+
+    def test_pr_without_branch_name(self, daemon):
+        """Test handling PR without branch_name (branch deletion is skipped)."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name=None,  # No branch name
+            )
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = True
+
+        daemon._close_prs_and_delete_branches(item)
+
+        daemon.ticket_client.close_pr.assert_called_once()
+        daemon.ticket_client.delete_branch.assert_not_called()
+
+    def test_get_linked_prs_failure(self, daemon):
+        """Test handling when get_linked_prs raises an exception."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        daemon.ticket_client.get_linked_prs.side_effect = Exception("API error")
+
+        # Should not raise, just log warning and return
+        daemon._close_prs_and_delete_branches(item)
+
+        daemon.ticket_client.close_pr.assert_not_called()
+        daemon.ticket_client.delete_branch.assert_not_called()
+
+    def test_mixed_merged_and_open_prs(self, daemon):
+        """Test that only open PRs are processed, merged ones are skipped."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="MERGED",
+                merged=True,
+                branch_name="42-merged-branch",
+            ),
+            LinkedPullRequest(
+                number=101,
+                url="https://github.com/owner/repo/pull/101",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-open-branch",
+            ),
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = True
+        daemon.ticket_client.delete_branch.return_value = True
+
+        daemon._close_prs_and_delete_branches(item)
+
+        # Only the open PR should be processed
+        daemon.ticket_client.close_pr.assert_called_once_with(
+            "github.com/owner/repo", 101
+        )
+        daemon.ticket_client.delete_branch.assert_called_once_with(
+            "github.com/owner/repo", "42-open-branch"
+        )
 
