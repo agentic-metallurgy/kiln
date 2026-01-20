@@ -1125,6 +1125,9 @@ class Daemon:
             except Exception as e:
                 logger.warning(f"RESET: Failed to cleanup worktree for {key}: {e}")
 
+        # Close open PRs and delete their branches
+        self._close_prs_and_delete_branches(item)
+
         # Remove linking keywords from related PRs (severs PR-issue relationship)
         self._remove_pr_issue_links(item)
 
@@ -1227,6 +1230,34 @@ class Daemon:
             logger.info(f"RESET: Cleared kiln content from {key}")
         except subprocess.CalledProcessError as e:
             logger.error(f"RESET: Failed to clear kiln content from {key}: {e.stderr}")
+
+    def _close_prs_and_delete_branches(self, item: TicketItem) -> None:
+        """Close open PRs and delete their branches for an issue during reset.
+
+        Args:
+            item: TicketItem being reset
+        """
+        key = f"{item.repo}#{item.ticket_id}"
+
+        try:
+            linked_prs = self.ticket_client.get_linked_prs(item.repo, item.ticket_id)
+        except Exception as e:
+            logger.warning(f"RESET: Failed to get linked PRs for {key}: {e}")
+            return
+
+        for pr in linked_prs:
+            # Skip merged PRs - branch may be protected or needed
+            if pr.merged:
+                logger.debug(f"RESET: Skipping merged PR #{pr.number} for {key}")
+                continue
+
+            # Close the PR first
+            if self.ticket_client.close_pr(item.repo, pr.number):
+                logger.info(f"RESET: Closed PR #{pr.number} for {key}")
+
+            # Delete the branch if we have the name
+            if pr.branch_name and self.ticket_client.delete_branch(item.repo, pr.branch_name):
+                logger.info(f"RESET: Deleted branch '{pr.branch_name}' for {key}")
 
     def _remove_pr_issue_links(self, item: TicketItem) -> None:
         """Remove linking keywords from PRs that are linked to this issue.

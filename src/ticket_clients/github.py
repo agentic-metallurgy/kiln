@@ -5,6 +5,8 @@ It uses github.com-specific APIs like closedByPullRequestsReferences and sub-iss
 """
 
 import json
+import re
+import subprocess
 from typing import Any
 
 from src.interfaces import LinkedPullRequest, TicketItem
@@ -65,6 +67,7 @@ class GitHubTicketClient(GitHubClientBase):
                   body
                   state
                   merged
+                  headRefName
                 }
               }
             }
@@ -101,6 +104,7 @@ class GitHubTicketClient(GitHubClientBase):
                         body=pr.get("body", ""),
                         state=pr["state"],
                         merged=pr.get("merged", False),
+                        branch_name=pr.get("headRefName"),
                     )
                 )
 
@@ -301,6 +305,271 @@ class GitHubTicketClient(GitHubClientBase):
         except Exception as e:
             logger.error(f"Failed to get child issues for {repo}#{ticket_id}: {e}")
             return []
+
+    def get_pr_head_sha(self, repo: str, pr_number: int) -> str | None:
+        """Get the HEAD commit SHA of a pull request.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: Pull request number
+
+        Returns:
+            HEAD commit SHA, or None if not found
+        """
+        _, owner, repo_name = self._parse_repo(repo)
+
+        query = """
+        query($owner: String!, $repo: String!, $prNumber: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $prNumber) {
+              headRefOid
+            }
+          }
+        }
+        """
+
+        try:
+            response = self._execute_graphql_query(
+                query,
+                {
+                    "owner": owner,
+                    "repo": repo_name,
+                    "prNumber": pr_number,
+                },
+                repo=repo,
+            )
+
+            pr_data = response.get("data", {}).get("repository", {}).get("pullRequest")
+            if not pr_data:
+                logger.debug(f"No PR data found for {repo}#{pr_number}")
+                return None
+
+            sha = pr_data.get("headRefOid")
+            logger.debug(f"PR {repo}#{pr_number} HEAD SHA: {sha}")
+            return sha
+
+        except Exception as e:
+            logger.error(f"Failed to get HEAD SHA for PR {repo}#{pr_number}: {e}")
+            return None
+
+    def set_commit_status(
+        self,
+        repo: str,
+        sha: str,
+        state: str,
+        context: str,
+        description: str,
+        target_url: str | None = None,
+    ) -> bool:
+        """Set a commit status check on a commit.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            sha: Commit SHA to set status on
+            state: Status state ('pending', 'success', 'failure', 'error')
+            context: Status context identifier (e.g., 'kiln/child-issues')
+            description: Human-readable status description
+            target_url: Optional URL with more details
+
+        Returns:
+            True if status was set successfully, False otherwise
+        """
+        hostname, owner, repo_name = self._parse_repo(repo)
+
+        # Use REST API for commit statuses
+        endpoint = f"repos/{owner}/{repo_name}/statuses/{sha}"
+        payload = {
+            "state": state,
+            "context": context,
+            "description": description,
+        }
+        if target_url:
+            payload["target_url"] = target_url
+
+        try:
+            args = ["api", endpoint, "-X", "POST"]
+            for key, value in payload.items():
+                args.extend(["-f", f"{key}={value}"])
+
+            self._run_gh_command(args, hostname=hostname)
+            logger.info(f"Set commit status on {sha[:8]}: {state} ({context})")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to set commit status on {sha}: {e}")
+            return False
+
+    def remove_pr_issue_link(self, repo: str, pr_number: int, issue_number: int) -> bool:
+        """Remove the linking keyword from a PR body while preserving the issue reference.
+
+        Edits the PR body to remove keywords like 'closes', 'fixes', 'resolves'
+        while keeping the issue number as a breadcrumb (e.g., 'closes #44' -> '#44').
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: PR number to edit
+            issue_number: Issue number whose linking keyword should be removed
+
+        Returns:
+            True if the PR was edited, False if no linking keyword was found
+        """
+        # First, get the current PR body
+        _, owner, repo_name = self._parse_repo(repo)
+
+        query = """
+        query($owner: String!, $repo: String!, $prNumber: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $prNumber) {
+              body
+            }
+          }
+        }
+        """
+
+        try:
+            response = self._execute_graphql_query(
+                query,
+                {
+                    "owner": owner,
+                    "repo": repo_name,
+                    "prNumber": pr_number,
+                },
+                repo=repo,
+            )
+
+            pr_data = response.get("data", {}).get("repository", {}).get("pullRequest")
+            if not pr_data:
+                logger.warning(f"Could not find PR {repo}#{pr_number}")
+                return False
+
+            original_body = pr_data.get("body", "")
+            new_body = self._remove_closes_keyword(original_body, issue_number)
+
+            if new_body == original_body:
+                logger.debug(
+                    f"No linking keyword found for #{issue_number} in PR {repo}#{pr_number}"
+                )
+                return False
+
+            # Update the PR body using gh CLI
+            repo_ref = self._get_repo_ref(repo)
+            args = ["pr", "edit", str(pr_number), "--repo", repo_ref, "--body", new_body]
+            self._run_gh_command(args, repo=repo)
+
+            logger.info(f"Removed linking keyword for #{issue_number} from PR {repo}#{pr_number}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to remove linking keyword from PR {repo}#{pr_number}: {e}")
+            return False
+
+    def close_pr(self, repo: str, pr_number: int) -> bool:
+        """Close a pull request without merging.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: PR number to close
+
+        Returns:
+            True if PR was closed successfully, False otherwise
+        """
+        repo_ref = self._get_repo_ref(repo)
+        try:
+            args = ["pr", "close", str(pr_number), "--repo", repo_ref]
+            self._run_gh_command(args, repo=repo)
+            logger.info(f"Closed PR #{pr_number} in {repo}")
+            return True
+        except subprocess.CalledProcessError as e:
+            # PR may already be closed or merged
+            logger.warning(f"Failed to close PR #{pr_number} in {repo}: {e.stderr}")
+            return False
+
+    def delete_branch(self, repo: str, branch_name: str) -> bool:
+        """Delete a remote branch.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            branch_name: Name of the branch to delete
+
+        Returns:
+            True if branch was deleted successfully, False otherwise
+        """
+        hostname, owner, repo_name = self._parse_repo(repo)
+        # URL-encode the branch name for the API path
+        encoded_branch = branch_name.replace("/", "%2F")
+        endpoint = f"repos/{owner}/{repo_name}/git/refs/heads/{encoded_branch}"
+
+        try:
+            args = ["api", endpoint, "-X", "DELETE"]
+            self._run_gh_command(args, hostname=hostname)
+            logger.info(f"Deleted branch '{branch_name}' in {repo}")
+            return True
+        except subprocess.CalledProcessError as e:
+            # Branch may not exist or already be deleted
+            error_output = (e.stderr or "").lower()
+            if "not found" in error_output or "404" in error_output:
+                logger.debug(f"Branch '{branch_name}' not found in {repo}")
+            else:
+                logger.warning(f"Failed to delete branch '{branch_name}' in {repo}: {e.stderr}")
+            return False
+
+    def _remove_closes_keyword(self, body: str, issue_number: int) -> str:
+        """Remove linking keywords for a specific issue from PR body text.
+
+        Removes keywords (close, closes, closed, fix, fixes, fixed, resolve,
+        resolves, resolved) that link to the specified issue number, while
+        preserving the issue reference as a breadcrumb.
+
+        Args:
+            body: PR body text
+            issue_number: Issue number to unlink
+
+        Returns:
+            Modified body with linking keywords removed
+        """
+        # Pattern matches: keyword + optional colon + whitespace + #issue_number
+        # Keywords: close, closes, closed, fix, fixes, fixed, resolve, resolves, resolved
+        # Examples: "closes #44", "Fixes: #123", "resolves #44"
+        pattern = rf"\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s*#{issue_number}\b"
+
+        def replace_fn(_match: re.Match[str]) -> str:
+            # Keep just the issue reference as a breadcrumb
+            return f"#{issue_number}"
+
+        return re.sub(pattern, replace_fn, body, flags=re.IGNORECASE)
+
+    # Internal helpers
+
+    def _parse_board_url(self, board_url: str) -> tuple[str, str, str, int]:
+        """Parse a GitHub project URL to extract hostname, entity type, login and project number.
+
+        Args:
+            board_url: URL of the GitHub project
+
+        Returns:
+            Tuple of (hostname, entity_type, login, project_number)
+            entity_type is "organization" or "user"
+
+        Raises:
+            ValueError: If the URL format is invalid
+        """
+        # Try org pattern: https://{hostname}/orgs/{org}/projects/{number}
+        org_pattern = r"https?://([^/]+)/orgs/([^/]+)/projects/(\d+)"
+        org_match = re.search(org_pattern, board_url)
+        if org_match:
+            return org_match.group(1), "organization", org_match.group(2), int(org_match.group(3))
+
+        # Try user pattern: https://{hostname}/users/{user}/projects/{number}
+        user_pattern = r"https?://([^/]+)/users/([^/]+)/projects/(\d+)"
+        user_match = re.search(user_pattern, board_url)
+        if user_match:
+            return user_match.group(1), "user", user_match.group(2), int(user_match.group(3))
+
+        raise ValueError(
+            f"Invalid project URL format: {board_url}. "
+            "Expected format: https://HOSTNAME/orgs/ORG/projects/NUMBER "
+            "or https://HOSTNAME/users/USER/projects/NUMBER"
+        )
 
     def _query_board_items(
         self, hostname: str, entity_type: str, login: str, project_number: int, board_url: str

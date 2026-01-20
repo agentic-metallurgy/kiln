@@ -1,6 +1,7 @@
 """Unit tests for the GitHub ticket client module."""
 
 import json
+import subprocess
 from datetime import UTC, datetime
 from unittest.mock import patch
 
@@ -1453,6 +1454,7 @@ class TestGetLinkedPRs:
                                     "body": "Closes #42\n\nSome description",
                                     "state": "OPEN",
                                     "merged": False,
+                                    "headRefName": "42-feature-branch",
                                 },
                                 {
                                     "number": 456,
@@ -1460,6 +1462,7 @@ class TestGetLinkedPRs:
                                     "body": "Fixes #42",
                                     "state": "MERGED",
                                     "merged": True,
+                                    "headRefName": "42-other-branch",
                                 },
                             ]
                         }
@@ -1477,8 +1480,10 @@ class TestGetLinkedPRs:
         assert prs[0].body == "Closes #42\n\nSome description"
         assert prs[0].state == "OPEN"
         assert prs[0].merged is False
+        assert prs[0].branch_name == "42-feature-branch"
         assert prs[1].number == 456
         assert prs[1].merged is True
+        assert prs[1].branch_name == "42-other-branch"
 
     def test_get_linked_prs_returns_empty_list_when_no_prs(self, github_client):
         """Test that empty list is returned when there are no linked PRs."""
@@ -1524,6 +1529,7 @@ class TestGetLinkedPRs:
                                     "body": "Closes #42",
                                     "state": "OPEN",
                                     "merged": False,
+                                    "headRefName": "42-branch",
                                 },
                                 None,
                             ]
@@ -1538,6 +1544,7 @@ class TestGetLinkedPRs:
 
         assert len(prs) == 1
         assert prs[0].number == 123
+        assert prs[0].branch_name == "42-branch"
 
 
 @pytest.mark.unit
@@ -1710,6 +1717,106 @@ class TestRemoveClosesKeyword:
 
 
 @pytest.mark.unit
+class TestClosePr:
+    """Tests for GitHubTicketClient.close_pr() method."""
+
+    def test_close_pr_success(self, github_client):
+        """Test successfully closing a PR."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            result = github_client.close_pr("github.com/owner/repo", 123)
+
+        assert result is True
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0][0]
+        assert call_args == ["pr", "close", "123", "--repo", "https://github.com/owner/repo"]
+
+    def test_close_pr_returns_false_on_error(self, github_client):
+        """Test that False is returned when gh command fails."""
+        error = subprocess.CalledProcessError(1, "gh")
+        error.stderr = "PR is already closed"
+        with patch.object(github_client, "_run_gh_command", side_effect=error):
+            result = github_client.close_pr("github.com/owner/repo", 123)
+
+        assert result is False
+
+    def test_close_pr_uses_correct_repo_reference(self, github_client):
+        """Test that the full repo URL is used for GHES compatibility."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            github_client.close_pr("github.example.com/myorg/myrepo", 456)
+
+        call_args = mock_run.call_args[0][0]
+        assert "--repo" in call_args
+        repo_idx = call_args.index("--repo") + 1
+        assert call_args[repo_idx] == "https://github.example.com/myorg/myrepo"
+
+    def test_close_pr_passes_repo_for_hostname_lookup(self, github_client):
+        """Test that repo is passed for hostname lookup."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            github_client.close_pr("github.com/owner/repo", 99)
+
+        mock_run.assert_called_once()
+        assert mock_run.call_args[1]["repo"] == "github.com/owner/repo"
+
+
+@pytest.mark.unit
+class TestDeleteBranch:
+    """Tests for GitHubTicketClient.delete_branch() method."""
+
+    def test_delete_branch_success(self, github_client):
+        """Test successfully deleting a branch."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            result = github_client.delete_branch("github.com/owner/repo", "feature-branch")
+
+        assert result is True
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0][0]
+        assert call_args == ["api", "repos/owner/repo/git/refs/heads/feature-branch", "-X", "DELETE"]
+
+    def test_delete_branch_returns_false_when_not_found(self, github_client):
+        """Test that False is returned when branch doesn't exist."""
+        error = subprocess.CalledProcessError(1, "gh")
+        error.stderr = "HTTP 404: Not Found"
+        with patch.object(github_client, "_run_gh_command", side_effect=error):
+            result = github_client.delete_branch("github.com/owner/repo", "nonexistent-branch")
+
+        assert result is False
+
+    def test_delete_branch_returns_false_on_error(self, github_client):
+        """Test that False is returned on API error."""
+        error = subprocess.CalledProcessError(1, "gh")
+        error.stderr = "API error"
+        with patch.object(github_client, "_run_gh_command", side_effect=error):
+            result = github_client.delete_branch("github.com/owner/repo", "feature-branch")
+
+        assert result is False
+
+    def test_delete_branch_handles_slashes_in_name(self, github_client):
+        """Test that branch names with slashes are URL-encoded."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            github_client.delete_branch("github.com/owner/repo", "feature/my-feature")
+
+        call_args = mock_run.call_args[0][0]
+        # Branch name with slash should be URL-encoded
+        assert call_args == ["api", "repos/owner/repo/git/refs/heads/feature%2Fmy-feature", "-X", "DELETE"]
+
+    def test_delete_branch_uses_hostname_for_ghes(self, github_client):
+        """Test that hostname is passed for GHES compatibility."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            github_client.delete_branch("github.example.com/myorg/myrepo", "feature-branch")
+
+        mock_run.assert_called_once()
+        assert mock_run.call_args[1]["hostname"] == "github.example.com"
+
+    def test_delete_branch_parses_repo_correctly(self, github_client):
+        """Test that repo is parsed correctly for API endpoint."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            github_client.delete_branch("github.com/my-org/my-repo", "fix-bug")
+
+        call_args = mock_run.call_args[0][0]
+        assert "repos/my-org/my-repo/git/refs/heads/fix-bug" in call_args[1]
+
+
+@pytest.mark.unit
 class TestLinkedPullRequest:
     """Tests for LinkedPullRequest dataclass."""
 
@@ -1728,6 +1835,21 @@ class TestLinkedPullRequest:
         assert pr.body == "Closes #42"
         assert pr.state == "OPEN"
         assert pr.merged is False
+        assert pr.branch_name is None
+
+    def test_linked_pr_with_branch_name(self):
+        """Test creating a LinkedPullRequest with branch_name."""
+        pr = LinkedPullRequest(
+            number=123,
+            url="https://github.com/owner/repo/pull/123",
+            body="Closes #42",
+            state="OPEN",
+            merged=False,
+            branch_name="42-feature-branch",
+        )
+
+        assert pr.number == 123
+        assert pr.branch_name == "42-feature-branch"
 
     def test_linked_pr_merged_state(self):
         """Test LinkedPullRequest with merged state."""

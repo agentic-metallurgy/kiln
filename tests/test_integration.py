@@ -14,8 +14,9 @@ from unittest.mock import MagicMock, Mock, call, patch
 import pytest
 
 from src.claude_runner import ClaudeResult, ClaudeRunnerError, ClaudeTimeoutError, run_claude
+from src.config import Config
 from src.daemon import Daemon, WorkflowRunner
-from src.interfaces import Comment, TicketItem
+from src.interfaces import Comment, LinkedPullRequest, TicketItem
 from src.labels import REQUIRED_LABELS, Labels
 from src.ticket_clients.github import GitHubTicketClient
 from src.workspace import WorkspaceError, WorkspaceManager
@@ -2290,4 +2291,277 @@ class TestDaemonYoloLabelRemoval:
 
         # Should update status
         daemon.ticket_client.update_item_status.assert_called_once_with("PVI_123", "Plan")
+
+
+class TestDaemonClosePrsAndDeleteBranches:
+    """Tests for Daemon._close_prs_and_delete_branches() method."""
+
+    @pytest.fixture
+    def daemon(self, temp_workspace_dir):
+        """Create a daemon instance for testing."""
+        config = MagicMock()
+        config.poll_interval = 60
+        config.watched_statuses = ["Research", "Plan"]
+        config.max_concurrent_workflows = 2
+        config.database_path = f"{temp_workspace_dir}/test.db"
+        config.workspace_dir = temp_workspace_dir
+        config.project_urls = []
+        config.stage_models = {}
+
+        with patch("src.ticket_clients.github.GitHubTicketClient"):
+            daemon = Daemon(config)
+            daemon.ticket_client = MagicMock()
+            yield daemon
+            daemon.stop()
+
+    def test_close_pr_and_delete_branch_for_open_pr(self, daemon):
+        """Test that open PRs are closed and their branches are deleted."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature-branch",
+            )
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = True
+        daemon.ticket_client.delete_branch.return_value = True
+
+        daemon._close_prs_and_delete_branches(item)
+
+        daemon.ticket_client.get_linked_prs.assert_called_once_with(
+            "github.com/owner/repo", 42
+        )
+        daemon.ticket_client.close_pr.assert_called_once_with(
+            "github.com/owner/repo", 100
+        )
+        daemon.ticket_client.delete_branch.assert_called_once_with(
+            "github.com/owner/repo", "42-feature-branch"
+        )
+
+    def test_skip_merged_pr(self, daemon):
+        """Test that merged PRs are skipped (not closed, branch not deleted)."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="MERGED",
+                merged=True,
+                branch_name="42-feature-branch",
+            )
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+
+        daemon._close_prs_and_delete_branches(item)
+
+        daemon.ticket_client.get_linked_prs.assert_called_once()
+        daemon.ticket_client.close_pr.assert_not_called()
+        daemon.ticket_client.delete_branch.assert_not_called()
+
+    def test_continue_processing_on_close_failure(self, daemon):
+        """Test that branch deletion is attempted even if PR close fails."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature-branch",
+            )
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = False  # Failure
+        daemon.ticket_client.delete_branch.return_value = True
+
+        daemon._close_prs_and_delete_branches(item)
+
+        # Both methods should be called even if close_pr fails
+        daemon.ticket_client.close_pr.assert_called_once()
+        daemon.ticket_client.delete_branch.assert_called_once()
+
+    def test_multiple_prs_processed(self, daemon):
+        """Test that all linked PRs are processed."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature-branch-1",
+            ),
+            LinkedPullRequest(
+                number=101,
+                url="https://github.com/owner/repo/pull/101",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature-branch-2",
+            ),
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = True
+        daemon.ticket_client.delete_branch.return_value = True
+
+        daemon._close_prs_and_delete_branches(item)
+
+        assert daemon.ticket_client.close_pr.call_count == 2
+        assert daemon.ticket_client.delete_branch.call_count == 2
+
+    def test_no_linked_prs(self, daemon):
+        """Test handling when there are no linked PRs."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        daemon._close_prs_and_delete_branches(item)
+
+        daemon.ticket_client.get_linked_prs.assert_called_once()
+        daemon.ticket_client.close_pr.assert_not_called()
+        daemon.ticket_client.delete_branch.assert_not_called()
+
+    def test_pr_without_branch_name(self, daemon):
+        """Test handling PR without branch_name (branch deletion is skipped)."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name=None,  # No branch name
+            )
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = True
+
+        daemon._close_prs_and_delete_branches(item)
+
+        daemon.ticket_client.close_pr.assert_called_once()
+        daemon.ticket_client.delete_branch.assert_not_called()
+
+    def test_get_linked_prs_failure(self, daemon):
+        """Test handling when get_linked_prs raises an exception."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        daemon.ticket_client.get_linked_prs.side_effect = Exception("API error")
+
+        # Should not raise, just log warning and return
+        daemon._close_prs_and_delete_branches(item)
+
+        daemon.ticket_client.close_pr.assert_not_called()
+        daemon.ticket_client.delete_branch.assert_not_called()
+
+    def test_mixed_merged_and_open_prs(self, daemon):
+        """Test that only open PRs are processed, merged ones are skipped."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="MERGED",
+                merged=True,
+                branch_name="42-merged-branch",
+            ),
+            LinkedPullRequest(
+                number=101,
+                url="https://github.com/owner/repo/pull/101",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-open-branch",
+            ),
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = True
+        daemon.ticket_client.delete_branch.return_value = True
+
+        daemon._close_prs_and_delete_branches(item)
+
+        # Only the open PR should be processed
+        daemon.ticket_client.close_pr.assert_called_once_with(
+            "github.com/owner/repo", 101
+        )
+        daemon.ticket_client.delete_branch.assert_called_once_with(
+            "github.com/owner/repo", "42-open-branch"
+        )
 
