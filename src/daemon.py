@@ -1072,6 +1072,23 @@ class Daemon:
         plan_pattern_no_sep = r"\n*<!-- kiln:plan -->.*?<!-- /kiln:plan -->"
         body = re.sub(plan_pattern_no_sep, "", body, flags=re.DOTALL)
 
+        # Handle legacy end marker (<!-- /kiln -->) for backwards compatibility
+        # Research with legacy end marker and separator
+        research_pattern_legacy = r"\n*---\n*<!-- kiln:research -->.*?<!-- /kiln -->"
+        body = re.sub(research_pattern_legacy, "", body, flags=re.DOTALL)
+
+        # Research with legacy end marker without separator
+        research_pattern_legacy_no_sep = r"\n*<!-- kiln:research -->.*?<!-- /kiln -->"
+        body = re.sub(research_pattern_legacy_no_sep, "", body, flags=re.DOTALL)
+
+        # Plan with legacy end marker and separator
+        plan_pattern_legacy = r"\n*---\n*<!-- kiln:plan -->.*?<!-- /kiln -->"
+        body = re.sub(plan_pattern_legacy, "", body, flags=re.DOTALL)
+
+        # Plan with legacy end marker without separator
+        plan_pattern_legacy_no_sep = r"\n*<!-- kiln:plan -->.*?<!-- /kiln -->"
+        body = re.sub(plan_pattern_legacy_no_sep, "", body, flags=re.DOTALL)
+
         # Clean up any trailing whitespace
         body = body.rstrip()
 
