@@ -1241,11 +1241,19 @@ class Daemon:
                 logger.info(f"Moved {key} to '{next_status}' status")
 
             # YOLO mode: auto-advance to next workflow status
-            if Labels.YOLO in item.labels and not next_status:
-                yolo_next = self.YOLO_PROGRESSION.get(item.status)
-                if yolo_next:
-                    self.ticket_client.update_item_status(item.item_id, yolo_next)
-                    logger.info(f"YOLO: Auto-advanced {key} from '{item.status}' to '{yolo_next}'")
+            # Fetch fresh labels to detect if YOLO was removed during workflow
+            if not next_status:
+                fresh_labels = self.ticket_client.get_ticket_labels(item.repo, item.ticket_id)
+                if Labels.YOLO in fresh_labels:
+                    yolo_next = self.YOLO_PROGRESSION.get(item.status)
+                    if yolo_next:
+                        self.ticket_client.update_item_status(item.item_id, yolo_next)
+                        logger.info(f"YOLO: Auto-advanced {key} from '{item.status}' to '{yolo_next}'")
+                elif Labels.YOLO in item.labels:
+                    # YOLO label was present at poll time but removed during workflow
+                    logger.info(
+                        f"YOLO: Cancelled auto-advance for {key}, label removed during workflow"
+                    )
 
             # After workflow completes, update last_processed_comment timestamp to skip
             # any comments posted during the workflow (prevents daemon from treating
