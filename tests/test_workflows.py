@@ -128,7 +128,7 @@ class TestResearchWorkflow:
         workflow = ResearchWorkflow()
         prompts = workflow.init(workflow_context)
 
-        assert "/research_codebase_github" in prompts[0]
+        assert "/kiln:research_codebase_github" in prompts[0]
 
 
 @pytest.mark.unit
