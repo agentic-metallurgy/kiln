@@ -112,12 +112,20 @@ def create_claude_symlinks() -> None:
     Existing symlinks are removed before creating new ones to ensure freshness.
     Parent directories are created if needed.
     """
+    from src.logger import get_logger
+
+    logger = get_logger(__name__)
+
     kiln_dir = get_kiln_dir()
     claude_home = Path.home() / ".claude"
 
+    logger.debug(f"Creating Claude symlinks from {kiln_dir} to {claude_home}")
+
+    created_count = 0
     for subdir in ["commands", "agents", "skills"]:
         source = kiln_dir / subdir
         if not source.exists():
+            logger.debug(f"Skipping {subdir}: source {source} does not exist")
             continue
 
         # Create parent directory if needed (e.g., ~/.claude/commands/)
@@ -130,6 +138,13 @@ def create_claude_symlinks() -> None:
         # Unlink existing symlink (if any) and create fresh
         link.unlink(missing_ok=True)
         link.symlink_to(source)
+        logger.debug(f"Created symlink: {link} -> {source}")
+        created_count += 1
+
+    if created_count > 0:
+        logger.info(f"Created {created_count} Claude symlink(s) in {claude_home}")
+    else:
+        logger.warning(f"No Claude symlinks created - no resources found in {kiln_dir}")
 
 
 def cleanup_claude_symlinks() -> None:

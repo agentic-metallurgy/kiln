@@ -212,6 +212,11 @@ class Daemon:
             f"max_concurrent_workflows={config.max_concurrent_workflows}"
         )
 
+        # Create symlinks for kiln slash commands (cleanup happens on shutdown)
+        from src.cli import create_claude_symlinks
+
+        create_claude_symlinks()
+
         self.config = config
         self.version = version
         self._running = False
