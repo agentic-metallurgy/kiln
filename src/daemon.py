@@ -1430,12 +1430,9 @@ class Daemon:
             return
 
         try:
-            # Remove existing .claude/ and copy fresh
-            if dest_claude.exists():
-                shutil.rmtree(dest_claude)
-            shutil.copytree(source_claude, dest_claude)
-
-            logger.info(f"Copied .claude/ to {worktree_path}")
+            # Upsert: merge kiln files into existing .claude/, preserving project files
+            shutil.copytree(source_claude, dest_claude, dirs_exist_ok=True)
+            logger.info(f"Merged .claude/ into {worktree_path}")
         except Exception as e:
             logger.warning(f"Failed to copy .claude/ to worktree: {e}")
 
