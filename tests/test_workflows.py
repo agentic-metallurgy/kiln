@@ -1105,6 +1105,84 @@ class TestImplementWorkflow:
         ):
             workflow.execute(workflow_context, mock_config)
 
+    def test_execute_no_tasks_raises_error(self, workflow_context):
+        """Test that execute() raises ImplementationIncompleteError when no checkbox tasks found."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+        from src.workflows.implement import ImplementationIncompleteError
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # PR with no checkbox tasks
+        pr_info = {
+            "number": 42,
+            "body": """Closes #42
+
+## TASK 1: Test task
+This task has no checkboxes.
+
+Some other content here.
+""",
+        }
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", return_value=pr_info),
+            patch.object(workflow, "_run_prompt"),
+            pytest.raises(ImplementationIncompleteError) as exc_info,
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        assert exc_info.value.reason == "no_tasks"
+        assert "No checkbox tasks found" in str(exc_info.value)
+
+    def test_execute_max_iterations_raises_error(self, workflow_context):
+        """Test that execute() raises ImplementationIncompleteError when max iterations hit."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+        from src.workflows.implement import ImplementationIncompleteError
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+
+        # PR with 1 TASK, so max_iterations=1
+        # The implementation makes progress each iteration (to avoid stall detection)
+        # but never completes all tasks
+        call_count = {"value": 0}
+
+        def mock_get_pr_max_iter(*_args, **_kwargs):
+            # Each call, one more task is completed but new tasks appear
+            call_count["value"] += 1
+            if call_count["value"] == 1:
+                # Initial check
+                return {
+                    "number": 42,
+                    "body": "Closes #42\n\n## TASK 1: Test\n- [ ] Task 1",
+                }
+            # After running, still have incomplete tasks
+            return {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test\n- [ ] Task 1",
+            }
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr_max_iter),
+            patch.object(workflow, "_run_prompt"),
+            pytest.raises(ImplementationIncompleteError) as exc_info,
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        assert exc_info.value.reason == "max_iterations"
+        assert "Hit max iterations" in str(exc_info.value)
+
     def test_execute_continues_past_max_iterations_when_progress_made(self, workflow_context):
         """Test that execute() continues past max_iterations when progress is made."""
         from unittest.mock import MagicMock, patch
