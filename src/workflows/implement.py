@@ -166,7 +166,10 @@ class ImplementWorkflow:
 
             if total_tasks == 0:
                 logger.warning(f"No checkbox tasks found in PR for {key}")
-                break
+                raise ImplementationIncompleteError(
+                    reason="no_tasks",
+                    message=f"No checkbox tasks found in PR for {key}",
+                )
 
             # Check if all tasks complete
             if completed_tasks == total_tasks:
@@ -181,7 +184,11 @@ class ImplementWorkflow:
                         f"No progress after {MAX_STALL_COUNT} iterations for {key} "
                         f"(stuck at {completed_tasks}/{total_tasks})"
                     )
-                    break
+                    raise ImplementationIncompleteError(
+                        reason="stall",
+                        message=f"No progress after {MAX_STALL_COUNT} iterations for {key} "
+                        f"(stuck at {completed_tasks}/{total_tasks})",
+                    )
             else:
                 stall_count = 0
 
@@ -198,9 +205,6 @@ class ImplementWorkflow:
             )
             self._run_prompt(implement_prompt, ctx, config, "implement")
 
-        if iteration >= max_iterations:
-            logger.warning(f"Hit max iterations ({max_iterations}) for {key}")
-
         # Check final state and mark PR ready if all tasks complete
         pr_info = self._get_pr_for_issue(ctx.repo, ctx.issue_number)
         if pr_info:
@@ -209,6 +213,14 @@ class ImplementWorkflow:
             pr_number = pr_info.get("number")
             if total_tasks > 0 and completed_tasks == total_tasks and pr_number:
                 self._mark_pr_ready(ctx.repo, pr_number)
+            elif iteration >= max_iterations:
+                # Hit max iterations without completing all tasks
+                logger.warning(f"Hit max iterations ({max_iterations}) for {key}")
+                raise ImplementationIncompleteError(
+                    reason="max_iterations",
+                    message=f"Hit max iterations ({max_iterations}) for {key} "
+                    f"({completed_tasks}/{total_tasks} tasks complete)",
+                )
 
     def _mark_pr_ready(self, repo: str, pr_number: int) -> None:
         """Mark a draft PR as ready for review.
