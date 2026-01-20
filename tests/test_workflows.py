@@ -862,6 +862,7 @@ class TestImplementWorkflow:
         mock_config = MagicMock(spec=Config)
         mock_config.stage_models = {"prepare_implementation": "sonnet", "implement": "sonnet"}
         mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 0
 
         # First call: no PR found
         # Second call: PR found after prepare_implementation_github
@@ -928,6 +929,7 @@ class TestImplementWorkflow:
         mock_config = MagicMock(spec=Config)
         mock_config.stage_models = {"implement": "sonnet"}
         mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 0
 
         # PR with 3 TASKs and always-incomplete checkboxes
         pr_info = {
@@ -956,10 +958,11 @@ class TestImplementWorkflow:
         ):
             workflow.execute(workflow_context, mock_config)
 
-        # With 3 TASKs, max_iterations = 3, but stall detection kicks in after 2
-        # iterations with no progress (MAX_STALL_COUNT = 2)
-        # First iteration runs, second iteration sees no progress (stall_count=1),
-        # third iteration sees no progress (stall_count=2), loop exits
+        # With 3 TASKs, loop continues indefinitely until stall detection kicks in
+        # Iteration 1: 0/3 complete, last_completed=-1, no stall (stall_count stays 0), run prompt, last_completed=0
+        # Iteration 2: 0/3 complete, last_completed=0, stall_count=1, run prompt
+        # Iteration 3: 0/3 complete, last_completed=0, stall_count=2 (>=MAX_STALL_COUNT), exit BEFORE running
+        # So 2 iterations run (stall detected on iteration 3 before running)
         assert iterations_run["count"] == 2  # Exits due to stall detection
 
     def test_execute_stall_detection(self, workflow_context):
@@ -974,9 +977,9 @@ class TestImplementWorkflow:
         mock_config = MagicMock(spec=Config)
         mock_config.stage_models = {"implement": "sonnet"}
         mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 0
 
-        # PR with 5 TASKs (so max_iterations=5) that never makes progress
-        # This allows stall detection to trigger before max_iterations
+        # PR with 5 TASKs that never makes progress after first task
         pr_info = {
             "number": 42,
             "body": """Closes #42
@@ -1009,7 +1012,7 @@ class TestImplementWorkflow:
         ):
             workflow.execute(workflow_context, mock_config)
 
-        # With 5 TASKs, max_iterations=5
+        # Loop continues indefinitely until stall detection:
         # Iteration 1: completed=1, last_completed=-1, no stall (stall_count stays 0), run prompt, last_completed=1
         # Iteration 2: completed=1, last_completed=1, stall_count=1, run prompt
         # Iteration 3: completed=1, last_completed=1, stall_count=2 (>=MAX_STALL_COUNT), exit BEFORE running
@@ -1027,14 +1030,14 @@ class TestImplementWorkflow:
         mock_config = MagicMock(spec=Config)
         mock_config.stage_models = {"implement": "sonnet"}
         mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 0
 
         # PR with 2 TASKs, starts incomplete, then becomes complete after 1 implementation
-        # Need 2+ TASKs so max_iterations >= 2, allowing the implementation loop to run
         pr_responses = [
             {
                 "number": 42,
                 "body": "Closes #42\n\n## TASK 1: Test 1\n- [ ] Task 1\n\n## TASK 2: Test 2\n- [ ] Task 2",
-            },  # Initial check (sets max_iterations=2)
+            },  # Initial check
             {
                 "number": 42,
                 "body": "Closes #42\n\n## TASK 1: Test 1\n- [ ] Task 1\n\n## TASK 2: Test 2\n- [ ] Task 2",
@@ -1078,13 +1081,14 @@ class TestImplementWorkflow:
         mock_config = MagicMock(spec=Config)
         mock_config.stage_models = {"implement": "sonnet"}
         mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 0
 
         # PR exists initially with 2 TASKs, then disappears in loop
         pr_responses = [
             {
                 "number": 42,
                 "body": "Closes #42\n\n## TASK 1: Test 1\n- [ ] Task 1\n\n## TASK 2: Test 2\n- [ ] Task 2",
-            },  # Initial check (sets max_iterations=2)
+            },  # Initial check
             None,  # Disappeared in loop
         ]
         call_count = {"value": 0}
