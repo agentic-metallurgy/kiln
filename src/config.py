@@ -35,6 +35,7 @@ class Config:
     github_token: str | None = None
     github_enterprise_host: str | None = None
     github_enterprise_token: str | None = None
+    github_enterprise_version: str | None = None  # GHES version (e.g., "3.14")
     project_urls: list[str] = field(default_factory=list)  # Required, no default
     poll_interval: int = 30
     database_path: str = ".kiln/kiln.db"
@@ -168,11 +169,25 @@ def load_config_from_file(config_path: Path) -> Config:
             "Please set the hostname of your GitHub Enterprise Server."
         )
 
+    # Parse GHES version (e.g., "3.14")
+    github_enterprise_version = data.get("GITHUB_ENTERPRISE_VERSION")
+    if not github_enterprise_version:
+        github_enterprise_version = None
+
+    # Validate GHES version requires GHES host and token
+    if github_enterprise_version and not (github_enterprise_host and github_enterprise_token):
+        raise ValueError(
+            "GITHUB_ENTERPRISE_VERSION requires GITHUB_ENTERPRISE_HOST and GITHUB_ENTERPRISE_TOKEN. "
+            "Please configure all GitHub Enterprise Server settings."
+        )
+
     # Set tokens in environment so Claude subprocesses can use gh CLI
     if github_token:
         os.environ["GITHUB_TOKEN"] = github_token
     if github_enterprise_token:
         os.environ["GITHUB_TOKEN"] = github_enterprise_token
+        # gh CLI uses GH_ENTERPRISE_TOKEN for GHES authentication
+        os.environ["GH_ENTERPRISE_TOKEN"] = github_enterprise_token
 
     # Parse required fields
     project_urls_str = data.get("PROJECT_URLS", "")
@@ -234,6 +249,7 @@ def load_config_from_file(config_path: Path) -> Config:
         github_token=github_token,
         github_enterprise_host=github_enterprise_host,
         github_enterprise_token=github_enterprise_token,
+        github_enterprise_version=github_enterprise_version,
         project_urls=project_urls,
         poll_interval=poll_interval,
         database_path=".kiln/kiln.db",
@@ -287,11 +303,25 @@ def load_config_from_env() -> Config:
             "Please set the hostname of your GitHub Enterprise Server."
         )
 
+    # Parse GHES version (e.g., "3.14")
+    github_enterprise_version = os.environ.get("GITHUB_ENTERPRISE_VERSION")
+    if not github_enterprise_version:
+        github_enterprise_version = None
+
+    # Validate GHES version requires GHES host and token
+    if github_enterprise_version and not (github_enterprise_host and github_enterprise_token):
+        raise ValueError(
+            "GITHUB_ENTERPRISE_VERSION requires GITHUB_ENTERPRISE_HOST and GITHUB_ENTERPRISE_TOKEN. "
+            "Please configure all GitHub Enterprise Server settings."
+        )
+
     # Set tokens in environment so Claude subprocesses can use gh CLI
     if github_token:
         os.environ["GITHUB_TOKEN"] = github_token
     if github_enterprise_token:
         os.environ["GITHUB_TOKEN"] = github_enterprise_token
+        # gh CLI uses GH_ENTERPRISE_TOKEN for GHES authentication
+        os.environ["GH_ENTERPRISE_TOKEN"] = github_enterprise_token
 
     # PROJECT_URLS: comma-separated list of project URLs
     project_urls_env = os.environ.get("PROJECT_URLS")
@@ -351,6 +381,7 @@ def load_config_from_env() -> Config:
         github_token=github_token,
         github_enterprise_host=github_enterprise_host,
         github_enterprise_token=github_enterprise_token,
+        github_enterprise_version=github_enterprise_version,
         project_urls=project_urls,
         poll_interval=poll_interval,
         database_path=database_path,
