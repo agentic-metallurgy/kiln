@@ -1,6 +1,7 @@
 """Unit tests for the GitHub ticket client module."""
 
 import json
+import subprocess
 from datetime import UTC, datetime
 from unittest.mock import patch
 
@@ -1713,6 +1714,48 @@ class TestRemoveClosesKeyword:
         original = "Related to #123"
         result = github_client._remove_closes_keyword(original, 123)
         assert result == original
+
+
+@pytest.mark.unit
+class TestClosePr:
+    """Tests for GitHubTicketClient.close_pr() method."""
+
+    def test_close_pr_success(self, github_client):
+        """Test successfully closing a PR."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            result = github_client.close_pr("github.com/owner/repo", 123)
+
+        assert result is True
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0][0]
+        assert call_args == ["pr", "close", "123", "--repo", "https://github.com/owner/repo"]
+
+    def test_close_pr_returns_false_on_error(self, github_client):
+        """Test that False is returned when gh command fails."""
+        error = subprocess.CalledProcessError(1, "gh")
+        error.stderr = "PR is already closed"
+        with patch.object(github_client, "_run_gh_command", side_effect=error):
+            result = github_client.close_pr("github.com/owner/repo", 123)
+
+        assert result is False
+
+    def test_close_pr_uses_correct_repo_reference(self, github_client):
+        """Test that the full repo URL is used for GHES compatibility."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            github_client.close_pr("github.example.com/myorg/myrepo", 456)
+
+        call_args = mock_run.call_args[0][0]
+        assert "--repo" in call_args
+        repo_idx = call_args.index("--repo") + 1
+        assert call_args[repo_idx] == "https://github.example.com/myorg/myrepo"
+
+    def test_close_pr_passes_repo_for_hostname_lookup(self, github_client):
+        """Test that repo is passed for hostname lookup."""
+        with patch.object(github_client, "_run_gh_command") as mock_run:
+            github_client.close_pr("github.com/owner/repo", 99)
+
+        mock_run.assert_called_once()
+        assert mock_run.call_args[1]["repo"] == "github.com/owner/repo"
 
 
 @pytest.mark.unit

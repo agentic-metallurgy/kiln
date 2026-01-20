@@ -1462,6 +1462,27 @@ class GitHubTicketClient:
             logger.error(f"Failed to remove linking keyword from PR {repo}#{pr_number}: {e}")
             return False
 
+    def close_pr(self, repo: str, pr_number: int) -> bool:
+        """Close a pull request without merging.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: PR number to close
+
+        Returns:
+            True if PR was closed successfully, False otherwise
+        """
+        repo_ref = self._get_repo_ref(repo)
+        try:
+            args = ["pr", "close", str(pr_number), "--repo", repo_ref]
+            self._run_gh_command(args, repo=repo)
+            logger.info(f"Closed PR #{pr_number} in {repo}")
+            return True
+        except subprocess.CalledProcessError as e:
+            # PR may already be closed or merged
+            logger.warning(f"Failed to close PR #{pr_number} in {repo}: {e.stderr}")
+            return False
+
     def _remove_closes_keyword(self, body: str, issue_number: int) -> str:
         """Remove linking keywords for a specific issue from PR body text.
 

@@ -196,3 +196,15 @@ class TicketClient(Protocol):
             True if the PR was edited, False if no linking keyword was found
         """
         ...
+
+    def close_pr(self, repo: str, pr_number: int) -> bool:
+        """Close a pull request without merging.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: PR number to close
+
+        Returns:
+            True if PR was closed successfully, False otherwise
+        """
+        ...
