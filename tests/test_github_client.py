@@ -1453,6 +1453,7 @@ class TestGetLinkedPRs:
                                     "body": "Closes #42\n\nSome description",
                                     "state": "OPEN",
                                     "merged": False,
+                                    "headRefName": "42-feature-branch",
                                 },
                                 {
                                     "number": 456,
@@ -1460,6 +1461,7 @@ class TestGetLinkedPRs:
                                     "body": "Fixes #42",
                                     "state": "MERGED",
                                     "merged": True,
+                                    "headRefName": "42-other-branch",
                                 },
                             ]
                         }
@@ -1477,8 +1479,10 @@ class TestGetLinkedPRs:
         assert prs[0].body == "Closes #42\n\nSome description"
         assert prs[0].state == "OPEN"
         assert prs[0].merged is False
+        assert prs[0].branch_name == "42-feature-branch"
         assert prs[1].number == 456
         assert prs[1].merged is True
+        assert prs[1].branch_name == "42-other-branch"
 
     def test_get_linked_prs_returns_empty_list_when_no_prs(self, github_client):
         """Test that empty list is returned when there are no linked PRs."""
@@ -1524,6 +1528,7 @@ class TestGetLinkedPRs:
                                     "body": "Closes #42",
                                     "state": "OPEN",
                                     "merged": False,
+                                    "headRefName": "42-branch",
                                 },
                                 None,
                             ]
@@ -1538,6 +1543,7 @@ class TestGetLinkedPRs:
 
         assert len(prs) == 1
         assert prs[0].number == 123
+        assert prs[0].branch_name == "42-branch"
 
 
 @pytest.mark.unit
@@ -1728,6 +1734,21 @@ class TestLinkedPullRequest:
         assert pr.body == "Closes #42"
         assert pr.state == "OPEN"
         assert pr.merged is False
+        assert pr.branch_name is None
+
+    def test_linked_pr_with_branch_name(self):
+        """Test creating a LinkedPullRequest with branch_name."""
+        pr = LinkedPullRequest(
+            number=123,
+            url="https://github.com/owner/repo/pull/123",
+            body="Closes #42",
+            state="OPEN",
+            merged=False,
+            branch_name="42-feature-branch",
+        )
+
+        assert pr.number == 123
+        assert pr.branch_name == "42-feature-branch"
 
     def test_linked_pr_merged_state(self):
         """Test LinkedPullRequest with merged state."""
