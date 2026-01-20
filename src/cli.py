@@ -47,7 +47,7 @@ def get_banner() -> str:
     chars2 = "█ █ █ █▄▄ █ ▀█"
     line2 = "".join(f"\033[38;5;{c2[i % len(c2)]}m{ch}" for i, ch in enumerate(chars2))
 
-    return f"\n\n  {line1}{RESET}\n  {line2}{RESET}\n\n"
+    return f"\n\n  {line1}{RESET}\n  {line2}{RESET}\n  v{__version__}\n\n"
 
 
 BANNER_PLAIN = """
