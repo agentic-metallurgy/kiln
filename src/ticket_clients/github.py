@@ -123,7 +123,11 @@ class GitHubTicketClient:
             env = {}
             token = self._get_token_for_host(hostname)
             if token:
-                env["GITHUB_TOKEN"] = token
+                # gh CLI uses different env vars for github.com vs GHES
+                if hostname == "github.com":
+                    env["GITHUB_TOKEN"] = token
+                else:
+                    env["GH_ENTERPRISE_TOKEN"] = token
 
             import os
 
@@ -571,6 +575,54 @@ class GitHubTicketClient:
         except Exception as e:
             logger.error(f"Failed to get issue body for {repo}#{ticket_id}: {e}")
             return None
+
+    def get_issue_labels(self, repo: str, ticket_id: int) -> set[str]:
+        """Get current labels for an issue via GraphQL.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            ticket_id: Issue number
+
+        Returns:
+            Set of label names currently on the issue
+        """
+        _, owner, repo_name = self._parse_repo(repo)
+
+        query = """
+        query($owner: String!, $repo: String!, $issueNumber: Int!) {
+          repository(owner: $owner, name: $repo) {
+            issue(number: $issueNumber) {
+              labels(first: 50) {
+                nodes {
+                  name
+                }
+              }
+            }
+          }
+        }
+        """
+
+        try:
+            response = self._execute_graphql_query(
+                query,
+                {
+                    "owner": owner,
+                    "repo": repo_name,
+                    "issueNumber": ticket_id,
+                },
+                repo=repo,
+            )
+
+            issue_data = response.get("data", {}).get("repository", {}).get("issue")
+            if not issue_data:
+                return set()
+
+            label_nodes = issue_data.get("labels", {}).get("nodes", [])
+            return {label["name"] for label in label_nodes if label}
+
+        except Exception as e:
+            logger.error(f"Failed to get issue labels for {repo}#{ticket_id}: {e}")
+            return set()
 
     def add_label(self, repo: str, ticket_id: int, label: str) -> None:
         """Add a label to an issue.
@@ -1861,7 +1913,11 @@ class GitHubTicketClient:
             env = {}
             token = self._get_token_for_host(hostname)
             if token:
-                env["GITHUB_TOKEN"] = token
+                # gh CLI uses different env vars for github.com vs GHES
+                if hostname == "github.com":
+                    env["GITHUB_TOKEN"] = token
+                else:
+                    env["GH_ENTERPRISE_TOKEN"] = token
 
             result = subprocess.run(
                 cmd,

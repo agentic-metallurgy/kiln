@@ -1,5 +1,5 @@
 ---
-name: edit-github-issue-components
+name: kiln-edit-github-issue-components
 description: Edit GitHub issue components (description, research, implementation plan) in-place. Use when updating existing issue content rather than adding new comments.
 ---
 

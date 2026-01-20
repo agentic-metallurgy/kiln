@@ -57,6 +57,7 @@ class Config:
     otel_endpoint: str = ""
     otel_service_name: str = "kiln"
     claude_code_enable_telemetry: bool = False
+    safety_allow_appended_tasks: int = 0  # 0 = infinite (no limit)
 
 
 def _validate_project_urls_host(
@@ -226,6 +227,9 @@ def load_config_from_file(config_path: Path) -> Config:
     otel_service_name = data.get("OTEL_SERVICE_NAME", "kiln")
     claude_code_enable_telemetry = data.get("CLAUDE_CODE_ENABLE_TELEMETRY", "0") == "1"
 
+    # Safety settings
+    safety_allow_appended_tasks = int(data.get("SAFETY_ALLOW_APPENDED_TASKS", "0"))
+
     return Config(
         github_token=github_token,
         github_enterprise_host=github_enterprise_host,
@@ -242,6 +246,7 @@ def load_config_from_file(config_path: Path) -> Config:
         otel_endpoint=otel_endpoint,
         otel_service_name=otel_service_name,
         claude_code_enable_telemetry=claude_code_enable_telemetry,
+        safety_allow_appended_tasks=safety_allow_appended_tasks,
     )
 
 
@@ -281,6 +286,12 @@ def load_config_from_env() -> Config:
             "GITHUB_ENTERPRISE_TOKEN requires GITHUB_ENTERPRISE_HOST. "
             "Please set the hostname of your GitHub Enterprise Server."
         )
+
+    # Set tokens in environment so Claude subprocesses can use gh CLI
+    if github_token:
+        os.environ["GITHUB_TOKEN"] = github_token
+    if github_enterprise_token:
+        os.environ["GITHUB_TOKEN"] = github_enterprise_token
 
     # PROJECT_URLS: comma-separated list of project URLs
     project_urls_env = os.environ.get("PROJECT_URLS")
@@ -354,6 +365,7 @@ def load_config_from_env() -> Config:
         otel_endpoint=os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
         otel_service_name=os.environ.get("OTEL_SERVICE_NAME", "kiln"),
         claude_code_enable_telemetry=os.environ.get("CLAUDE_CODE_ENABLE_TELEMETRY", "0") == "1",
+        safety_allow_appended_tasks=int(os.environ.get("SAFETY_ALLOW_APPENDED_TASKS", "0")),
     )
 
 

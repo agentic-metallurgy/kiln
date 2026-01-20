@@ -33,9 +33,9 @@ When this command is invoked with a GitHub issue reference:
    - **NEVER** read files partially - if a file is mentioned, read it completely
 
 2. **Spawn parallel research tasks** to gather context:
-   - Use **codebase-locator** agent to find all files related to the issue
-   - Use **codebase-analyzer** agent to understand current implementation
-   - Use **codebase-pattern-finder** agent to find similar features to model after
+   - Use **kiln-codebase-locator** agent to find all files related to the issue
+   - Use **kiln-codebase-analyzer** agent to understand current implementation
+   - Use **kiln-codebase-pattern-finder** agent to find similar features to model after
 
    These agents will:
    - Find relevant source files, configs, and tests

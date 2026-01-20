@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, Mock, call, patch
 import pytest
 
 from src.claude_runner import ClaudeResult, ClaudeRunnerError, ClaudeTimeoutError, run_claude
+from src.config import Config
 from src.daemon import Daemon, WorkflowRunner
 from src.interfaces import Comment, LinkedPullRequest, TicketItem
 from src.labels import REQUIRED_LABELS, Labels
@@ -2162,6 +2163,134 @@ Plan data.
             assert "Plan data" not in cleaned_body
             # Verify original description is preserved
             assert original_description in cleaned_body
+
+
+@pytest.mark.unit
+class TestDaemonYoloLabelRemoval:
+    """Tests for YOLO label removal stopping automatic progression."""
+
+    @pytest.fixture
+    def daemon(self, temp_workspace_dir):
+        """Create a daemon instance for testing."""
+        config = Config(
+            github_token="test-token",
+            project_urls=["https://github.com/orgs/test/projects/1"],
+            watched_statuses=["Research", "Plan", "Implement"],
+            workspace_dir=temp_workspace_dir,
+            poll_interval=60,
+            allowed_username="test-user",
+        )
+        with patch.object(GitHubTicketClient, "validate_connection"):
+            with patch.object(GitHubTicketClient, "validate_scopes"):
+                daemon = Daemon(config)
+                daemon.ticket_client = MagicMock()
+                yield daemon
+                daemon.stop()
+
+    def test_has_yolo_label_returns_true_when_present(self, daemon):
+        """Test _has_yolo_label returns True when yolo label is present."""
+        daemon.ticket_client.get_issue_labels.return_value = {"yolo", "bug", "enhancement"}
+
+        result = daemon._has_yolo_label("github.com/owner/repo", 42)
+
+        assert result is True
+        daemon.ticket_client.get_issue_labels.assert_called_once_with("github.com/owner/repo", 42)
+
+    def test_has_yolo_label_returns_false_when_absent(self, daemon):
+        """Test _has_yolo_label returns False when yolo label is not present."""
+        daemon.ticket_client.get_issue_labels.return_value = {"bug", "enhancement"}
+
+        result = daemon._has_yolo_label("github.com/owner/repo", 42)
+
+        assert result is False
+
+    def test_has_yolo_label_returns_false_on_api_error(self, daemon):
+        """Test _has_yolo_label returns False (fail-safe) on API errors."""
+        daemon.ticket_client.get_issue_labels.side_effect = Exception("API error")
+
+        result = daemon._has_yolo_label("github.com/owner/repo", 42)
+
+        assert result is False
+
+    def test_should_yolo_advance_returns_false_when_label_removed(self, daemon):
+        """Test _should_yolo_advance returns False when yolo label was removed."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels={"yolo", "research_ready"},  # Cached labels still have yolo
+        )
+
+        # Fresh check shows yolo was removed
+        daemon.ticket_client.get_issue_labels.return_value = {"research_ready"}
+
+        result = daemon._should_yolo_advance(item)
+
+        assert result is False
+        daemon.ticket_client.get_issue_labels.assert_called_once()
+
+    def test_should_yolo_advance_returns_true_when_label_still_present(self, daemon):
+        """Test _should_yolo_advance returns True when yolo label is still present."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels={"yolo", "research_ready"},
+        )
+
+        # Fresh check shows yolo is still present
+        daemon.ticket_client.get_issue_labels.return_value = {"yolo", "research_ready"}
+
+        result = daemon._should_yolo_advance(item)
+
+        assert result is True
+
+    def test_yolo_advance_skips_when_label_removed(self, daemon):
+        """Test _yolo_advance does not advance when yolo label was removed."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels={"yolo", "research_ready"},
+        )
+
+        # Fresh check shows yolo was removed
+        daemon.ticket_client.get_issue_labels.return_value = {"research_ready"}
+
+        daemon._yolo_advance(item)
+
+        # Should not update status
+        daemon.ticket_client.update_item_status.assert_not_called()
+
+    def test_yolo_advance_proceeds_when_label_present(self, daemon):
+        """Test _yolo_advance proceeds when yolo label is still present."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels={"yolo", "research_ready"},
+        )
+
+        # Fresh check shows yolo is still present
+        daemon.ticket_client.get_issue_labels.return_value = {"yolo", "research_ready"}
+        daemon.ticket_client.get_label_actor.return_value = "test-user"
+
+        daemon._yolo_advance(item)
+
+        # Should update status
+        daemon.ticket_client.update_item_status.assert_called_once_with("PVI_123", "Plan")
 
 
 class TestDaemonClosePrsAndDeleteBranches:

@@ -458,8 +458,6 @@ class Daemon:
 
     def stop(self) -> None:
         """Stop the daemon gracefully."""
-        from src.cli import cleanup_claude_symlinks
-
         logger.debug("Stopping daemon")
         self._running = False
 
@@ -477,13 +475,6 @@ class Daemon:
             logger.debug("Database connection closed")
         except Exception as e:
             logger.error(f"Error closing database: {e}")
-
-        # Clean up Claude symlinks
-        try:
-            cleanup_claude_symlinks()
-            logger.debug("Claude symlinks cleaned up")
-        except Exception as e:
-            logger.warning(f"Error cleaning up Claude symlinks: {e}")
 
         logger.debug("Daemon stopped")
 
@@ -551,22 +542,29 @@ class Daemon:
 
             # YOLO: Move Backlog issues with yolo label to Research
             for item in all_items:
-                if (
-                    item.status == "Backlog"
-                    and Labels.YOLO in item.labels
-                    and item.state != "CLOSED"
-                ):
-                    key = f"{item.repo}#{item.ticket_id}"
-                    actor = self.ticket_client.get_label_actor(
-                        item.repo, item.ticket_id, Labels.YOLO
-                    )
-                    if not check_actor_allowed(actor, self.config.allowed_username, key, "YOLO"):
-                        continue
-                    logger.info(
-                        f"YOLO: Starting auto-progression for {key} from Backlog "
-                        f"(label added by allowed user '{actor}')"
-                    )
-                    self.ticket_client.update_item_status(item.item_id, "Research")
+                # Fast path: if not in cached labels, definitely not present
+                if Labels.YOLO not in item.labels:
+                    continue
+                if item.status != "Backlog" or item.state == "CLOSED":
+                    continue
+
+                key = f"{item.repo}#{item.ticket_id}"
+
+                # Fresh check: verify yolo label is still present (may have been removed since poll started)
+                if not self._has_yolo_label(item.repo, item.ticket_id):
+                    logger.debug(f"YOLO: Skipping Backlog→Research for {key} - yolo label was removed")
+                    continue
+
+                actor = self.ticket_client.get_label_actor(
+                    item.repo, item.ticket_id, Labels.YOLO
+                )
+                if not check_actor_allowed(actor, self.config.allowed_username, key, "YOLO"):
+                    continue
+                logger.info(
+                    f"YOLO: Starting auto-progression for {key} from Backlog "
+                    f"(label added by allowed user '{actor}')"
+                )
+                self.ticket_client.update_item_status(item.item_id, "Research")
 
             # Handle reset label: clear kiln content and move issue to Backlog
             for item in all_items:
@@ -688,7 +686,7 @@ class Daemon:
         Returns:
             True if item should be advanced to next YOLO status
         """
-        # Must have yolo label
+        # Fast path: if not in cached labels, definitely not present
         if Labels.YOLO not in item.labels:
             return False
 
@@ -710,12 +708,23 @@ class Daemon:
             return False
 
         complete_label = config["complete_label"]
-        return bool(complete_label and complete_label in item.labels)
+        if not (complete_label and complete_label in item.labels):
+            return False
+
+        # Fresh check: verify yolo label is still present (may have been removed since poll started)
+        if not self._has_yolo_label(item.repo, item.ticket_id):
+            key = f"{item.repo}#{item.ticket_id}"
+            logger.debug(f"YOLO: Skipping advancement for {key} - yolo label was removed")
+            return False
+
+        return True
 
     def _yolo_advance(self, item: TicketItem) -> None:
         """Advance an item to the next YOLO status.
 
         Validates that the yolo label was added by an allowed user before advancing.
+        Also verifies the label is still present (fresh check) in case it was removed
+        after _should_yolo_advance() returned True but before this method runs.
 
         Args:
             item: TicketItem to advance
@@ -724,6 +733,11 @@ class Daemon:
         yolo_next = self.YOLO_PROGRESSION.get(item.status)
 
         if not yolo_next:
+            return
+
+        # Fresh check: verify yolo label is still present before advancing
+        if not self._has_yolo_label(item.repo, item.ticket_id):
+            logger.info(f"YOLO: Skipping advancement for {key} - yolo label was removed")
             return
 
         actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.YOLO)
@@ -735,6 +749,28 @@ class Daemon:
             f"(stage complete, label added by allowed user '{actor}')"
         )
         self.ticket_client.update_item_status(item.item_id, yolo_next)
+
+    def _has_yolo_label(self, repo: str, issue_number: int) -> bool:
+        """Check if issue currently has yolo label (fresh from GitHub).
+
+        This fetches fresh label data from GitHub to handle the case where
+        a user removes the yolo label mid-workflow. Using cached item.labels
+        would miss this change.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            issue_number: Issue number
+
+        Returns:
+            True if yolo label is currently present, False otherwise.
+            Returns False on any error (fail-safe: don't advance if uncertain).
+        """
+        try:
+            current_labels = self.ticket_client.get_issue_labels(repo, issue_number)
+            return Labels.YOLO in current_labels
+        except Exception as e:
+            logger.warning(f"Could not fetch current labels for {repo}#{issue_number}: {e}")
+            return False  # Fail safe - don't advance if we can't verify
 
     def _get_pr_for_issue(self, repo: str, issue_number: int) -> dict | None:
         """Get the open PR that closes a specific issue.
@@ -1292,11 +1328,18 @@ class Daemon:
                 logger.info(f"Moved {key} to '{next_status}' status")
 
             # YOLO mode: auto-advance to next workflow status
+            # Re-check yolo label to handle removal during workflow execution
             if Labels.YOLO in item.labels and not next_status:
                 yolo_next = self.YOLO_PROGRESSION.get(item.status)
                 if yolo_next:
-                    self.ticket_client.update_item_status(item.item_id, yolo_next)
-                    logger.info(f"YOLO: Auto-advanced {key} from '{item.status}' to '{yolo_next}'")
+                    # Fresh check - yolo may have been removed while workflow was running
+                    if self._has_yolo_label(item.repo, item.ticket_id):
+                        self.ticket_client.update_item_status(item.item_id, yolo_next)
+                        logger.info(f"YOLO: Auto-advanced {key} from '{item.status}' to '{yolo_next}'")
+                    else:
+                        logger.info(
+                            f"YOLO: Skipping advancement for {key} - yolo label was removed during workflow"
+                        )
 
             # After workflow completes, update last_processed_comment timestamp to skip
             # any comments posted during the workflow (prevents daemon from treating

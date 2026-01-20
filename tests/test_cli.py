@@ -8,12 +8,11 @@ import pytest
 from src.cli import (
     BANNER_PLAIN,
     __version__,
-    cleanup_claude_symlinks,
-    create_claude_symlinks,
     extract_claude_resources,
     get_banner,
     get_readme,
     get_sample_config,
+    install_claude_resources,
 )
 
 
@@ -241,201 +240,137 @@ class TestExtractClaudeResources:
 
 
 @pytest.mark.unit
-class TestCreateClaudeSymlinks:
-    """Tests for create_claude_symlinks function."""
+class TestInstallClaudeResources:
+    """Tests for install_claude_resources function."""
 
-    def test_create_symlinks_creates_links(self, tmp_path, monkeypatch):
-        """Test that create_claude_symlinks creates symlinks in ~/.claude/."""
+    def test_install_copies_files(self, tmp_path, monkeypatch):
+        """Test that install_claude_resources copies files to ~/.claude/."""
         monkeypatch.chdir(tmp_path)
 
-        # Create .kiln directory with resources
+        # Create .kiln directory with kiln-prefixed resources
         kiln_dir = tmp_path / ".kiln"
-        for subdir in ["commands", "agents", "skills"]:
-            (kiln_dir / subdir).mkdir(parents=True)
-            (kiln_dir / subdir / f"test_{subdir}.md").write_text(f"# Test {subdir}")
+        (kiln_dir / "commands").mkdir(parents=True)
+        (kiln_dir / "commands" / "kiln-create_plan_github.md").write_text("# Test command")
+        (kiln_dir / "agents").mkdir(parents=True)
+        (kiln_dir / "agents" / "kiln-codebase-analyzer.md").write_text("# Test agent")
+        (kiln_dir / "skills" / "kiln-edit-github-issue-components").mkdir(parents=True)
+        (kiln_dir / "skills" / "kiln-edit-github-issue-components" / "SKILL.md").write_text("# Test skill")
 
         # Create fake home directory
         fake_home = tmp_path / "fake_home"
         fake_home.mkdir()
 
         with patch.object(Path, "home", return_value=fake_home):
-            create_claude_symlinks()
+            install_claude_resources()
 
-        # Verify symlinks were created
-        for subdir in ["commands", "agents", "skills"]:
-            link = fake_home / ".claude" / subdir / "kiln"
-            assert link.exists(), f"Symlink ~/.claude/{subdir}/kiln should exist"
-            assert link.is_symlink(), f"~/.claude/{subdir}/kiln should be a symlink"
-            assert link.resolve() == (kiln_dir / subdir).resolve(), f"Symlink should point to .kiln/{subdir}"
+        # Verify files were copied (not symlinks)
+        cmd_file = fake_home / ".claude" / "commands" / "kiln-create_plan_github.md"
+        assert cmd_file.exists(), "Command file should be copied"
+        assert not cmd_file.is_symlink(), "Should be a file, not a symlink"
+        assert cmd_file.read_text() == "# Test command"
 
-    def test_create_symlinks_creates_parent_directories(self, tmp_path, monkeypatch):
-        """Test that create_claude_symlinks creates parent directories if needed."""
+        agent_file = fake_home / ".claude" / "agents" / "kiln-codebase-analyzer.md"
+        assert agent_file.exists(), "Agent file should be copied"
+
+        skill_dir = fake_home / ".claude" / "skills" / "kiln-edit-github-issue-components"
+        assert skill_dir.exists(), "Skill directory should be copied"
+        assert skill_dir.is_dir(), "Skill should be a directory"
+
+    def test_install_creates_parent_directories(self, tmp_path, monkeypatch):
+        """Test that install_claude_resources creates parent directories if needed."""
         monkeypatch.chdir(tmp_path)
 
-        # Create .kiln with resources
+        # Create .kiln with a command
         kiln_dir = tmp_path / ".kiln"
         (kiln_dir / "commands").mkdir(parents=True)
-        (kiln_dir / "commands" / "test.md").write_text("# Test")
+        (kiln_dir / "commands" / "kiln-implement_github.md").write_text("# Test")
 
         # Create fake home without ~/.claude/
         fake_home = tmp_path / "fake_home"
         fake_home.mkdir()
 
         with patch.object(Path, "home", return_value=fake_home):
-            create_claude_symlinks()
+            install_claude_resources()
 
         # Verify parent directory was created
         assert (fake_home / ".claude" / "commands").exists()
         assert (fake_home / ".claude" / "commands").is_dir()
 
-    def test_create_symlinks_replaces_existing(self, tmp_path, monkeypatch):
-        """Test that create_claude_symlinks replaces existing symlinks."""
+    def test_install_overwrites_existing(self, tmp_path, monkeypatch):
+        """Test that install_claude_resources overwrites existing files."""
         monkeypatch.chdir(tmp_path)
 
-        # Create .kiln with resources
+        # Create .kiln with a command
         kiln_dir = tmp_path / ".kiln"
         (kiln_dir / "commands").mkdir(parents=True)
-        (kiln_dir / "commands" / "test.md").write_text("# Test")
+        (kiln_dir / "commands" / "kiln-implement_github.md").write_text("# New content")
 
-        # Create fake home with existing symlink pointing elsewhere
+        # Create fake home with existing file
         fake_home = tmp_path / "fake_home"
-        old_target = tmp_path / "old_target"
-        old_target.mkdir()
         (fake_home / ".claude" / "commands").mkdir(parents=True)
-        old_link = fake_home / ".claude" / "commands" / "kiln"
-        old_link.symlink_to(old_target)
+        existing = fake_home / ".claude" / "commands" / "kiln-implement_github.md"
+        existing.write_text("# Old content")
 
         with patch.object(Path, "home", return_value=fake_home):
-            create_claude_symlinks()
+            install_claude_resources()
 
-        # Verify symlink now points to new target
-        link = fake_home / ".claude" / "commands" / "kiln"
-        assert link.is_symlink()
-        assert link.resolve() == (kiln_dir / "commands").resolve()
+        # Verify file was overwritten
+        assert existing.read_text() == "# New content"
 
-    def test_create_symlinks_skips_missing_source(self, tmp_path, monkeypatch):
-        """Test that create_claude_symlinks skips subdirs that don't exist in .kiln."""
+    def test_install_is_idempotent(self, tmp_path, monkeypatch):
+        """Test that calling install_claude_resources twice doesn't fail."""
         monkeypatch.chdir(tmp_path)
 
-        # Create .kiln with only commands (no agents or skills)
+        # Create .kiln with a command
         kiln_dir = tmp_path / ".kiln"
         (kiln_dir / "commands").mkdir(parents=True)
-        (kiln_dir / "commands" / "test.md").write_text("# Test")
-
-        # Create fake home
-        fake_home = tmp_path / "fake_home"
-        fake_home.mkdir()
-
-        with patch.object(Path, "home", return_value=fake_home):
-            create_claude_symlinks()
-
-        # Only commands symlink should exist
-        assert (fake_home / ".claude" / "commands" / "kiln").exists()
-        assert not (fake_home / ".claude" / "agents" / "kiln").exists()
-        assert not (fake_home / ".claude" / "skills" / "kiln").exists()
-
-    def test_create_symlinks_is_idempotent(self, tmp_path, monkeypatch):
-        """Test that calling create_claude_symlinks twice doesn't fail."""
-        monkeypatch.chdir(tmp_path)
-
-        # Create .kiln with resources
-        kiln_dir = tmp_path / ".kiln"
-        (kiln_dir / "commands").mkdir(parents=True)
-        (kiln_dir / "commands" / "test.md").write_text("# Test")
+        (kiln_dir / "commands" / "kiln-implement_github.md").write_text("# Test")
 
         fake_home = tmp_path / "fake_home"
         fake_home.mkdir()
 
         with patch.object(Path, "home", return_value=fake_home):
             # Call twice - should not raise
-            create_claude_symlinks()
-            create_claude_symlinks()
+            install_claude_resources()
+            install_claude_resources()
 
-        # Symlink should still work
-        link = fake_home / ".claude" / "commands" / "kiln"
-        assert link.is_symlink()
+        # File should still exist
+        cmd_file = fake_home / ".claude" / "commands" / "kiln-implement_github.md"
+        assert cmd_file.exists()
 
-
-@pytest.mark.unit
-class TestCleanupClaudeSymlinks:
-    """Tests for cleanup_claude_symlinks function."""
-
-    def test_cleanup_removes_symlinks(self, tmp_path, monkeypatch):
-        """Test that cleanup_claude_symlinks removes symlinks."""
+    def test_install_raises_on_write_failure(self, tmp_path, monkeypatch):
+        """Test that install_claude_resources raises RuntimeError on failure."""
         monkeypatch.chdir(tmp_path)
 
-        # Create .kiln with resources
-        kiln_dir = tmp_path / ".kiln"
-        for subdir in ["commands", "agents", "skills"]:
-            (kiln_dir / subdir).mkdir(parents=True)
-
-        # Create fake home with symlinks
-        fake_home = tmp_path / "fake_home"
-        for subdir in ["commands", "agents", "skills"]:
-            (fake_home / ".claude" / subdir).mkdir(parents=True)
-            link = fake_home / ".claude" / subdir / "kiln"
-            link.symlink_to(kiln_dir / subdir)
-
-        with patch.object(Path, "home", return_value=fake_home):
-            cleanup_claude_symlinks()
-
-        # Verify symlinks were removed
-        for subdir in ["commands", "agents", "skills"]:
-            link = fake_home / ".claude" / subdir / "kiln"
-            assert not link.exists(), f"Symlink ~/.claude/{subdir}/kiln should be removed"
-
-    def test_cleanup_handles_missing_symlinks(self, tmp_path, monkeypatch):
-        """Test that cleanup_claude_symlinks handles missing symlinks gracefully."""
-        fake_home = tmp_path / "fake_home"
-        fake_home.mkdir()
-
-        with patch.object(Path, "home", return_value=fake_home):
-            # Should not raise even if symlinks don't exist
-            cleanup_claude_symlinks()
-
-    def test_cleanup_handles_partial_symlinks(self, tmp_path, monkeypatch):
-        """Test that cleanup_claude_symlinks handles partial symlinks."""
-        monkeypatch.chdir(tmp_path)
-
-        # Create .kiln with resources
+        # Create .kiln with a command
         kiln_dir = tmp_path / ".kiln"
         (kiln_dir / "commands").mkdir(parents=True)
+        (kiln_dir / "commands" / "kiln-implement_github.md").write_text("# Test")
 
-        # Create fake home with only commands symlink
+        # Create fake home where commands dir is a file (will fail to copy)
         fake_home = tmp_path / "fake_home"
-        (fake_home / ".claude" / "commands").mkdir(parents=True)
-        link = fake_home / ".claude" / "commands" / "kiln"
-        link.symlink_to(kiln_dir / "commands")
+        (fake_home / ".claude").mkdir(parents=True)
+        (fake_home / ".claude" / "commands").write_text("not a directory")
 
         with patch.object(Path, "home", return_value=fake_home):
-            # Should not raise
-            cleanup_claude_symlinks()
+            with pytest.raises(RuntimeError, match="Failed to install kiln resources"):
+                install_claude_resources()
 
-        # Commands symlink should be removed
-        assert not link.exists()
+    def test_install_skips_missing_source_dirs(self, tmp_path, monkeypatch):
+        """Test that install_claude_resources handles missing source directories."""
+        monkeypatch.chdir(tmp_path)
 
-    def test_cleanup_logs_errors(self, tmp_path, monkeypatch):
-        """Test that cleanup_claude_symlinks logs errors gracefully."""
-        fake_home = tmp_path / "fake_home"
-        (fake_home / ".claude" / "commands").mkdir(parents=True)
+        # Create .kiln with only commands (no agents or skills dirs)
+        kiln_dir = tmp_path / ".kiln"
+        (kiln_dir / "commands").mkdir(parents=True)
+        (kiln_dir / "commands" / "kiln-implement_github.md").write_text("# Test")
 
-        # Create a regular file (not symlink) at the kiln path
-        bad_path = fake_home / ".claude" / "commands" / "kiln"
-        bad_path.write_text("not a symlink")
-
-        with patch.object(Path, "home", return_value=fake_home):
-            # Should not raise - just log warning
-            cleanup_claude_symlinks()
-
-        # File should still exist (cleanup only removes symlinks)
-        assert bad_path.exists()
-
-    def test_cleanup_is_idempotent(self, tmp_path, monkeypatch):
-        """Test that calling cleanup_claude_symlinks twice doesn't fail."""
         fake_home = tmp_path / "fake_home"
         fake_home.mkdir()
 
         with patch.object(Path, "home", return_value=fake_home):
-            # Call twice - should not raise
-            cleanup_claude_symlinks()
-            cleanup_claude_symlinks()
+            # Should not raise even with missing source dirs
+            install_claude_resources()
+
+        # Command should still be installed
+        assert (fake_home / ".claude" / "commands" / "kiln-implement_github.md").exists()
