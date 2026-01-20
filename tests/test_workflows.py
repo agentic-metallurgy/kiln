@@ -1104,3 +1104,282 @@ class TestImplementWorkflow:
             pytest.raises(RuntimeError, match="PR disappeared"),
         ):
             workflow.execute(workflow_context, mock_config)
+
+    def test_execute_continues_past_max_iterations_when_progress_made(self, workflow_context):
+        """Test that execute() continues past max_iterations when progress is made."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 0  # No limit
+
+        # PR with 2 TASKs, progress made on each iteration, completes on iteration 4
+        # This tests that the loop continues past max_iterations=2 when progress is made
+        # Call sequence: initial check, iter1 check, iter2 check, iter3 check, iter4 check, final check
+        pr_responses = [
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [ ] A\n- [ ] B\n\n## TASK 2\n- [ ] C\n- [ ] D",
+            },  # Initial check: 0/4
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [ ] A\n- [ ] B\n\n## TASK 2\n- [ ] C\n- [ ] D",
+            },  # Iter 1 check: 0/4 -> run prompt
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [x] A\n- [ ] B\n\n## TASK 2\n- [ ] C\n- [ ] D",
+            },  # Iter 2 check: 1/4 -> run prompt
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [x] A\n- [x] B\n\n## TASK 2\n- [ ] C\n- [ ] D",
+            },  # Iter 3 check: 2/4 -> run prompt
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [x] A\n- [x] B\n\n## TASK 2\n- [x] C\n- [x] D",
+            },  # Iter 4 check: 4/4 complete -> exit
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [x] A\n- [x] B\n\n## TASK 2\n- [x] C\n- [x] D",
+            },  # Final check
+        ]
+        call_count = {"value": 0}
+
+        def mock_get_pr(*_args, **_kwargs):
+            result = pr_responses[min(call_count["value"], len(pr_responses) - 1)]
+            call_count["value"] += 1
+            return result
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr),
+            patch.object(workflow, "_run_prompt") as mock_run,
+            patch.object(workflow, "_mark_pr_ready") as mock_ready,
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # With 2 TASKs, max_iterations_estimate=2, but loop should continue to iteration 3
+        # because progress is being made each iteration (checked at iteration 4 it's complete)
+        # Iter 1: 0/4 -> run, Iter 2: 1/4 -> run, Iter 3: 2/4 -> run, Iter 4: 4/4 -> done
+        assert mock_run.call_count == 3
+        mock_ready.assert_called_once()
+
+    def test_execute_stall_detection_with_overrun(self, workflow_context):
+        """Test stall detection after continuing past max_iterations (Scenario 1).
+
+        Scenario: PR has 3 TASKs, 2 completed, 1 never completes.
+        The loop should continue past max_iterations=3 but eventually stall.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+        from src.workflows.implement import MAX_STALL_COUNT
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 0  # No limit
+
+        # PR with 3 TASKs, 2 completed, 1 never completes (stays at 2/3)
+        pr_info = {
+            "number": 42,
+            "body": """Closes #42
+
+## TASK 1: Test 1
+- [x] Done
+
+## TASK 2: Test 2
+- [x] Done
+
+## TASK 3: Test 3
+- [ ] Never completes
+""",
+        }
+
+        iterations_run = {"count": 0}
+
+        def mock_run_prompt(*_args, **_kwargs):
+            iterations_run["count"] += 1
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", return_value=pr_info),
+            patch.object(workflow, "_run_prompt", side_effect=mock_run_prompt),
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # Iteration 1: 2/3 complete, last_completed=-1, no stall (progress!), run prompt, last=2
+        # Iteration 2: 2/3 complete, last_completed=2, stall_count=1, run prompt
+        # Iteration 3: 2/3 complete, last_completed=2, stall_count=2 (>=MAX_STALL_COUNT), exit BEFORE running
+        # So MAX_STALL_COUNT iterations run
+        assert iterations_run["count"] == MAX_STALL_COUNT
+
+    def test_execute_successful_overrun(self, workflow_context):
+        """Test successful completion after continuing past max_iterations (Scenario 2).
+
+        Scenario: PR has 3 TASKs, completes on iteration 4 (past max_iterations=3).
+        """
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 0  # No limit
+
+        # PR with 3 TASKs, completes on iteration 4 (past max_iterations=3)
+        # Call sequence: initial, iter1, iter2, iter3, iter4 (detects completion), final
+        pr_responses = [
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [ ] A\n\n## TASK 2\n- [ ] B\n\n## TASK 3\n- [ ] C",
+            },  # Initial: 0/3
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [ ] A\n\n## TASK 2\n- [ ] B\n\n## TASK 3\n- [ ] C",
+            },  # Iter 1: 0/3 -> run prompt
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [x] A\n\n## TASK 2\n- [ ] B\n\n## TASK 3\n- [ ] C",
+            },  # Iter 2: 1/3 -> run prompt
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [x] A\n\n## TASK 2\n- [x] B\n\n## TASK 3\n- [ ] C",
+            },  # Iter 3: 2/3 -> run prompt (past max_iterations=3)
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [x] A\n\n## TASK 2\n- [x] B\n\n## TASK 3\n- [x] C",
+            },  # Iter 4: 3/3 complete -> exit
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [x] A\n\n## TASK 2\n- [x] B\n\n## TASK 3\n- [x] C",
+            },  # Final check
+        ]
+        call_count = {"value": 0}
+
+        def mock_get_pr(*_args, **_kwargs):
+            result = pr_responses[min(call_count["value"], len(pr_responses) - 1)]
+            call_count["value"] += 1
+            return result
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr),
+            patch.object(workflow, "_run_prompt") as mock_run,
+            patch.object(workflow, "_mark_pr_ready") as mock_ready,
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # Should run 3 iterations, then detect completion on iteration 4
+        # This proves we continued past max_iterations=3
+        assert mock_run.call_count == 3
+        mock_ready.assert_called_once()
+
+    def test_execute_task_growth_within_limit(self, workflow_context):
+        """Test that loop continues when appended TASKs are within safety limit."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 2  # Allow up to 2 appended TASKs
+
+        # Start with 2 TASKs, add 1 more (within limit of 2)
+        # Call sequence: initial, iter1, iter2, iter3 (detects completion), final
+        pr_responses = [
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [ ] A\n\n## TASK 2\n- [ ] B",
+            },  # Initial: 2 TASKs, 0/2
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [ ] A\n\n## TASK 2\n- [ ] B",
+            },  # Iter 1: 2 TASKs, 0/2 -> run prompt
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [x] A\n\n## TASK 2\n- [ ] B\n\n## TASK 3\n- [ ] C",
+            },  # Iter 2: 3 TASKs (+1, within limit), 1/3 -> run prompt
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [x] A\n\n## TASK 2\n- [x] B\n\n## TASK 3\n- [x] C",
+            },  # Iter 3: 3/3 complete -> exit
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [x] A\n\n## TASK 2\n- [x] B\n\n## TASK 3\n- [x] C",
+            },  # Final check
+        ]
+        call_count = {"value": 0}
+
+        def mock_get_pr(*_args, **_kwargs):
+            result = pr_responses[min(call_count["value"], len(pr_responses) - 1)]
+            call_count["value"] += 1
+            return result
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr),
+            patch.object(workflow, "_run_prompt") as mock_run,
+            patch.object(workflow, "_mark_pr_ready") as mock_ready,
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # Should run 2 iterations (1 appended TASK is within limit of 2)
+        # Then detect completion on iteration 3
+        assert mock_run.call_count == 2
+        mock_ready.assert_called_once()
+
+    def test_execute_task_growth_exceeds_limit(self, workflow_context):
+        """Test that loop exits when appended TASKs exceed safety limit."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 2  # Allow max 2 appended TASKs
+
+        # Start with 3 TASKs, then add 3 more (exceeds limit of 2)
+        pr_responses = [
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [ ] A\n\n## TASK 2\n- [ ] B\n\n## TASK 3\n- [ ] C",
+            },  # Initial: 3 TASKs
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [ ] A\n\n## TASK 2\n- [ ] B\n\n## TASK 3\n- [ ] C",
+            },  # Iter 1: 3 TASKs
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1\n- [x] A\n\n## TASK 2\n- [ ] B\n\n## TASK 3\n- [ ] C\n\n## TASK 4\n- [ ] D\n\n## TASK 5\n- [ ] E\n\n## TASK 6\n- [ ] F",
+            },  # Iter 2: 6 TASKs (+3, exceeds limit)
+        ]
+        call_count = {"value": 0}
+
+        def mock_get_pr(*_args, **_kwargs):
+            result = pr_responses[min(call_count["value"], len(pr_responses) - 1)]
+            call_count["value"] += 1
+            return result
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr),
+            patch.object(workflow, "_run_prompt") as mock_run,
+            patch.object(workflow, "_mark_pr_ready") as mock_ready,
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # Should run only 1 iteration, then exit on iteration 2 due to safety limit
+        assert mock_run.call_count == 1
+        # PR should NOT be marked ready (incomplete due to safety exit)
+        mock_ready.assert_not_called()
