@@ -50,10 +50,11 @@ def get_banner() -> str:
     return f"\n\n  {line1}{RESET}\n  {line2}{RESET}\n  v{__version__}\n\n"
 
 
-BANNER_PLAIN = """
+BANNER_PLAIN = f"""
 
   █▄▀ █ █   █▄ █
   █ █ █ █▄▄ █ ▀█
+  v{__version__}
 
 """
 
