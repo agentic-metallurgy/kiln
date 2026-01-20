@@ -74,6 +74,7 @@ class LinkedPullRequest:
         body: PR description/body text
         state: PR state (OPEN, CLOSED, MERGED)
         merged: Whether the PR has been merged
+        branch_name: Name of the PR's head branch (for cleanup operations)
     """
 
     number: int
@@ -81,6 +82,7 @@ class LinkedPullRequest:
     body: str
     state: str
     merged: bool
+    branch_name: str | None = None
 
 
 class TicketClient(Protocol):
