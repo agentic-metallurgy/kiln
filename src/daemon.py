@@ -1202,6 +1202,17 @@ class Daemon:
                 self.ticket_client.remove_label(item.repo, item.ticket_id, running_label)
                 logger.debug(f"Removed '{running_label}' label from {key}")
 
+            # Validate research block exists after Research workflow
+            if item.status == "Research":
+                body = self.ticket_client.get_ticket_body(item.repo, item.ticket_id)
+                if body is None or "<!-- kiln:research -->" not in body:
+                    self.ticket_client.add_label(item.repo, item.ticket_id, Labels.RESEARCH_FAILED)
+                    logger.warning(
+                        f"Research completed but no research block found for {key}"
+                    )
+                    # Don't add research_ready, don't advance YOLO
+                    return
+
             # Add complete label or move to next status
             if complete_label:
                 self.ticket_client.add_label(item.repo, item.ticket_id, complete_label)
