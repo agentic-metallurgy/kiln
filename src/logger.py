@@ -279,6 +279,9 @@ def setup_logging(
     log_size: int = 10 * 1024 * 1024,
     log_backups: int = 50,
     daemon_mode: bool = False,
+    mask_ghes_logs: bool = False,
+    ghes_host: str | None = None,
+    org_name: str | None = None,
 ) -> None:
     """
     Configure the root logger with a standard format and level.
@@ -292,6 +295,10 @@ def setup_logging(
         log_backups: Number of backup files to keep. Default: 50
         daemon_mode: If True, log to file only (no stdout/stderr).
                      If False, log to both stdout/stderr and file.
+        mask_ghes_logs: If True, mask GHES hostname and org name in logs.
+        ghes_host: GitHub Enterprise Server hostname to mask. If None or
+                   "github.com", masking is disabled regardless of mask_ghes_logs.
+        org_name: Organization name to mask. Extracted from project URLs.
 
     Format: "[%(asctime)s] %(levelname)s %(threadName)s %(name)s: %(message)s"
     Output: When daemon_mode=False: stdout for INFO/DEBUG, stderr for WARNING+, and file.
@@ -314,6 +321,11 @@ def setup_logging(
     # Remove any existing handlers
     root_logger.handlers.clear()
 
+    # Create masking filter if enabled and GHES is configured
+    masking_filter = None
+    if mask_ghes_logs and ghes_host and ghes_host != "github.com":
+        masking_filter = MaskingFilter(ghes_host, org_name)
+
     # Add console handlers only in non-daemon mode
     if not daemon_mode:
         # Create handler for INFO and DEBUG - outputs to stdout
@@ -321,11 +333,15 @@ def setup_logging(
         stdout_handler.setLevel(logging.DEBUG)
         stdout_handler.addFilter(lambda record: record.levelno < logging.WARNING)
         stdout_handler.setFormatter(formatter)
+        if masking_filter:
+            stdout_handler.addFilter(masking_filter)
 
         # Create handler for WARNING and above - outputs to stderr
         stderr_handler = logging.StreamHandler(sys.stderr)
         stderr_handler.setLevel(logging.WARNING)
         stderr_handler.setFormatter(formatter)
+        if masking_filter:
+            stderr_handler.addFilter(masking_filter)
 
         # Add handlers to root logger
         root_logger.addHandler(stdout_handler)
@@ -349,6 +365,8 @@ def setup_logging(
             )
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(plain_formatter)
+            if masking_filter:
+                file_handler.addFilter(masking_filter)
             root_logger.addHandler(file_handler)
             print(f"[logger] File handler added: {log_file}", file=sys.stderr)
         except Exception as e:

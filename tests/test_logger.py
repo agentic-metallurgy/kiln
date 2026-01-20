@@ -345,6 +345,62 @@ class TestSetupLogging:
         root = logging.getLogger()
         assert root.level == logging.DEBUG
 
+    def test_setup_logging_adds_masking_filter_when_enabled(self, tmp_path, monkeypatch):
+        """Test that masking filter is added to handlers when enabled."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+        log_file = tmp_path / "logs" / "test.log"
+        setup_logging(
+            log_file=str(log_file),
+            mask_ghes_logs=True,
+            ghes_host="github.corp.com",
+            org_name="myorg",
+        )
+
+        root = logging.getLogger()
+
+        # Check that all handlers have a MaskingFilter
+        for handler in root.handlers:
+            masking_filters = [f for f in handler.filters if isinstance(f, MaskingFilter)]
+            assert len(masking_filters) == 1, f"Handler {handler} should have MaskingFilter"
+            assert masking_filters[0].ghes_host == "github.corp.com"
+            assert masking_filters[0].org_name == "myorg"
+
+    def test_setup_logging_no_masking_filter_when_disabled(self, tmp_path, monkeypatch):
+        """Test that masking filter is not added when mask_ghes_logs is False."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+        log_file = tmp_path / "logs" / "test.log"
+        setup_logging(
+            log_file=str(log_file),
+            mask_ghes_logs=False,
+            ghes_host="github.corp.com",
+            org_name="myorg",
+        )
+
+        root = logging.getLogger()
+
+        # Check that no handlers have a MaskingFilter
+        for handler in root.handlers:
+            masking_filters = [f for f in handler.filters if isinstance(f, MaskingFilter)]
+            assert len(masking_filters) == 0, f"Handler {handler} should not have MaskingFilter"
+
+    def test_setup_logging_no_masking_filter_for_github_com(self, tmp_path, monkeypatch):
+        """Test that masking filter is not added when host is github.com."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+        log_file = tmp_path / "logs" / "test.log"
+        setup_logging(
+            log_file=str(log_file),
+            mask_ghes_logs=True,
+            ghes_host="github.com",
+            org_name="owner",
+        )
+
+        root = logging.getLogger()
+
+        # Check that no handlers have a MaskingFilter
+        for handler in root.handlers:
+            masking_filters = [f for f in handler.filters if isinstance(f, MaskingFilter)]
+            assert len(masking_filters) == 0, f"Handler {handler} should not have MaskingFilter"
+
 
 @pytest.mark.unit
 class TestGetLogger:
