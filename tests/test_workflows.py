@@ -811,7 +811,7 @@ class TestImplementWorkflow:
 
         with patch("src.workflows.implement.run_claude") as mock_run_claude:
             workflow._run_prompt(
-                prompt="/implement_github for issue",
+                prompt="/kiln:implement_github for issue",
                 ctx=workflow_context,
                 config=mock_config,
                 stage_name="implement",
@@ -839,7 +839,7 @@ class TestImplementWorkflow:
 
         with patch("src.workflows.implement.run_claude") as mock_run_claude:
             workflow._run_prompt(
-                prompt="/implement_github for issue",
+                prompt="/kiln:implement_github for issue",
                 ctx=workflow_context,
                 config=mock_config,
                 stage_name="unknown_stage",  # Not in stage_models
@@ -890,7 +890,7 @@ class TestImplementWorkflow:
             workflow.execute(workflow_context, mock_config)
 
         # Verify prepare_implementation was called
-        prepare_calls = [c for c in mock_run.call_args_list if "/prepare_implementation_github" in c[0][0]]
+        prepare_calls = [c for c in mock_run.call_args_list if "/kiln:prepare_implementation_github" in c[0][0]]
         assert len(prepare_calls) == 1
 
     def test_execute_fails_after_two_pr_creation_attempts(self, workflow_context):

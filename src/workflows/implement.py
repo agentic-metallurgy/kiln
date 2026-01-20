@@ -105,7 +105,7 @@ class ImplementWorkflow:
                     f"No PR found for {key}, creating via /prepare_implementation_github "
                     f"(attempt {attempt}/2)"
                 )
-                prepare_prompt = f"/prepare_implementation_github {issue_url}"
+                prepare_prompt = f"/kiln:prepare_implementation_github {issue_url}"
                 self._run_prompt(prepare_prompt, ctx, config, "prepare_implementation")
 
                 # Check for PR
@@ -173,7 +173,7 @@ class ImplementWorkflow:
 
             # Run implementation for one task
             implement_prompt = (
-                f"/implement_github for issue {issue_url}.{reviewer_flags}{project_url_context}"
+                f"/kiln:implement_github for issue {issue_url}.{reviewer_flags}{project_url_context}"
             )
             self._run_prompt(implement_prompt, ctx, config, "implement")
 
