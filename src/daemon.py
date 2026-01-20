@@ -27,7 +27,7 @@ from src.labels import REQUIRED_LABELS, Labels
 from src.logger import clear_issue_context, get_logger, log_message, set_issue_context, setup_logging
 from src.security import check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
-from src.ticket_clients.github import GitHubTicketClient
+from src.ticket_clients import get_github_client
 from src.workflows import (
     ImplementWorkflow,
     PlanWorkflow,
@@ -240,8 +240,16 @@ class Daemon:
             tokens[config.github_enterprise_host] = config.github_enterprise_token
         elif config.github_token:
             tokens["github.com"] = config.github_token
-        self.ticket_client = GitHubTicketClient(tokens)
-        logger.debug("Ticket client initialized")
+
+        # Create the appropriate GitHub client based on version
+        self.ticket_client = get_github_client(
+            tokens=tokens,
+            enterprise_version=config.github_enterprise_version,
+        )
+        logger.info(f"Ticket client initialized: {self.ticket_client.client_description}")
+
+        # Log feature availability for the selected client
+        self._log_client_features()
 
         self.workspace_manager = WorkspaceManager(config.workspace_dir)
         logger.debug(f"Workspace manager initialized with dir: {config.workspace_dir}")
@@ -267,6 +275,55 @@ class Daemon:
         self._validate_github_connections()
 
         logger.debug("Daemon initialization complete")
+
+    def _log_client_features(self) -> None:
+        """Log feature availability for the selected GitHub client.
+
+        This helps users understand which features are available or limited
+        based on their GitHub configuration (github.com vs GHES version).
+        """
+        client = self.ticket_client
+
+        if not client.supports_sub_issues:
+            logger.info(
+                f"  - Sub-issues (parent/child relationships) are disabled "
+                f"({client.client_description} does not support sub-issues API)"
+            )
+
+        if not client.supports_status_actor_check:
+            logger.warning(
+                f"  - Status change actor verification is disabled "
+                f"({client.client_description} does not support project timeline events)"
+            )
+            logger.warning(
+                "    Security note: Cannot verify who changed project status. "
+                "Ensure only authorized users have project write access."
+            )
+
+        # Log any specific notes about linked PR detection
+        if hasattr(client, 'check_merged_changes_for_issue'):
+            # GHES 3.14 uses alternative implementation
+            logger.info(
+                f"  - Merged PR detection: Using timelineItems + CLOSED_EVENT "
+                f"(closedByPullRequestsReferences unavailable in {client.client_description})"
+            )
+
+    def _get_hostname_from_url(self, url: str) -> str:
+        """Extract hostname from a GitHub URL.
+
+        Args:
+            url: GitHub URL (e.g., https://github.com/orgs/myorg/projects/1)
+
+        Returns:
+            Hostname (e.g., "github.com"), defaults to "github.com" if parsing fails
+        """
+        try:
+            parts = url.split("/")
+            if len(parts) >= 3 and parts[0] in ("http:", "https:") and parts[1] == "":
+                return parts[2]
+        except (IndexError, ValueError):
+            pass
+        return "github.com"
 
     def _validate_github_connections(self) -> None:
         """Validate GitHub connections for all configured project URLs.
@@ -564,7 +621,8 @@ class Daemon:
                     f"YOLO: Starting auto-progression for {key} from Backlog "
                     f"(label added by allowed user '{actor}')"
                 )
-                self.ticket_client.update_item_status(item.item_id, "Research")
+                hostname = self._get_hostname_from_url(item.board_url)
+                self.ticket_client.update_item_status(item.item_id, "Research", hostname=hostname)
 
             # Handle reset label: clear kiln content and move issue to Backlog
             for item in all_items:
@@ -666,11 +724,23 @@ class Daemon:
             logger.debug(f"Skipping {key} - has '{Labels.RESEARCH_FAILED}' label")
             return False
 
-        actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
-        if not check_actor_allowed(actor, self.config.allowed_username, key):
-            return False
-
-        logger.info(f"Workflow trigger: {key} in '{item.status}' by allowed user '{actor}'")
+        # Check actor authorization if supported by the client
+        if self.ticket_client.supports_status_actor_check:
+            actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
+            if not check_actor_allowed(actor, self.config.allowed_username, key):
+                return False
+            logger.info(f"Workflow trigger: {key} in '{item.status}' by allowed user '{actor}'")
+        else:
+            # GHES 3.14 doesn't support project status timeline events
+            # Log the limitation and allow the workflow to proceed
+            logger.warning(
+                f"Workflow trigger: {key} in '{item.status}' - "
+                f"actor check unavailable ({self.ticket_client.client_description})"
+            )
+            logger.warning(
+                "  Security note: Cannot verify who changed status. "
+                "Ensure only authorized users have project write access."
+            )
         return True
 
     def _should_yolo_advance(self, item: TicketItem) -> bool:
@@ -748,7 +818,8 @@ class Daemon:
             f"YOLO: Advancing {key} from '{item.status}' to '{yolo_next}' "
             f"(stage complete, label added by allowed user '{actor}')"
         )
-        self.ticket_client.update_item_status(item.item_id, yolo_next)
+        hostname = self._get_hostname_from_url(item.board_url)
+        self.ticket_client.update_item_status(item.item_id, yolo_next, hostname=hostname)
 
     def _has_yolo_label(self, repo: str, issue_number: int) -> bool:
         """Check if issue currently has yolo label (fresh from GitHub).
@@ -904,7 +975,8 @@ class Daemon:
         # Archive the project item
         reason = item.state_reason or "manual close"
         logger.info(f"Auto-archiving issue (reason: {reason})")
-        if self.ticket_client.archive_item(metadata.project_id, item.item_id):
+        hostname = self._get_hostname_from_url(item.board_url)
+        if self.ticket_client.archive_item(metadata.project_id, item.item_id, hostname=hostname):
             logger.info("Archived from project board")
 
     def _maybe_cleanup_closed(self, item: TicketItem) -> None:
@@ -972,7 +1044,8 @@ class Daemon:
         # Move to Done
         logger.info(f"Moving {item.repo}#{item.ticket_id} to Done (PR merged, issue closed)")
         try:
-            self.ticket_client.update_item_status(item.item_id, "Done")
+            hostname = self._get_hostname_from_url(item.board_url)
+            self.ticket_client.update_item_status(item.item_id, "Done", hostname=hostname)
             logger.info(f"Moved {item.repo}#{item.ticket_id} to Done")
         except Exception as e:
             logger.error(f"Failed to move {item.repo}#{item.ticket_id} to Done: {e}")
@@ -997,7 +1070,8 @@ class Daemon:
         # Set to Backlog
         logger.info(f"Setting {item.repo}#{item.ticket_id} to Backlog (no status)")
         try:
-            self.ticket_client.update_item_status(item.item_id, "Backlog")
+            hostname = self._get_hostname_from_url(item.board_url)
+            self.ticket_client.update_item_status(item.item_id, "Backlog", hostname=hostname)
             logger.info(f"Set {item.repo}#{item.ticket_id} to Backlog")
         except Exception as e:
             logger.error(f"Failed to set {item.repo}#{item.ticket_id} to Backlog: {e}")
@@ -1067,7 +1141,8 @@ class Daemon:
 
         # Move issue to Backlog
         try:
-            self.ticket_client.update_item_status(item.item_id, "Backlog")
+            hostname = self._get_hostname_from_url(item.board_url)
+            self.ticket_client.update_item_status(item.item_id, "Backlog", hostname=hostname)
             logger.info(f"RESET: Moved {key} to Backlog")
         except Exception as e:
             logger.error(f"RESET: Failed to move {key} to Backlog: {e}")
@@ -1288,12 +1363,14 @@ class Daemon:
                     pr_body = pr_info.get("body", "")
                     total_tasks, completed_tasks = count_checkboxes(pr_body)
                     if total_tasks > 0 and completed_tasks == total_tasks:
-                        self.ticket_client.update_item_status(item.item_id, next_status)
+                        hostname = self._get_hostname_from_url(item.board_url)
+                        self.ticket_client.update_item_status(item.item_id, next_status, hostname=hostname)
                         logger.info(f"All {total_tasks} tasks complete, moved {key} to '{next_status}'")
                         next_status = None  # Prevent duplicate move below
 
             if next_status:
-                self.ticket_client.update_item_status(item.item_id, next_status)
+                hostname = self._get_hostname_from_url(item.board_url)
+                self.ticket_client.update_item_status(item.item_id, next_status, hostname=hostname)
                 logger.info(f"Moved {key} to '{next_status}' status")
 
             # YOLO mode: auto-advance to next workflow status
@@ -1303,7 +1380,8 @@ class Daemon:
                 if yolo_next:
                     # Fresh check - yolo may have been removed while workflow was running
                     if self._has_yolo_label(item.repo, item.ticket_id):
-                        self.ticket_client.update_item_status(item.item_id, yolo_next)
+                        hostname = self._get_hostname_from_url(item.board_url)
+                        self.ticket_client.update_item_status(item.item_id, yolo_next, hostname=hostname)
                         logger.info(f"YOLO: Auto-advanced {key} from '{item.status}' to '{yolo_next}'")
                     else:
                         logger.info(
