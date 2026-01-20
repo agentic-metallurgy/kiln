@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.cli import get_readme, get_sample_config
+from src.cli import BANNER_PLAIN, __version__, get_banner, get_readme, get_sample_config
 
 
 @pytest.mark.unit
@@ -21,6 +21,15 @@ class TestCli:
         assert "Kiln" in content or "kiln" in content
         # README should have reasonable content
         assert len(content) > 100
+
+    def test_get_banner_includes_version(self):
+        """Test that get_banner() includes the version string."""
+        banner = get_banner()
+        assert f"v{__version__}" in banner
+
+    def test_banner_plain_includes_version(self):
+        """Test that BANNER_PLAIN includes the version string."""
+        assert f"v{__version__}" in BANNER_PLAIN
 
 
 @pytest.mark.unit
