@@ -12,7 +12,9 @@ from src.logger import (
     Colors,
     ContextAwareFormatter,
     DateRotatingFileHandler,
+    MaskingFilter,
     PlainContextAwareFormatter,
+    _extract_org_from_url,
     clear_issue_context,
     get_issue_context,
     get_logger,
@@ -358,3 +360,200 @@ class TestGetLogger:
         logger1 = get_logger("test.module")
         logger2 = get_logger("test.module")
         assert logger1 is logger2
+
+
+@pytest.mark.unit
+class TestMaskingFilter:
+    """Tests for MaskingFilter class."""
+
+    def test_mask_ghes_hostname(self):
+        """Test GHES hostname is replaced with <GHES>."""
+        f = MaskingFilter("github.corp.com", "myorg")
+        assert f._mask_value("github.corp.com/myorg/repo") == "<GHES>/<ORG>/repo"
+
+    def test_mask_project_url(self):
+        """Test project URL is masked correctly."""
+        f = MaskingFilter("github.corp.com", "myorg")
+        url = "https://github.corp.com/orgs/myorg/projects/1"
+        assert f._mask_value(url) == "https://<GHES>/orgs/<ORG>/projects/1"
+
+    def test_mask_issue_context_format(self):
+        """Test issue context format is masked correctly."""
+        f = MaskingFilter("github.corp.com", "myorg")
+        context = "github.corp.com/myorg/repo#42"
+        assert f._mask_value(context) == "<GHES>/<ORG>/repo#42"
+
+    def test_mask_only_hostname_when_no_org(self):
+        """Test only hostname is masked when org is None."""
+        f = MaskingFilter("github.corp.com", None)
+        assert f._mask_value("github.corp.com/someorg/repo") == "<GHES>/someorg/repo"
+
+    def test_mask_value_replaces_github_com_if_set(self):
+        """Test _mask_value replaces the configured host (filter() handles skipping github.com)."""
+        # _mask_value always does replacement; filter() decides whether to skip
+        f = MaskingFilter("github.com", "owner")
+        # This is expected because _mask_value just does string replacement
+        # The github.com check happens in filter() which returns early
+        assert f._mask_value("github.com/owner/repo") == "<GHES>/<ORG>/repo"
+
+    def test_no_mask_when_ghes_host_none(self):
+        """Test masking is disabled when ghes_host is None."""
+        f = MaskingFilter(None, None)
+        assert f._mask_value("github.corp.com/org/repo") == "github.corp.com/org/repo"
+
+    def test_filter_masks_issue_context_attribute(self):
+        """Test filter() masks the issue_context attribute on LogRecord."""
+        f = MaskingFilter("github.corp.com", "myorg")
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="Test message",
+            args=(),
+            exc_info=None,
+        )
+        record.issue_context = "github.corp.com/myorg/repo#42"
+
+        f.filter(record)
+
+        assert record.issue_context == "<GHES>/<ORG>/repo#42"
+
+    def test_filter_masks_message(self):
+        """Test filter() masks the message content."""
+        f = MaskingFilter("github.corp.com", "myorg")
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="Processing https://github.corp.com/orgs/myorg/projects/1",
+            args=(),
+            exc_info=None,
+        )
+
+        f.filter(record)
+
+        assert record.msg == "Processing https://<GHES>/orgs/<ORG>/projects/1"
+
+    def test_filter_masks_args_tuple(self):
+        """Test filter() masks string args in tuple."""
+        f = MaskingFilter("github.corp.com", "myorg")
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="Processing %s",
+            args=("github.corp.com/myorg/repo",),
+            exc_info=None,
+        )
+
+        f.filter(record)
+
+        assert record.args == ("<GHES>/<ORG>/repo",)
+
+    def test_filter_masks_args_dict(self):
+        """Test filter() masks string args in dict."""
+        f = MaskingFilter("github.corp.com", "myorg")
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="Processing url",
+            args=(),
+            exc_info=None,
+        )
+        # Manually set dict args after creation to test dict handling
+        record.args = {"url": "github.corp.com/myorg/repo"}
+
+        f.filter(record)
+
+        assert record.args == {"url": "<GHES>/<ORG>/repo"}
+
+    def test_filter_returns_true_always(self):
+        """Test filter() returns True to allow all records through."""
+        f = MaskingFilter("github.corp.com", "myorg")
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="Test",
+            args=(),
+            exc_info=None,
+        )
+
+        result = f.filter(record)
+
+        assert result is True
+
+    def test_filter_skips_masking_for_github_com(self):
+        """Test filter() skips masking when GHES host is github.com."""
+        f = MaskingFilter("github.com", "owner")
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="github.com/owner/repo",
+            args=(),
+            exc_info=None,
+        )
+
+        f.filter(record)
+
+        # Message should be unchanged
+        assert record.msg == "github.com/owner/repo"
+
+    def test_filter_skips_masking_when_disabled(self):
+        """Test filter() skips masking when ghes_host is None."""
+        f = MaskingFilter(None, None)
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="github.corp.com/org/repo",
+            args=(),
+            exc_info=None,
+        )
+
+        f.filter(record)
+
+        assert record.msg == "github.corp.com/org/repo"
+
+
+@pytest.mark.unit
+class TestExtractOrgFromUrl:
+    """Tests for _extract_org_from_url helper function."""
+
+    def test_extract_org_from_standard_project_url(self):
+        """Test extraction from standard project URL format."""
+        url = "https://github.com/orgs/myorg/projects/1"
+        assert _extract_org_from_url(url) == "myorg"
+
+    def test_extract_org_from_ghes_project_url(self):
+        """Test extraction from GHES project URL."""
+        url = "https://github.corp.com/orgs/enterprise-org/projects/42"
+        assert _extract_org_from_url(url) == "enterprise-org"
+
+    def test_extract_org_with_hyphens_and_numbers(self):
+        """Test extraction of org name with hyphens and numbers."""
+        url = "https://github.com/orgs/my-org-123/projects/5"
+        assert _extract_org_from_url(url) == "my-org-123"
+
+    def test_extract_org_returns_none_for_invalid_url(self):
+        """Test None is returned for URLs without org pattern."""
+        url = "https://github.com/owner/repo"
+        assert _extract_org_from_url(url) is None
+
+    def test_extract_org_returns_none_for_empty_string(self):
+        """Test None is returned for empty string."""
+        assert _extract_org_from_url("") is None
+
+    def test_extract_org_returns_none_for_malformed_url(self):
+        """Test None is returned for malformed URLs."""
+        assert _extract_org_from_url("not-a-url") is None
+        assert _extract_org_from_url("/orgs/") is None

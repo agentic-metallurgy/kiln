@@ -183,6 +183,97 @@ class PlainContextAwareFormatter(logging.Formatter):
         return super().format(record)
 
 
+class MaskingFilter(logging.Filter):
+    """Filter that masks GHES hostname and org name in log records.
+
+    When enabled, replaces GHES hostname with <GHES> and organization name
+    with <ORG> in all log output to prevent exposure of sensitive
+    infrastructure details.
+    """
+
+    def __init__(self, ghes_host: str | None, org_name: str | None) -> None:
+        """Initialize MaskingFilter.
+
+        Args:
+            ghes_host: GitHub Enterprise Server hostname to mask (e.g., "github.corp.com").
+                       If None or "github.com", masking is disabled.
+            org_name: Organization name to mask (e.g., "myorg").
+                      If None, only hostname is masked.
+        """
+        super().__init__()
+        self.ghes_host = ghes_host
+        self.org_name = org_name
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Apply masking to the log record.
+
+        Args:
+            record: The log record to process.
+
+        Returns:
+            True to allow all records through (masking is applied in-place).
+        """
+        # Skip masking for github.com or when no GHES host configured
+        if not self.ghes_host or self.ghes_host == "github.com":
+            return True
+
+        # Mask issue_context attribute if present
+        if hasattr(record, "issue_context"):
+            record.issue_context = self._mask_value(str(record.issue_context))
+
+        # Mask the message content
+        if record.msg:
+            record.msg = self._mask_value(str(record.msg))
+
+        # Mask any args that contain strings
+        if record.args:
+            if isinstance(record.args, dict):
+                record.args = {
+                    k: self._mask_value(str(v)) if isinstance(v, str) else v
+                    for k, v in record.args.items()
+                }
+            elif isinstance(record.args, tuple):
+                record.args = tuple(
+                    self._mask_value(str(arg)) if isinstance(arg, str) else arg
+                    for arg in record.args
+                )
+
+        return True
+
+    def _mask_value(self, value: str) -> str:
+        """Replace GHES hostname and org name with placeholders.
+
+        Args:
+            value: The string value to mask.
+
+        Returns:
+            The masked string with hostname replaced by <GHES> and org by <ORG>.
+        """
+        if self.ghes_host:
+            value = value.replace(self.ghes_host, "<GHES>")
+        if self.org_name:
+            # Handle /org/ pattern (repo paths)
+            value = value.replace(f"/{self.org_name}/", "/<ORG>/")
+            # Handle /orgs/org pattern (project URLs)
+            value = value.replace(f"/orgs/{self.org_name}", "/orgs/<ORG>")
+        return value
+
+
+def _extract_org_from_url(project_url: str) -> str | None:
+    """Extract organization name from a project URL.
+
+    Args:
+        project_url: GitHub project URL, e.g., "https://github.com/orgs/myorg/projects/1"
+
+    Returns:
+        The organization name if found, otherwise None.
+    """
+    import re
+
+    match = re.search(r"/orgs/([^/]+)/projects/", project_url)
+    return match.group(1) if match else None
+
+
 def setup_logging(
     log_file: str | None = "./logs/kiln.log",
     log_size: int = 10 * 1024 * 1024,
