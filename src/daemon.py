@@ -252,9 +252,6 @@ class Daemon:
         self.workspace_manager = WorkspaceManager(config.workspace_dir)
         logger.debug(f"Workspace manager initialized with dir: {config.workspace_dir}")
 
-        # Sync .claude/ to workspaces/ so all worktrees inherit commands/agents
-        self._sync_claude_to_workspaces()
-
         self.runner = WorkflowRunner(config, version=version)
 
         self.comment_processor = CommentProcessor(
@@ -1382,17 +1379,24 @@ class Daemon:
             parent_branch=parent_branch,
         )
         self.runner.run(workflow, ctx, "Prepare")
+
+        # Copy .claude/ into the newly created worktree
+        worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
+        self._copy_claude_to_worktree(worktree_path)
+
         if parent_branch:
             logger.info(f"Auto-prepared worktree (branching from parent branch '{parent_branch}')")
         else:
             logger.info("Auto-prepared worktree")
 
-    def _sync_claude_to_workspaces(self) -> None:
-        """Sync .claude/ from bundled binary to workspaces/ directory.
+    def _copy_claude_to_worktree(self, worktree_path: str) -> None:
+        """Copy .claude/ from bundled binary to a worktree.
 
-        This copies the entire .claude/ folder (commands, agents, skills) to
-        the workspaces directory once. All worktrees underneath will inherit
-        these via Claude Code's parent directory lookup.
+        This copies the entire .claude/ folder (commands, agents, skills)
+        directly into the worktree so Claude Code picks it up.
+
+        Args:
+            worktree_path: Path to the worktree directory
         """
         import shutil
 
@@ -1403,24 +1407,21 @@ class Daemon:
             base_path = Path(__file__).parent.parent  # repo root
 
         source_claude = base_path / ".claude"
-        dest_claude = Path(self.config.workspace_dir) / ".claude"
+        dest_claude = Path(worktree_path) / ".claude"
 
         if not source_claude.exists():
-            logger.debug("No .claude/ in source, skipping sync")
+            logger.debug("No .claude/ in source, skipping copy")
             return
 
         try:
-            # Ensure workspaces directory exists
-            Path(self.config.workspace_dir).mkdir(parents=True, exist_ok=True)
-
             # Remove existing .claude/ and copy fresh
             if dest_claude.exists():
                 shutil.rmtree(dest_claude)
             shutil.copytree(source_claude, dest_claude)
 
-            logger.info(f"Synced .claude/ to {self.config.workspace_dir}")
+            logger.info(f"Copied .claude/ to {worktree_path}")
         except Exception as e:
-            logger.warning(f"Failed to sync .claude/ to workspaces: {e}")
+            logger.warning(f"Failed to copy .claude/ to worktree: {e}")
 
     def _run_workflow(
         self,
