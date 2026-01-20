@@ -177,7 +177,7 @@ class TestPlanWorkflow:
         workflow = PlanWorkflow()
         prompts = workflow.init(workflow_context)
 
-        assert "/create_plan" in prompts[0]
+        assert "/kiln:create_plan" in prompts[0]
 
 
 @pytest.mark.unit
