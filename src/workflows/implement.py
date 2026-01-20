@@ -58,7 +58,7 @@ class ImplementWorkflow:
     This workflow:
     1. Creates a draft PR if one doesn't exist (via /prepare_implementation_github)
     2. Loops through tasks, implementing one per iteration (via /implement_github)
-    3. Stops when all tasks complete, max iterations hit, or no progress detected
+    3. Stops when all tasks complete, no progress detected, or TASK growth exceeds safety limit
     """
 
     @property
