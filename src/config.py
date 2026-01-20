@@ -9,6 +9,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Default paths relative to .kiln directory
 KILN_DIR = ".kiln"
@@ -21,6 +22,8 @@ class Config:
 
     Attributes:
         github_token: GitHub personal access token for github.com
+        github_enterprise_host: GitHub Enterprise Server hostname (e.g., github.mycompany.com)
+        github_enterprise_token: GitHub Enterprise Server personal access token
         project_urls: List of URLs of GitHub project boards to monitor (required)
         poll_interval: Time in seconds between polling the project board
         database_path: Path to the SQLite database file
@@ -30,6 +33,8 @@ class Config:
     """
 
     github_token: str | None = None
+    github_enterprise_host: str | None = None
+    github_enterprise_token: str | None = None
     project_urls: list[str] = field(default_factory=list)  # Required, no default
     poll_interval: int = 30
     database_path: str = ".kiln/kiln.db"
@@ -52,6 +57,41 @@ class Config:
     otel_endpoint: str = ""
     otel_service_name: str = "kiln"
     claude_code_enable_telemetry: bool = False
+
+
+def _validate_project_urls_host(
+    project_urls: list[str],
+    github_token: str | None,
+    github_enterprise_host: str | None,
+    github_enterprise_token: str | None,
+) -> None:
+    """Validate PROJECT_URLS hostnames match the configured GitHub host.
+
+    Args:
+        project_urls: List of project URLs to validate
+        github_token: GitHub.com personal access token (if configured)
+        github_enterprise_host: GHES hostname (if configured)
+        github_enterprise_token: GHES personal access token (if configured)
+
+    Raises:
+        ValueError: If any PROJECT_URL hostname doesn't match the configured host
+    """
+    # Determine the expected host based on configuration
+    if github_enterprise_host and github_enterprise_token:
+        expected_host = github_enterprise_host
+    else:
+        # Default to github.com (either explicit token or gh auth login)
+        expected_host = "github.com"
+
+    for url in project_urls:
+        parsed = urlparse(url)
+        url_host = parsed.netloc
+
+        if url_host and url_host != expected_host:
+            raise ValueError(
+                f"PROJECT_URLS contains '{url_host}' but configured for '{expected_host}'. "
+                f"All project URLs must use the same GitHub host as your authentication config."
+            )
 
 
 def parse_config_file(config_path: Path) -> dict[str, str]:
@@ -104,9 +144,34 @@ def load_config_from_file(config_path: Path) -> Config:
     if not github_token:
         github_token = None
 
+    # Parse GitHub Enterprise Server config
+    github_enterprise_host = data.get("GITHUB_ENTERPRISE_HOST")
+    if not github_enterprise_host:
+        github_enterprise_host = None
+
+    github_enterprise_token = data.get("GITHUB_ENTERPRISE_TOKEN")
+    if not github_enterprise_token:
+        github_enterprise_token = None
+
+    # Validate mutual exclusivity: cannot have both github.com and GHES tokens
+    if github_token and github_enterprise_token:
+        raise ValueError(
+            "Cannot configure both GITHUB_TOKEN and GITHUB_ENTERPRISE_TOKEN. "
+            "Kiln operates against either github.com OR a GitHub Enterprise Server, not both."
+        )
+
+    # Validate GHES token requires GHES host
+    if github_enterprise_token and not github_enterprise_host:
+        raise ValueError(
+            "GITHUB_ENTERPRISE_TOKEN requires GITHUB_ENTERPRISE_HOST. "
+            "Please set the hostname of your GitHub Enterprise Server."
+        )
+
     # Set tokens in environment so Claude subprocesses can use gh CLI
     if github_token:
         os.environ["GITHUB_TOKEN"] = github_token
+    if github_enterprise_token:
+        os.environ["GITHUB_TOKEN"] = github_enterprise_token
 
     # Parse required fields
     project_urls_str = data.get("PROJECT_URLS", "")
@@ -115,6 +180,11 @@ def load_config_from_file(config_path: Path) -> Config:
     project_urls = [url.strip() for url in project_urls_str.split(",") if url.strip()]
     if not project_urls:
         raise ValueError("At least one project URL must be provided")
+
+    # Validate PROJECT_URLS hostnames match the configured GitHub host
+    _validate_project_urls_host(
+        project_urls, github_token, github_enterprise_host, github_enterprise_token
+    )
 
     allowed_username = data.get("ALLOWED_USERNAME", "").strip()
     if not allowed_username:
@@ -158,6 +228,8 @@ def load_config_from_file(config_path: Path) -> Config:
 
     return Config(
         github_token=github_token,
+        github_enterprise_host=github_enterprise_host,
+        github_enterprise_token=github_enterprise_token,
         project_urls=project_urls,
         poll_interval=poll_interval,
         database_path=".kiln/kiln.db",
@@ -187,6 +259,29 @@ def load_config_from_env() -> Config:
     if not github_token:
         github_token = None
 
+    # Parse GitHub Enterprise Server config
+    github_enterprise_host = os.environ.get("GITHUB_ENTERPRISE_HOST")
+    if not github_enterprise_host:
+        github_enterprise_host = None
+
+    github_enterprise_token = os.environ.get("GITHUB_ENTERPRISE_TOKEN")
+    if not github_enterprise_token:
+        github_enterprise_token = None
+
+    # Validate mutual exclusivity: cannot have both github.com and GHES tokens
+    if github_token and github_enterprise_token:
+        raise ValueError(
+            "Cannot configure both GITHUB_TOKEN and GITHUB_ENTERPRISE_TOKEN. "
+            "Kiln operates against either github.com OR a GitHub Enterprise Server, not both."
+        )
+
+    # Validate GHES token requires GHES host
+    if github_enterprise_token and not github_enterprise_host:
+        raise ValueError(
+            "GITHUB_ENTERPRISE_TOKEN requires GITHUB_ENTERPRISE_HOST. "
+            "Please set the hostname of your GitHub Enterprise Server."
+        )
+
     # PROJECT_URLS: comma-separated list of project URLs
     project_urls_env = os.environ.get("PROJECT_URLS")
     if not project_urls_env:
@@ -195,6 +290,11 @@ def load_config_from_env() -> Config:
     project_urls = [url.strip() for url in project_urls_env.split(",") if url.strip()]
     if not project_urls:
         raise ValueError("At least one project URL must be provided")
+
+    # Validate PROJECT_URLS hostnames match the configured GitHub host
+    _validate_project_urls_host(
+        project_urls, github_token, github_enterprise_host, github_enterprise_token
+    )
 
     poll_interval = int(os.environ.get("POLL_INTERVAL", "30"))
 
@@ -238,6 +338,8 @@ def load_config_from_env() -> Config:
 
     return Config(
         github_token=github_token,
+        github_enterprise_host=github_enterprise_host,
+        github_enterprise_token=github_enterprise_token,
         project_urls=project_urls,
         poll_interval=poll_interval,
         database_path=database_path,

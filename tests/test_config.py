@@ -692,3 +692,290 @@ class TestLoadConfigEntryPoint:
         config = load_config()
 
         assert config.github_token == "ghp_cwd_test"
+
+
+@pytest.mark.unit
+class TestGHESConfiguration:
+    """Tests for GitHub Enterprise Server configuration."""
+
+    def _write_config(self, tmp_path, content):
+        """Helper to write a config file."""
+        config_file = tmp_path / "config"
+        config_file.write_text(content)
+        return config_file
+
+    def test_ghes_config_parsed_from_file(self, tmp_path, monkeypatch):
+        """Test GHES host and token are parsed from config file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
+            "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise_test\n"
+            "PROJECT_URLS=https://github.mycompany.com/orgs/test/projects/1\n"
+            "ALLOWED_USERNAME=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.github_enterprise_host == "github.mycompany.com"
+        assert config.github_enterprise_token == "ghp_enterprise_test"
+        assert config.github_token is None
+
+    def test_ghes_config_parsed_from_env(self, monkeypatch):
+        """Test GHES host and token are parsed from environment."""
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.setenv("GITHUB_ENTERPRISE_HOST", "github.enterprise.io")
+        monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_ent_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.enterprise.io/orgs/test/projects/1")
+        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+
+        config = load_config_from_env()
+
+        assert config.github_enterprise_host == "github.enterprise.io"
+        assert config.github_enterprise_token == "ghp_ent_token"
+        assert config.github_token is None
+
+    def test_mutual_exclusivity_raises_error_file(self, tmp_path):
+        """Test error when both GITHUB_TOKEN and GITHUB_ENTERPRISE_TOKEN set in file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_regular\n"
+            "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
+            "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "ALLOWED_USERNAME=testuser",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="Cannot configure both GITHUB_TOKEN and GITHUB_ENTERPRISE_TOKEN",
+        ):
+            load_config_from_file(config_file)
+
+    def test_mutual_exclusivity_raises_error_env(self, monkeypatch):
+        """Test error when both GITHUB_TOKEN and GITHUB_ENTERPRISE_TOKEN set in env."""
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_regular")
+        monkeypatch.setenv("GITHUB_ENTERPRISE_HOST", "github.mycompany.com")
+        monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_enterprise")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+
+        with pytest.raises(
+            ValueError,
+            match="Cannot configure both GITHUB_TOKEN and GITHUB_ENTERPRISE_TOKEN",
+        ):
+            load_config_from_env()
+
+    def test_ghes_token_without_host_raises_error_file(self, tmp_path):
+        """Test error when GITHUB_ENTERPRISE_TOKEN set without GITHUB_ENTERPRISE_HOST in file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "ALLOWED_USERNAME=testuser",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="GITHUB_ENTERPRISE_TOKEN requires GITHUB_ENTERPRISE_HOST",
+        ):
+            load_config_from_file(config_file)
+
+    def test_ghes_token_without_host_raises_error_env(self, monkeypatch):
+        """Test error when GITHUB_ENTERPRISE_TOKEN set without GITHUB_ENTERPRISE_HOST in env."""
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.delenv("GITHUB_ENTERPRISE_HOST", raising=False)
+        monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_enterprise")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+
+        with pytest.raises(
+            ValueError,
+            match="GITHUB_ENTERPRISE_TOKEN requires GITHUB_ENTERPRISE_HOST",
+        ):
+            load_config_from_env()
+
+    def test_project_urls_host_mismatch_raises_error_ghes_file(self, tmp_path):
+        """Test error when PROJECT_URLS hostname doesn't match GHES config in file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
+            "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "ALLOWED_USERNAME=testuser",
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="PROJECT_URLS contains 'github.com' but configured for 'github.mycompany.com'",
+        ):
+            load_config_from_file(config_file)
+
+    def test_project_urls_host_mismatch_raises_error_ghes_env(self, monkeypatch):
+        """Test error when PROJECT_URLS hostname doesn't match GHES config in env."""
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.setenv("GITHUB_ENTERPRISE_HOST", "github.mycompany.com")
+        monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_enterprise")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+
+        with pytest.raises(
+            ValueError,
+            match="PROJECT_URLS contains 'github.com' but configured for 'github.mycompany.com'",
+        ):
+            load_config_from_env()
+
+    def test_project_urls_host_mismatch_raises_error_github_com(self, tmp_path, monkeypatch):
+        """Test error when PROJECT_URLS uses GHES hostname but configured for github.com."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_regular\n"
+            "PROJECT_URLS=https://github.mycompany.com/orgs/test/projects/1\n"
+            "ALLOWED_USERNAME=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        with pytest.raises(
+            ValueError,
+            match="PROJECT_URLS contains 'github.mycompany.com' but configured for 'github.com'",
+        ):
+            load_config_from_file(config_file)
+
+    def test_ghes_only_config_works_file(self, tmp_path, monkeypatch):
+        """Test GHES-only configuration without github.com token in file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_ENTERPRISE_HOST=github.enterprise.io\n"
+            "GITHUB_ENTERPRISE_TOKEN=ghp_ent_only\n"
+            "PROJECT_URLS=https://github.enterprise.io/orgs/myorg/projects/5\n"
+            "ALLOWED_USERNAME=enterpriseuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.github_token is None
+        assert config.github_enterprise_host == "github.enterprise.io"
+        assert config.github_enterprise_token == "ghp_ent_only"
+        assert config.project_urls == ["https://github.enterprise.io/orgs/myorg/projects/5"]
+        assert config.allowed_username == "enterpriseuser"
+
+    def test_ghes_only_config_works_env(self, monkeypatch):
+        """Test GHES-only configuration without github.com token in env."""
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.setenv("GITHUB_ENTERPRISE_HOST", "git.corp.com")
+        monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_corp_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://git.corp.com/orgs/team/projects/3")
+        monkeypatch.setenv("ALLOWED_USERNAME", "corpuser")
+
+        config = load_config_from_env()
+
+        assert config.github_token is None
+        assert config.github_enterprise_host == "git.corp.com"
+        assert config.github_enterprise_token == "ghp_corp_token"
+        assert config.project_urls == ["https://git.corp.com/orgs/team/projects/3"]
+
+    def test_empty_ghes_values_normalized_to_none_file(self, tmp_path, monkeypatch):
+        """Test empty GHES values become None in file config."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "GITHUB_ENTERPRISE_HOST=\n"
+            "GITHUB_ENTERPRISE_TOKEN=\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "ALLOWED_USERNAME=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.github_enterprise_host is None
+        assert config.github_enterprise_token is None
+        assert config.github_token == "ghp_test"
+
+    def test_empty_ghes_values_normalized_to_none_env(self, monkeypatch):
+        """Test empty GHES values become None in env config."""
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+        monkeypatch.setenv("GITHUB_ENTERPRISE_HOST", "")
+        monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+
+        config = load_config_from_env()
+
+        assert config.github_enterprise_host is None
+        assert config.github_enterprise_token is None
+        assert config.github_token == "ghp_test"
+
+    def test_ghes_token_sets_env_var(self, tmp_path, monkeypatch):
+        """Test GHES token is set in environment for subprocess access."""
+        import os
+
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
+            "GITHUB_ENTERPRISE_TOKEN=ghp_ent_env_test\n"
+            "PROJECT_URLS=https://github.mycompany.com/orgs/test/projects/1\n"
+            "ALLOWED_USERNAME=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        load_config_from_file(config_file)
+
+        # GHES token should be set as GITHUB_TOKEN for gh CLI subprocess use
+        assert os.environ.get("GITHUB_TOKEN") == "ghp_ent_env_test"
+
+    def test_project_urls_multiple_matching_ghes_hosts(self, tmp_path, monkeypatch):
+        """Test multiple PROJECT_URLS all matching GHES host succeeds."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
+            "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
+            "PROJECT_URLS=https://github.mycompany.com/orgs/team1/projects/1,"
+            "https://github.mycompany.com/orgs/team2/projects/2\n"
+            "ALLOWED_USERNAME=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.project_urls == [
+            "https://github.mycompany.com/orgs/team1/projects/1",
+            "https://github.mycompany.com/orgs/team2/projects/2",
+        ]
+
+    def test_project_urls_one_mismatched_host_raises_error(self, tmp_path, monkeypatch):
+        """Test error when one PROJECT_URL doesn't match configured host."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
+            "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
+            "PROJECT_URLS=https://github.mycompany.com/orgs/team1/projects/1,"
+            "https://github.com/orgs/team2/projects/2\n"
+            "ALLOWED_USERNAME=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        with pytest.raises(
+            ValueError,
+            match="PROJECT_URLS contains 'github.com' but configured for 'github.mycompany.com'",
+        ):
+            load_config_from_file(config_file)
+
+    def test_ghes_host_only_without_token_ignored(self, tmp_path, monkeypatch):
+        """Test GHES host without token doesn't affect github.com config."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_regular\n"
+            "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "ALLOWED_USERNAME=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        # Should work as github.com config since GHES token is not set
+        assert config.github_token == "ghp_regular"
+        assert config.github_enterprise_host == "github.mycompany.com"
+        assert config.github_enterprise_token is None
