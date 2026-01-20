@@ -51,7 +51,6 @@ a = Analysis(
         "src.workflows.prepare",
         "src.workflows.process_comments",
         "src.workflows.research",
-        "src.workflows.test_access",
     ],
     hookspath=[],
     hooksconfig={},
