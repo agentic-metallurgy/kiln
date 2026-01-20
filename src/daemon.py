@@ -736,6 +736,28 @@ class Daemon:
         )
         self.ticket_client.update_item_status(item.item_id, yolo_next)
 
+    def _has_yolo_label(self, repo: str, issue_number: int) -> bool:
+        """Check if issue currently has yolo label (fresh from GitHub).
+
+        This fetches fresh label data from GitHub to handle the case where
+        a user removes the yolo label mid-workflow. Using cached item.labels
+        would miss this change.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            issue_number: Issue number
+
+        Returns:
+            True if yolo label is currently present, False otherwise.
+            Returns False on any error (fail-safe: don't advance if uncertain).
+        """
+        try:
+            current_labels = self.ticket_client.get_issue_labels(repo, issue_number)
+            return Labels.YOLO in current_labels
+        except Exception as e:
+            logger.warning(f"Could not fetch current labels for {repo}#{issue_number}: {e}")
+            return False  # Fail safe - don't advance if we can't verify
+
     def _get_pr_for_issue(self, repo: str, issue_number: int) -> dict | None:
         """Get the open PR that closes a specific issue.
 
