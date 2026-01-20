@@ -17,7 +17,7 @@ a = Analysis(
     ["src/cli.py"],
     pathex=[],
     binaries=[],
-    datas=[(".env.example", "."), ("README.md", "."), (".claude/commands", ".claude/commands")],
+    datas=[(".env.example", "."), ("README.md", "."), (".claude", ".claude")],
     hiddenimports=[
         # OpenTelemetry requires explicit imports
         "opentelemetry",

@@ -662,6 +662,11 @@ class Daemon:
             logger.debug(f"Skipping {key} - has '{Labels.IMPLEMENTATION_FAILED}' label")
             return False
 
+        # Skip if research previously failed (requires manual intervention)
+        if item.status == "Research" and Labels.RESEARCH_FAILED in item.labels:
+            logger.debug(f"Skipping {key} - has '{Labels.RESEARCH_FAILED}' label")
+            return False
+
         actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
         if not check_actor_allowed(actor, self.config.allowed_username, key):
             return False
@@ -1204,6 +1209,17 @@ class Daemon:
                 self.ticket_client.remove_label(item.repo, item.ticket_id, running_label)
                 logger.debug(f"Removed '{running_label}' label from {key}")
 
+            # Validate research block exists after Research workflow
+            if item.status == "Research":
+                body = self.ticket_client.get_ticket_body(item.repo, item.ticket_id)
+                if body is None or "<!-- kiln:research -->" not in body:
+                    self.ticket_client.add_label(item.repo, item.ticket_id, Labels.RESEARCH_FAILED)
+                    logger.warning(
+                        f"Research completed but no research block found for {key}"
+                    )
+                    # Don't add research_ready, don't advance YOLO
+                    return
+
             # Add complete label or move to next status
             if complete_label:
                 self.ticket_client.add_label(item.repo, item.ticket_id, complete_label)
@@ -1381,59 +1397,49 @@ class Daemon:
             parent_branch=parent_branch,
         )
         self.runner.run(workflow, ctx, "Prepare")
+
+        # Copy .claude/ into the newly created worktree
+        worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
+        self._copy_claude_to_worktree(worktree_path)
+
         if parent_branch:
             logger.info(f"Auto-prepared worktree (branching from parent branch '{parent_branch}')")
         else:
             logger.info("Auto-prepared worktree")
 
-        # Sync .claude/commands to the new worktree
-        self._sync_claude_commands(item)
+    def _copy_claude_to_worktree(self, worktree_path: str) -> None:
+        """Copy .claude/ from bundled binary to a worktree.
 
-    def _sync_claude_commands(self, item: TicketItem) -> None:
-        """Sync .claude/commands from daemon repo to worktree.
-
-        This ensures worktrees have the latest commands even if they were
-        created from an older branch.
+        This copies the entire .claude/ folder (commands, agents, skills)
+        directly into the worktree so Claude Code picks it up.
 
         Args:
-            item: TicketItem to sync commands for
+            worktree_path: Path to the worktree directory
         """
         import shutil
 
-        # Construct worktree path (same logic as PrepareWorkflow)
-        repo_name = item.repo.split("/")[-1] if "/" in item.repo else item.repo
-        worktree_path = Path(self.config.workspace_dir) / f"{repo_name}-issue-{item.ticket_id}"
-
-        # Source commands from daemon's repo (where kiln is running from)
-        # PyInstaller sets sys._MEIPASS when running from bundle, else use repo root
+        # Source .claude from bundle or repo root
         if hasattr(sys, "_MEIPASS"):
             base_path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
         else:
             base_path = Path(__file__).parent.parent  # repo root
-        daemon_commands = base_path / ".claude" / "commands"
-        worktree_commands = worktree_path / ".claude" / "commands"
 
-        if not daemon_commands.exists():
-            logger.debug("No .claude/commands in daemon repo, skipping sync")
-            return
+        source_claude = base_path / ".claude"
+        dest_claude = Path(worktree_path) / ".claude"
 
-        if not worktree_path.exists():
-            logger.warning(f"Worktree not found at {worktree_path}, skipping command sync")
+        if not source_claude.exists():
+            logger.debug("No .claude/ in source, skipping copy")
             return
 
         try:
-            # Create .claude directory if it doesn't exist
-            worktree_commands.parent.mkdir(parents=True, exist_ok=True)
+            # Remove existing .claude/ and copy fresh
+            if dest_claude.exists():
+                shutil.rmtree(dest_claude)
+            shutil.copytree(source_claude, dest_claude)
 
-            # Copy each command file (overwrite if exists)
-            for cmd_file in daemon_commands.glob("*.md"):
-                dest = worktree_commands / cmd_file.name
-                shutil.copy2(cmd_file, dest)
-                logger.debug(f"Synced command: {cmd_file.name}")
-
-            logger.info(f"Synced .claude/commands to {worktree_path}")
+            logger.info(f"Copied .claude/ to {worktree_path}")
         except Exception as e:
-            logger.warning(f"Failed to sync .claude/commands: {e}")
+            logger.warning(f"Failed to copy .claude/ to worktree: {e}")
 
     def _run_workflow(
         self,
@@ -1460,8 +1466,8 @@ class Daemon:
         # Determine workspace path based on workflow
         workspace_path = self._get_worktree_path(item.repo, item.ticket_id)
 
-        # Sync .claude/commands to ensure worktree has latest commands
-        self._sync_claude_commands(item)
+        # Copy .claude/ to ensure worktree has latest commands/skills/agents
+        self._copy_claude_to_worktree(workspace_path)
 
         # Rebase on first Research run (no research_ready label yet) - use cached labels
         if workflow_name == "Research":
