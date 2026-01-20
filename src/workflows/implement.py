@@ -58,7 +58,7 @@ class ImplementWorkflow:
     This workflow:
     1. Creates a draft PR if one doesn't exist (via /prepare_implementation_github)
     2. Loops through tasks, implementing one per iteration (via /implement_github)
-    3. Stops when all tasks complete, max iterations hit, or no progress detected
+    3. Stops when all tasks complete, no progress detected, or TASK growth exceeds safety limit
     """
 
     @property
@@ -122,17 +122,21 @@ class ImplementWorkflow:
                 )
 
         # Step 2: Implementation loop
-        # Set max iterations based on TASK count (each TASK = 1 iteration)
+        # Set initial max iterations estimate based on TASK count (each TASK = 1 iteration)
         pr_body = pr_info.get("body", "")
-        num_tasks = count_tasks(pr_body)
-        max_iterations = num_tasks if num_tasks > 0 else DEFAULT_MAX_ITERATIONS
-        logger.info(f"Detected {num_tasks} TASKs for {key}, max_iterations={max_iterations}")
+        initial_task_count = count_tasks(pr_body)
+        max_iterations_estimate = initial_task_count if initial_task_count > 0 else DEFAULT_MAX_ITERATIONS
+        logger.info(
+            f"Detected {initial_task_count} TASKs for {key}, "
+            f"initial estimate={max_iterations_estimate} iterations"
+        )
 
         iteration = 0
         last_completed = -1
         stall_count = 0
+        logged_overrun = False  # Track if we've logged continuing past estimate
 
-        while iteration < max_iterations:
+        while True:  # Loop controlled by exit conditions, not iteration count
             iteration += 1
 
             # Get current PR state
@@ -142,6 +146,29 @@ class ImplementWorkflow:
 
             pr_body = pr_info.get("body", "")
             total_tasks, completed_tasks = count_checkboxes(pr_body)
+
+            # Re-count TASKs to detect dynamic additions
+            current_task_count = count_tasks(pr_body)
+            tasks_appended = current_task_count - initial_task_count
+
+            # Safety check: exit if too many TASKs appended (when limit is set)
+            if (
+                config.safety_allow_appended_tasks > 0
+                and tasks_appended > config.safety_allow_appended_tasks
+            ):
+                logger.error(
+                    f"SAFETY: TASK count increased from {initial_task_count} to "
+                    f"{current_task_count} (+{tasks_appended}) for {key}, exceeds limit of "
+                    f"{config.safety_allow_appended_tasks}. Stopping to prevent infinite loop."
+                )
+                break
+
+            # Log if TASKs were appended (informational, only log once per new count)
+            if tasks_appended > 0 and iteration > 1:
+                logger.warning(
+                    f"TASK count increased from {initial_task_count} to {current_task_count} "
+                    f"(+{tasks_appended}) during implementation for {key}"
+                )
 
             if total_tasks == 0:
                 logger.warning(f"No checkbox tasks found in PR for {key}")
@@ -166,6 +193,14 @@ class ImplementWorkflow:
 
             last_completed = completed_tasks
 
+            # Log when continuing past initial estimate (once)
+            if iteration > max_iterations_estimate and not logged_overrun:
+                logger.info(
+                    f"Continuing past initial estimate ({max_iterations_estimate} TASKs) for "
+                    f"{key} - {total_tasks - completed_tasks} tasks remaining"
+                )
+                logged_overrun = True
+
             logger.info(
                 f"Implement iteration {iteration} for {key} "
                 f"({completed_tasks}/{total_tasks} tasks complete)"
@@ -176,9 +211,6 @@ class ImplementWorkflow:
                 f"/kiln:implement_github for issue {issue_url}.{reviewer_flags}{project_url_context}"
             )
             self._run_prompt(implement_prompt, ctx, config, "implement")
-
-        if iteration >= max_iterations:
-            logger.warning(f"Hit max iterations ({max_iterations}) for {key}")
 
         # Check final state and mark PR ready if all tasks complete
         pr_info = self._get_pr_for_issue(ctx.repo, ctx.issue_number)
