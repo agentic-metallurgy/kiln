@@ -46,6 +46,7 @@ class Labels:
 
     # Failure labels
     IMPLEMENTATION_FAILED = "implementation_failed"
+    RESEARCH_FAILED = "research_failed"
 
 
 # Required labels with descriptions and colors for automatic creation
@@ -102,6 +103,10 @@ REQUIRED_LABELS: dict[str, LabelConfig] = {
     Labels.IMPLEMENTATION_FAILED: {
         "description": "Implementation workflow failed after retries",
         "color": "DC2626",  # Red
+    },
+    Labels.RESEARCH_FAILED: {
+        "description": "Research workflow completed but no research block found",
+        "color": "D93F0B",  # Red/orange for failure
     },
 }
 

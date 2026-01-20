@@ -660,6 +660,11 @@ class Daemon:
             logger.debug(f"Skipping {key} - has '{Labels.IMPLEMENTATION_FAILED}' label")
             return False
 
+        # Skip if research previously failed (requires manual intervention)
+        if item.status == "Research" and Labels.RESEARCH_FAILED in item.labels:
+            logger.debug(f"Skipping {key} - has '{Labels.RESEARCH_FAILED}' label")
+            return False
+
         actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
         if not check_actor_allowed(actor, self.config.allowed_username, key):
             return False
@@ -1201,6 +1206,17 @@ class Daemon:
             if running_label:
                 self.ticket_client.remove_label(item.repo, item.ticket_id, running_label)
                 logger.debug(f"Removed '{running_label}' label from {key}")
+
+            # Validate research block exists after Research workflow
+            if item.status == "Research":
+                body = self.ticket_client.get_ticket_body(item.repo, item.ticket_id)
+                if body is None or "<!-- kiln:research -->" not in body:
+                    self.ticket_client.add_label(item.repo, item.ticket_id, Labels.RESEARCH_FAILED)
+                    logger.warning(
+                        f"Research completed but no research block found for {key}"
+                    )
+                    # Don't add research_ready, don't advance YOLO
+                    return
 
             # Add complete label or move to next status
             if complete_label:
