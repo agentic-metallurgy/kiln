@@ -13,7 +13,7 @@ Use get_github_client() factory function to get the appropriate client based
 on the GITHUB_ENTERPRISE_VERSION configuration.
 """
 
-from src.ticket_clients.base import GitHubClientBase
+from src.ticket_clients.base import GitHubClientBase, NetworkError
 from src.ticket_clients.github import GitHubTicketClient
 from src.ticket_clients.github_enterprise_3_14 import GitHubEnterprise314Client
 from src.ticket_clients.github_enterprise_3_15 import GitHubEnterprise315Client
@@ -76,6 +76,7 @@ __all__ = [
     "GitHubEnterprise317Client",
     "GitHubEnterprise318Client",
     "GitHubEnterprise319Client",
+    "NetworkError",
     "get_github_client",
     "GHES_VERSION_CLIENTS",
 ]

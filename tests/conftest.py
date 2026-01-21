@@ -16,7 +16,7 @@ def pytest_configure(config):
 
 @pytest.fixture(autouse=True)
 def mock_validate_connection(request):
-    """Automatically mock GitHubTicketClient.validate_connection for all tests.
+    """Automatically mock GitHubTicketClient validation methods for all tests.
 
     This prevents tests from making real GitHub API calls during Daemon initialization.
     Tests that specifically need to test validation behavior can use the
@@ -26,9 +26,15 @@ def mock_validate_connection(request):
     if "skip_auto_mock_validation" in [marker.name for marker in request.node.iter_markers()]:
         yield
     else:
-        with patch(
-            "src.ticket_clients.github.GitHubTicketClient.validate_connection",
-            return_value=True,
+        with (
+            patch(
+                "src.ticket_clients.github.GitHubTicketClient.validate_connection",
+                return_value=True,
+            ),
+            patch(
+                "src.ticket_clients.github.GitHubTicketClient.validate_scopes",
+                return_value=True,
+            ),
         ):
             yield
 

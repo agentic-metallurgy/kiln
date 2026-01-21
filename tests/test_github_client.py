@@ -8,9 +8,40 @@ from unittest.mock import patch
 import pytest
 
 from src.interfaces import Comment, LinkedPullRequest
+from src.ticket_clients.base import NetworkError
 from src.ticket_clients.github import GitHubTicketClient
 from src.ticket_clients.github_enterprise_3_14 import GitHubEnterprise314Client
 from src.ticket_clients.github_enterprise_3_18 import GitHubEnterprise318Client
+
+
+@pytest.mark.unit
+class TestNetworkErrorException:
+    """Tests for NetworkError exception class."""
+
+    def test_network_error_is_exception(self):
+        """Test that NetworkError is a subclass of Exception."""
+        assert issubclass(NetworkError, Exception)
+
+    def test_network_error_can_be_raised(self):
+        """Test that NetworkError can be raised with a message."""
+        with pytest.raises(NetworkError) as exc_info:
+            raise NetworkError("TLS handshake timeout")
+        assert "TLS handshake timeout" in str(exc_info.value)
+
+    def test_network_error_can_be_caught_as_exception(self):
+        """Test that NetworkError can be caught as generic Exception."""
+        caught = False
+        try:
+            raise NetworkError("Connection refused")
+        except Exception:
+            caught = True
+        assert caught is True
+
+    def test_network_error_import_from_base(self):
+        """Test that NetworkError can be imported from base module."""
+        from src.ticket_clients.base import NetworkError as ImportedNetworkError
+
+        assert ImportedNetworkError is NetworkError
 
 
 @pytest.fixture
@@ -1352,6 +1383,7 @@ class TestGetTokenScopes:
 
 
 @pytest.mark.unit
+@pytest.mark.skip_auto_mock_validation
 class TestValidateScopes:
     """Tests for GitHubTicketClient.validate_scopes() method."""
 
@@ -2747,6 +2779,153 @@ class TestAuthenticationErrorHandling:
 
             error_msg = str(exc_info.value)
             assert "github.mycompany.com" in error_msg
+
+
+@pytest.mark.unit
+class TestNetworkErrorDetection:
+    """Tests for NetworkError detection in _run_gh_command."""
+
+    def test_tls_handshake_timeout_raises_network_error(self, github_client):
+        """Test that TLS handshake timeout raises NetworkError."""
+        import subprocess
+
+        from src.ticket_clients.base import NetworkError
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="dial tcp: TLS handshake timeout"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(NetworkError) as exc_info:
+                github_client._run_gh_command(["api", "user"])
+
+            assert "network error" in str(exc_info.value).lower()
+
+    def test_connection_timeout_raises_network_error(self, github_client):
+        """Test that connection timeout raises NetworkError."""
+        import subprocess
+
+        from src.ticket_clients.base import NetworkError
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="connection timeout: unable to reach server"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(NetworkError):
+                github_client._run_gh_command(["api", "user"])
+
+    def test_connection_refused_raises_network_error(self, github_client):
+        """Test that connection refused raises NetworkError."""
+        import subprocess
+
+        from src.ticket_clients.base import NetworkError
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="connection refused"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(NetworkError):
+                github_client._run_gh_command(["api", "user"])
+
+    def test_io_timeout_raises_network_error(self, github_client):
+        """Test that i/o timeout raises NetworkError."""
+        import subprocess
+
+        from src.ticket_clients.base import NetworkError
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="read: i/o timeout"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(NetworkError):
+                github_client._run_gh_command(["api", "user"])
+
+    def test_dial_tcp_error_raises_network_error(self, github_client):
+        """Test that Go network dial errors raise NetworkError."""
+        import subprocess
+
+        from src.ticket_clients.base import NetworkError
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="dial tcp: lookup api.github.com: no such host"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(NetworkError):
+                github_client._run_gh_command(["api", "user"])
+
+    def test_no_such_host_raises_network_error(self, github_client):
+        """Test that DNS resolution failures raise NetworkError."""
+        import subprocess
+
+        from src.ticket_clients.base import NetworkError
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="no such host: api.github.com"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(NetworkError):
+                github_client._run_gh_command(["api", "user"])
+
+    def test_temporary_failure_raises_network_error(self, github_client):
+        """Test that temporary DNS failures raise NetworkError."""
+        import subprocess
+
+        from src.ticket_clients.base import NetworkError
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="temporary failure in name resolution"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(NetworkError):
+                github_client._run_gh_command(["api", "user"])
+
+    def test_network_error_generic_raises_network_error(self, github_client):
+        """Test that generic network error message raises NetworkError."""
+        import subprocess
+
+        from src.ticket_clients.base import NetworkError
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="network error: unable to reach GitHub"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(NetworkError):
+                github_client._run_gh_command(["api", "user"])
+
+    def test_non_network_error_raises_called_process_error(self, github_client):
+        """Test that non-network errors raise CalledProcessError."""
+        import subprocess
+
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="unknown error: something else went wrong"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            with pytest.raises(subprocess.CalledProcessError):
+                github_client._run_gh_command(["api", "user"])
+
+    def test_network_error_takes_precedence_over_auth_error(self, github_client):
+        """Test that network errors are detected before auth errors."""
+        import subprocess
+
+        from src.ticket_clients.base import NetworkError
+
+        # Error message contains both network and auth indicators
+        error = subprocess.CalledProcessError(
+            1, ["gh", "api"], stderr="TLS handshake timeout during authentication"
+        )
+
+        with patch("subprocess.run", side_effect=error):
+            # Should raise NetworkError, not RuntimeError (auth)
+            with pytest.raises(NetworkError):
+                github_client._run_gh_command(["api", "user"])
 
 
 @pytest.mark.unit
