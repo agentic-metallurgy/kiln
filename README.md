@@ -51,7 +51,7 @@ See the [User Guide](docs/user-guide.md) for setup instructions.
 
 ## Capabilities
 
-### Claude CLI as Execution Engine
+### 🔥 Claude CLI as Execution Engine
 
 Execute workflows via the `claude` CLI rather than direct API calls.
 
@@ -60,7 +60,7 @@ Execute workflows via the `claude` CLI rather than direct API calls.
 - **Full capabilities**: Claude CLI supports slash commands, tools, file access, and git operations
 - **Streaming**: Native support for long-running operations with streaming output
 
-### Polling Over Webhooks
+### 🔥 Polling Over Webhooks
 
 Use periodic polling instead of webhook-based event handling.
 
@@ -71,7 +71,7 @@ Use periodic polling instead of webhook-based event handling.
 
 **Trade-off**: 30-second latency (configurable) vs. near-instant webhook response.
 
-### GitHub Labels as State Machine
+### 🔥 GitHub Labels as State Machine
 
 Use GitHub labels as the primary workflow state machine rather than database state.
 
@@ -80,7 +80,7 @@ Use GitHub labels as the primary workflow state machine rather than database sta
 - **Manual override**: Labels can be manually added/removed to force state transitions
 - **Distributed-safe**: Multiple daemon instances won't conflict
 
-### Issues as Product Requirements Docs
+### 🔥 Issues as Product Requirements Docs
 
 Research and plan outputs are written and iterated on in the issue description to keep a single source of truth with auditable progression.
 
