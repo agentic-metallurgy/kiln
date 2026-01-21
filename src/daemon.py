@@ -32,7 +32,7 @@ from src.logger import (
     set_issue_context,
     setup_logging,
 )
-from src.security import check_actor_allowed
+from src.security import ActorCategory, check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients import get_github_client
 from src.workflows import (
@@ -623,7 +623,10 @@ class Daemon:
                 actor = self.ticket_client.get_label_actor(
                     item.repo, item.ticket_id, Labels.YOLO
                 )
-                if not check_actor_allowed(actor, self.config.username_self, key, "YOLO"):
+                actor_category = check_actor_allowed(
+                    actor, self.config.username_self, key, "YOLO", self.config.team_usernames
+                )
+                if actor_category != ActorCategory.SELF:
                     continue
                 logger.info(
                     f"YOLO: Starting auto-progression for {key} from Backlog "
@@ -735,7 +738,10 @@ class Daemon:
         # Check actor authorization if supported by the client
         if self.ticket_client.supports_status_actor_check:
             actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
-            if not check_actor_allowed(actor, self.config.username_self, key):
+            actor_category = check_actor_allowed(
+                actor, self.config.username_self, key, "", self.config.team_usernames
+            )
+            if actor_category != ActorCategory.SELF:
                 return False
             logger.info(f"Workflow trigger: {key} in '{item.status}' by allowed user '{actor}'")
         else:
@@ -819,7 +825,10 @@ class Daemon:
             return
 
         actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.YOLO)
-        if not check_actor_allowed(actor, self.config.username_self, key, "YOLO"):
+        actor_category = check_actor_allowed(
+            actor, self.config.username_self, key, "YOLO", self.config.team_usernames
+        )
+        if actor_category != ActorCategory.SELF:
             return
 
         logger.info(
@@ -1108,10 +1117,13 @@ class Daemon:
         key = f"{item.repo}#{item.ticket_id}"
 
         actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.RESET)
-        if not check_actor_allowed(actor, self.config.username_self, key, "RESET"):
+        actor_category = check_actor_allowed(
+            actor, self.config.username_self, key, "RESET", self.config.team_usernames
+        )
+        if actor_category != ActorCategory.SELF:
             # Only remove reset label when actor is known but not allowed (to prevent repeated warnings)
             # When actor is unknown, keep the label for security logging visibility
-            if actor is not None:
+            if actor_category == ActorCategory.BLOCKED or actor_category == ActorCategory.TEAM:
                 self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.RESET)
             return
 
