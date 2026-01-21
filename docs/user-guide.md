@@ -183,7 +183,7 @@ During Research or Plan, you can leave comments to request changes:
 
 ## 🏷️ Special Labels
 
-### `yolo` — Auto-progression
+### 🤖 `yolo` — Auto-progression
 
 Add this label to let Claude progress through stages autonomously:
 
@@ -198,7 +198,7 @@ Remove `yolo` at any point to stop auto-progression.
 
 If something goes wrong during yolo mode, the issue gets a `yolo_failed` label.
 
-### `reset` — Clear and Restart
+### 💥 `reset` — Clear and Restart
 
 Add this label to wipe kiln-generated content and start fresh:
 
