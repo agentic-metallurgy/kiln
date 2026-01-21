@@ -281,41 +281,41 @@ def run_daemon(daemon_mode: bool = False) -> None:
 
     try:
         # Phase 1: Check required CLI tools
-        print("Checking required tools...")
+        startup_print("Checking required tools...", "glow")
         check_required_tools()
-        print("  ✓ gh CLI found")
-        print("  ✓ claude CLI found")
+        startup_print("  ✓ gh CLI found", "glow")
+        startup_print("  ✓ claude CLI found", "glow")
         print()
 
         # Phase 2: Extract Claude resources to .kiln/
-        print("Extracting Claude resources...")
+        startup_print("Extracting Claude resources...", "ember")
         extract_claude_resources()
-        print("  ✓ Resources extracted to .kiln/")
+        startup_print("  ✓ Resources extracted to .kiln/", "ember")
         print()
 
         # Phase 2b: Install kiln resources to ~/.claude/
-        print("Installing kiln resources to ~/.claude/...")
+        startup_print("Installing kiln resources to ~/.claude/...", "ember")
         install_claude_resources()
-        print("  ✓ Kiln resources installed")
+        startup_print("  ✓ Kiln resources installed", "ember")
         print()
 
         # Phase 3: Load and validate config
-        print("Loading configuration...")
+        startup_print("Loading configuration...", "fire")
         config = load_config()
-        print("  ✓ PROJECT_URLS configured")
-        print("  ✓ ALLOWED_USERNAMES configured")
+        startup_print("  ✓ PROJECT_URLS configured", "fire")
+        startup_print("  ✓ ALLOWED_USERNAMES configured", "fire")
         print()
 
         # Phase 3b: Configure git credentials
-        print("Configuring git credentials...")
+        startup_print("Configuring git credentials...", "fire")
         hostnames = get_hostnames_from_project_urls(config.project_urls)
         for hostname in sorted(hostnames):
             configure_git_credential_helper(hostname)
-            print(f"  ✓ Configured credential helper for {hostname}")
+            startup_print(f"  ✓ Configured credential helper for {hostname}", "fire")
         print()
 
         # Phase 4: Validate project columns
-        print("Validating project boards...")
+        startup_print("Validating project boards...", "heat")
 
         # Build tokens dict for client
         tokens: dict[str, str] = {}
@@ -329,11 +329,11 @@ def run_daemon(daemon_mode: bool = False) -> None:
         for project_url in config.project_urls:
             result = validate_project_columns(client, project_url)
             if result.action == "ok":
-                print(f"  ✓ {project_url}")
-                print("      All required columns present and correctly ordered")
+                startup_print(f"  ✓ {project_url}", "heat")
+                startup_print("      All required columns present and correctly ordered", "heat")
             elif result.action in ("created", "reordered"):
-                print(f"  ✓ {project_url}")
-                print(f"      {result.message}")
+                startup_print(f"  ✓ {project_url}", "heat")
+                startup_print(f"      {result.message}", "heat")
         print()
 
         # Extract org name from first project URL for log masking
