@@ -18,7 +18,7 @@ class WorkflowContext:
         comment_body: User comment body for comment processing workflow (optional)
         target_type: Target for comment processing: "description", "research", or "plan"
         issue_body: Pre-fetched issue body/description (optional, for PrepareWorkflow)
-        allowed_username: Allowed GitHub username (optional, for reviewer assignment)
+        username_self: Allowed GitHub username (optional, for reviewer assignment)
         parent_issue_number: Parent issue number if this is a child issue (optional)
         parent_branch: Branch name of parent's open PR to branch from (optional)
     """
@@ -31,7 +31,7 @@ class WorkflowContext:
     comment_body: str | None = None
     target_type: str | None = None
     issue_body: str | None = None
-    allowed_username: str | None = None
+    username_self: str | None = None
     parent_issue_number: int | None = None
     parent_branch: str | None = None
 

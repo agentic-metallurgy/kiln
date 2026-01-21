@@ -109,8 +109,8 @@ class ImplementWorkflow:
 
         # Build common prompt parts
         reviewer_flags = ""
-        if ctx.allowed_username:
-            reviewer_flags = f" --reviewer {ctx.allowed_username}"
+        if ctx.username_self:
+            reviewer_flags = f" --reviewer {ctx.username_self}"
 
         project_url_context = ""
         if ctx.project_url:

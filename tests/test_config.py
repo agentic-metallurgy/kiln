@@ -85,7 +85,7 @@ class TestLoadConfig:
         monkeypatch.setenv("DATABASE_PATH", "env.db")
         monkeypatch.setenv("WORKSPACE_DIR", "env_workspaces")
         monkeypatch.setenv("WATCHED_STATUSES", "Status1, Status2, Status3")
-        monkeypatch.setenv("ALLOWED_USERNAME", "user1")
+        monkeypatch.setenv("USERNAME_SELF", "user1")
 
         config = load_config_from_env()
 
@@ -98,7 +98,7 @@ class TestLoadConfig:
         assert config.database_path == "env.db"
         assert config.workspace_dir == "env_workspaces"
         assert config.watched_statuses == ["Status1", "Status2", "Status3"]
-        assert config.allowed_username == "user1"
+        assert config.username_self == "user1"
 
     def test_load_config_with_minimal_env_vars(self, monkeypatch):
         """Test load_config applies defaults when only required vars are set."""
@@ -115,7 +115,7 @@ class TestLoadConfig:
 
         monkeypatch.setenv("GITHUB_TOKEN", "minimal_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/chronoboost/projects/6/views/2")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         config = load_config_from_env()
 
@@ -126,13 +126,13 @@ class TestLoadConfig:
         assert config.workspace_dir == "workspaces"
         assert config.watched_statuses == ["Research", "Plan", "Implement"]
         assert config.max_concurrent_workflows == 3
-        assert config.allowed_username == "testuser"
+        assert config.username_self == "testuser"
 
     def test_load_config_missing_github_token(self, monkeypatch):
         """Test load_config accepts missing GITHUB_TOKEN."""
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         config = load_config_from_env()
 
@@ -142,7 +142,7 @@ class TestLoadConfig:
         """Test load_config normalizes empty GITHUB_TOKEN to None."""
         monkeypatch.setenv("GITHUB_TOKEN", "")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         config = load_config_from_env()
 
@@ -153,7 +153,7 @@ class TestLoadConfig:
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
         monkeypatch.setenv("WATCHED_STATUSES", "  Status 1  ,  Status 2  ,  Status 3  ")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         config = load_config_from_env()
 
@@ -164,7 +164,7 @@ class TestLoadConfig:
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
         monkeypatch.setenv("POLL_INTERVAL", "300")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         config = load_config_from_env()
 
@@ -176,7 +176,7 @@ class TestLoadConfig:
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
         monkeypatch.setenv("WATCHED_STATUSES", "OnlyOne")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         config = load_config_from_env()
 
@@ -187,7 +187,7 @@ class TestLoadConfig:
         monkeypatch.setenv("GITHUB_TOKEN", "token1")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
         monkeypatch.setenv("POLL_INTERVAL", "30")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         config1 = load_config_from_env()
         assert config1.poll_interval == 30
@@ -211,7 +211,7 @@ class TestLoadConfig:
             "PROJECT_URLS",
             "https://github.com/orgs/test/projects/1, https://github.com/orgs/test/projects/2",
         )
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         config = load_config_from_env()
 
@@ -224,7 +224,7 @@ class TestLoadConfig:
         """Test PROJECT_URLS with a single URL."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         config = load_config_from_env()
 
@@ -234,7 +234,7 @@ class TestLoadConfig:
         """Test load_config applies default stage models."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
         monkeypatch.delenv("STAGE_MODELS", raising=False)
 
         config = load_config_from_env()
@@ -251,7 +251,7 @@ class TestLoadConfig:
         """Test load_config parses STAGE_MODELS JSON correctly."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
         monkeypatch.setenv("STAGE_MODELS", '{"Prepare": "haiku", "Plan": "opus"}')
 
         config = load_config_from_env()
@@ -262,7 +262,7 @@ class TestLoadConfig:
         """Test load_config raises ValueError for invalid STAGE_MODELS JSON."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
         monkeypatch.setenv("STAGE_MODELS", "not valid json")
 
         with pytest.raises(ValueError, match="STAGE_MODELS must be valid JSON"):
@@ -272,7 +272,7 @@ class TestLoadConfig:
         """Test claude_code_enable_telemetry defaults to False."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
         monkeypatch.delenv("CLAUDE_CODE_ENABLE_TELEMETRY", raising=False)
 
         config = load_config_from_env()
@@ -283,7 +283,7 @@ class TestLoadConfig:
         """Test claude_code_enable_telemetry parses '1' as True."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
         monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
 
         config = load_config_from_env()
@@ -294,7 +294,7 @@ class TestLoadConfig:
         """Test claude_code_enable_telemetry parses '0' as False."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
         monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "0")
 
         config = load_config_from_env()
@@ -307,7 +307,7 @@ class TestLoadConfig:
         """Test ghes_logs_mask defaults to True when not specified."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
         monkeypatch.delenv("GHES_LOGS_MASK", raising=False)
 
         config = load_config_from_env()
@@ -318,7 +318,7 @@ class TestLoadConfig:
         """Test ghes_logs_mask parses 'true' as True."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
         monkeypatch.setenv("GHES_LOGS_MASK", "true")
 
         config = load_config_from_env()
@@ -329,7 +329,7 @@ class TestLoadConfig:
         """Test ghes_logs_mask parses 'false' as False."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
         monkeypatch.setenv("GHES_LOGS_MASK", "false")
 
         config = load_config_from_env()
@@ -340,7 +340,7 @@ class TestLoadConfig:
         """Test ghes_logs_mask parsing is case-insensitive."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         # Test uppercase TRUE
         monkeypatch.setenv("GHES_LOGS_MASK", "TRUE")
@@ -357,54 +357,54 @@ class TestLoadConfig:
         config = load_config_from_env()
         assert config.ghes_logs_mask is True
 
-    # Tests for ALLOWED_USERNAME
+    # Tests for USERNAME_SELF
 
-    def test_load_config_missing_allowed_username(self, monkeypatch):
-        """Test load_config raises ValueError when ALLOWED_USERNAME is missing."""
+    def test_load_config_missing_username_self(self, monkeypatch):
+        """Test load_config raises ValueError when USERNAME_SELF is missing."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.delenv("ALLOWED_USERNAME", raising=False)
+        monkeypatch.delenv("USERNAME_SELF", raising=False)
 
-        with pytest.raises(ValueError, match="ALLOWED_USERNAME environment variable is required"):
+        with pytest.raises(ValueError, match="USERNAME_SELF environment variable is required"):
             load_config_from_env()
 
-    def test_load_config_empty_allowed_username(self, monkeypatch):
-        """Test load_config raises ValueError when ALLOWED_USERNAME is empty."""
+    def test_load_config_empty_username_self(self, monkeypatch):
+        """Test load_config raises ValueError when USERNAME_SELF is empty."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "")
+        monkeypatch.setenv("USERNAME_SELF", "")
 
-        with pytest.raises(ValueError, match="ALLOWED_USERNAME environment variable is required"):
+        with pytest.raises(ValueError, match="USERNAME_SELF environment variable is required"):
             load_config_from_env()
 
-    def test_load_config_allowed_username_whitespace_only(self, monkeypatch):
-        """Test load_config raises ValueError when ALLOWED_USERNAME contains only whitespace."""
+    def test_load_config_username_self_whitespace_only(self, monkeypatch):
+        """Test load_config raises ValueError when USERNAME_SELF contains only whitespace."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "   ")
+        monkeypatch.setenv("USERNAME_SELF", "   ")
 
-        with pytest.raises(ValueError, match="ALLOWED_USERNAME environment variable is required"):
+        with pytest.raises(ValueError, match="USERNAME_SELF environment variable is required"):
             load_config_from_env()
 
-    def test_load_config_allowed_username(self, monkeypatch):
-        """Test ALLOWED_USERNAME with a single username."""
+    def test_load_config_username_self(self, monkeypatch):
+        """Test USERNAME_SELF with a single username."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "solo-user")
+        monkeypatch.setenv("USERNAME_SELF", "solo-user")
 
         config = load_config_from_env()
 
-        assert config.allowed_username == "solo-user"
+        assert config.username_self == "solo-user"
 
-    def test_load_config_allowed_username_with_spaces(self, monkeypatch):
-        """Test ALLOWED_USERNAME parsing trims whitespace."""
+    def test_load_config_username_self_with_spaces(self, monkeypatch):
+        """Test USERNAME_SELF parsing trims whitespace."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "  user1  ")
+        monkeypatch.setenv("USERNAME_SELF", "  user1  ")
 
         config = load_config_from_env()
 
-        assert config.allowed_username == "user1"
+        assert config.username_self == "user1"
 
 
 @pytest.mark.unit
@@ -498,7 +498,7 @@ class TestLoadConfigFromFile:
     def _write_minimal_config(self, tmp_path, extra_lines=""):
         """Helper to write a minimal valid config file."""
         config_file = tmp_path / "config"
-        content = f"GITHUB_TOKEN=ghp_test\nPROJECT_URLS=https://github.com/orgs/test/projects/1\nALLOWED_USERNAME=testuser\n{extra_lines}"
+        content = f"GITHUB_TOKEN=ghp_test\nPROJECT_URLS=https://github.com/orgs/test/projects/1\nUSERNAME_SELF=testuser\n{extra_lines}"
         config_file.write_text(content)
         return config_file
 
@@ -517,7 +517,7 @@ class TestLoadConfigFromFile:
         config_file.write_text(
             "GITHUB_TOKEN=ghp_test\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1, https://github.com/orgs/test/projects/2\n"
-            "ALLOWED_USERNAME=testuser"
+            "USERNAME_SELF=testuser"
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -531,33 +531,33 @@ class TestLoadConfigFromFile:
     def test_load_config_from_file_raises_on_missing_project_urls(self, tmp_path):
         """Test ValueError when PROJECT_URLS missing."""
         config_file = tmp_path / "config"
-        config_file.write_text("GITHUB_TOKEN=ghp_test\nALLOWED_USERNAME=testuser")
+        config_file.write_text("GITHUB_TOKEN=ghp_test\nUSERNAME_SELF=testuser")
 
         with pytest.raises(ValueError, match="PROJECT_URLS is required"):
             load_config_from_file(config_file)
 
-    def test_load_config_from_file_parses_allowed_username(self, tmp_path, monkeypatch):
-        """Test ALLOWED_USERNAME parsing."""
+    def test_load_config_from_file_parses_username_self(self, tmp_path, monkeypatch):
+        """Test USERNAME_SELF parsing."""
         config_file = tmp_path / "config"
         config_file.write_text(
             "GITHUB_TOKEN=ghp_test\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=myuser"
+            "USERNAME_SELF=myuser"
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
         config = load_config_from_file(config_file)
 
-        assert config.allowed_username == "myuser"
+        assert config.username_self == "myuser"
 
-    def test_load_config_from_file_raises_on_missing_allowed_username(self, tmp_path):
-        """Test ValueError when ALLOWED_USERNAME missing."""
+    def test_load_config_from_file_raises_on_missing_username_self(self, tmp_path):
+        """Test ValueError when USERNAME_SELF missing."""
         config_file = tmp_path / "config"
         config_file.write_text(
             "GITHUB_TOKEN=ghp_test\nPROJECT_URLS=https://github.com/orgs/test/projects/1"
         )
 
-        with pytest.raises(ValueError, match="ALLOWED_USERNAME is required"):
+        with pytest.raises(ValueError, match="USERNAME_SELF is required"):
             load_config_from_file(config_file)
 
     def test_load_config_from_file_parses_poll_interval(self, tmp_path, monkeypatch):
@@ -566,7 +566,7 @@ class TestLoadConfigFromFile:
         config_file.write_text(
             "GITHUB_TOKEN=ghp_test\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser\n"
+            "USERNAME_SELF=testuser\n"
             "POLL_INTERVAL=120"
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
@@ -581,7 +581,7 @@ class TestLoadConfigFromFile:
         config_file.write_text(
             "GITHUB_TOKEN=ghp_test\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser\n"
+            "USERNAME_SELF=testuser\n"
             "WATCHED_STATUSES=Todo, In Progress, Done"
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
@@ -596,7 +596,7 @@ class TestLoadConfigFromFile:
         config_file.write_text(
             "GITHUB_TOKEN=ghp_test\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser"
+            "USERNAME_SELF=testuser"
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -612,7 +612,7 @@ class TestLoadConfigFromFile:
         config_file.write_text(
             "GITHUB_TOKEN=ghp_test\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser\n"
+            "USERNAME_SELF=testuser\n"
             'STAGE_MODELS={"Prepare": "haiku", "Plan": "sonnet"}'
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
@@ -627,7 +627,7 @@ class TestLoadConfigFromFile:
         config_file.write_text(
             "GITHUB_TOKEN=ghp_test\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser\n"
+            "USERNAME_SELF=testuser\n"
             "STAGE_MODELS=not valid json"
         )
 
@@ -642,7 +642,7 @@ class TestLoadConfigFromFile:
         config_file.write_text(
             "GITHUB_TOKEN=ghp_env_test\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser"
+            "USERNAME_SELF=testuser"
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -656,7 +656,7 @@ class TestLoadConfigFromFile:
         config_file.write_text(
             "GITHUB_TOKEN=ghp_test\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser\n"
+            "USERNAME_SELF=testuser\n"
             "OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317\n"
             "OTEL_SERVICE_NAME=kiln-test\n"
             "CLAUDE_CODE_ENABLE_TELEMETRY=1"
@@ -675,7 +675,7 @@ class TestLoadConfigFromFile:
         config_file.write_text(
             "GITHUB_TOKEN=ghp_test\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser\n"
+            "USERNAME_SELF=testuser\n"
             "MAX_CONCURRENT_WORKFLOWS=5"
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
@@ -739,13 +739,13 @@ class TestLoadConfigEntryPoint:
         config_file.write_text(
             "GITHUB_TOKEN=ghp_from_file\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser"
+            "USERNAME_SELF=testuser"
         )
 
         # Set env vars (should be ignored when file exists)
         monkeypatch.setenv("GITHUB_TOKEN", "ghp_from_env")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/other/projects/2")
-        monkeypatch.setenv("ALLOWED_USERNAME", "envuser")
+        monkeypatch.setenv("USERNAME_SELF", "envuser")
 
         # Change cwd to temp directory
         monkeypatch.chdir(tmp_path)
@@ -754,7 +754,7 @@ class TestLoadConfigEntryPoint:
 
         assert config.github_token == "ghp_from_file"
         assert config.project_urls == ["https://github.com/orgs/test/projects/1"]
-        assert config.allowed_username == "testuser"
+        assert config.username_self == "testuser"
 
     def test_load_config_falls_back_to_env(self, tmp_path, monkeypatch):
         """Test load_config uses env vars when no config file."""
@@ -762,13 +762,13 @@ class TestLoadConfigEntryPoint:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("GITHUB_TOKEN", "ghp_from_env")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "envuser")
+        monkeypatch.setenv("USERNAME_SELF", "envuser")
 
         config = load_config()
 
         assert config.github_token == "ghp_from_env"
         assert config.project_urls == ["https://github.com/orgs/test/projects/1"]
-        assert config.allowed_username == "envuser"
+        assert config.username_self == "envuser"
 
     def test_load_config_file_path_is_cwd_relative(self, tmp_path, monkeypatch):
         """Test config file path is .kiln/config relative to cwd."""
@@ -779,7 +779,7 @@ class TestLoadConfigEntryPoint:
         config_file.write_text(
             "GITHUB_TOKEN=ghp_cwd_test\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser"
+            "USERNAME_SELF=testuser"
         )
 
         # Change to temp directory
@@ -808,7 +808,7 @@ class TestGHESConfiguration:
             "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
             "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise_test\n"
             "PROJECT_URLS=https://github.mycompany.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser",
+            "USERNAME_SELF=testuser",
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -824,7 +824,7 @@ class TestGHESConfiguration:
         monkeypatch.setenv("GITHUB_ENTERPRISE_HOST", "github.enterprise.io")
         monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_ent_token")
         monkeypatch.setenv("PROJECT_URLS", "https://github.enterprise.io/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         config = load_config_from_env()
 
@@ -840,7 +840,7 @@ class TestGHESConfiguration:
             "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
             "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser",
+            "USERNAME_SELF=testuser",
         )
 
         with pytest.raises(
@@ -855,7 +855,7 @@ class TestGHESConfiguration:
         monkeypatch.setenv("GITHUB_ENTERPRISE_HOST", "github.mycompany.com")
         monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_enterprise")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         with pytest.raises(
             ValueError,
@@ -869,7 +869,7 @@ class TestGHESConfiguration:
             tmp_path,
             "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser",
+            "USERNAME_SELF=testuser",
         )
 
         with pytest.raises(
@@ -884,7 +884,7 @@ class TestGHESConfiguration:
         monkeypatch.delenv("GITHUB_ENTERPRISE_HOST", raising=False)
         monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_enterprise")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         with pytest.raises(
             ValueError,
@@ -899,7 +899,7 @@ class TestGHESConfiguration:
             "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
             "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser",
+            "USERNAME_SELF=testuser",
         )
 
         with pytest.raises(
@@ -914,7 +914,7 @@ class TestGHESConfiguration:
         monkeypatch.setenv("GITHUB_ENTERPRISE_HOST", "github.mycompany.com")
         monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_enterprise")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         with pytest.raises(
             ValueError,
@@ -928,7 +928,7 @@ class TestGHESConfiguration:
             tmp_path,
             "GITHUB_TOKEN=ghp_regular\n"
             "PROJECT_URLS=https://github.mycompany.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser",
+            "USERNAME_SELF=testuser",
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -945,7 +945,7 @@ class TestGHESConfiguration:
             "GITHUB_ENTERPRISE_HOST=github.enterprise.io\n"
             "GITHUB_ENTERPRISE_TOKEN=ghp_ent_only\n"
             "PROJECT_URLS=https://github.enterprise.io/orgs/myorg/projects/5\n"
-            "ALLOWED_USERNAME=enterpriseuser",
+            "USERNAME_SELF=enterpriseuser",
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -955,7 +955,7 @@ class TestGHESConfiguration:
         assert config.github_enterprise_host == "github.enterprise.io"
         assert config.github_enterprise_token == "ghp_ent_only"
         assert config.project_urls == ["https://github.enterprise.io/orgs/myorg/projects/5"]
-        assert config.allowed_username == "enterpriseuser"
+        assert config.username_self == "enterpriseuser"
 
     def test_ghes_only_config_works_env(self, monkeypatch):
         """Test GHES-only configuration without github.com token in env."""
@@ -963,7 +963,7 @@ class TestGHESConfiguration:
         monkeypatch.setenv("GITHUB_ENTERPRISE_HOST", "git.corp.com")
         monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_corp_token")
         monkeypatch.setenv("PROJECT_URLS", "https://git.corp.com/orgs/team/projects/3")
-        monkeypatch.setenv("ALLOWED_USERNAME", "corpuser")
+        monkeypatch.setenv("USERNAME_SELF", "corpuser")
 
         config = load_config_from_env()
 
@@ -980,7 +980,7 @@ class TestGHESConfiguration:
             "GITHUB_ENTERPRISE_HOST=\n"
             "GITHUB_ENTERPRISE_TOKEN=\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser",
+            "USERNAME_SELF=testuser",
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -996,7 +996,7 @@ class TestGHESConfiguration:
         monkeypatch.setenv("GITHUB_ENTERPRISE_HOST", "")
         monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "")
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         config = load_config_from_env()
 
@@ -1013,7 +1013,7 @@ class TestGHESConfiguration:
             "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
             "GITHUB_ENTERPRISE_TOKEN=ghp_ent_env_test\n"
             "PROJECT_URLS=https://github.mycompany.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser",
+            "USERNAME_SELF=testuser",
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -1030,7 +1030,7 @@ class TestGHESConfiguration:
             "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
             "PROJECT_URLS=https://github.mycompany.com/orgs/team1/projects/1,"
             "https://github.mycompany.com/orgs/team2/projects/2\n"
-            "ALLOWED_USERNAME=testuser",
+            "USERNAME_SELF=testuser",
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -1049,7 +1049,7 @@ class TestGHESConfiguration:
             "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
             "PROJECT_URLS=https://github.mycompany.com/orgs/team1/projects/1,"
             "https://github.com/orgs/team2/projects/2\n"
-            "ALLOWED_USERNAME=testuser",
+            "USERNAME_SELF=testuser",
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -1066,7 +1066,7 @@ class TestGHESConfiguration:
             "GITHUB_TOKEN=ghp_regular\n"
             "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser",
+            "USERNAME_SELF=testuser",
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -1085,7 +1085,7 @@ class TestGHESConfiguration:
             "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
             "GITHUB_ENTERPRISE_VERSION=3.18\n"
             "PROJECT_URLS=https://github.mycompany.com/orgs/test/projects/1\n"
-            "ALLOWED_USERNAME=testuser",
+            "USERNAME_SELF=testuser",
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -1102,10 +1102,172 @@ class TestGHESConfiguration:
         monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_enterprise")
         monkeypatch.setenv("GITHUB_ENTERPRISE_VERSION", "3.18")
         monkeypatch.setenv("PROJECT_URLS", "https://github.mycompany.com/orgs/test/projects/1")
-        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
 
         config = load_config_from_env()
 
         assert config.github_enterprise_version == "3.18"
         assert config.github_enterprise_host == "github.mycompany.com"
         assert config.github_enterprise_token == "ghp_enterprise"
+
+
+@pytest.mark.unit
+class TestTeamUsernamesConfiguration:
+    """Tests for team usernames configuration (USERNAMES_TEAM)."""
+
+    def test_team_usernames_empty_by_default_env(self, monkeypatch):
+        """Test team_usernames defaults to empty list when USERNAMES_TEAM not set."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.delenv("USERNAMES_TEAM", raising=False)
+
+        config = load_config_from_env()
+
+        assert config.team_usernames == []
+
+    def test_team_usernames_single_member_env(self, monkeypatch):
+        """Test USERNAMES_TEAM parsing with single team member."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("USERNAMES_TEAM", "teammate1")
+
+        config = load_config_from_env()
+
+        assert config.team_usernames == ["teammate1"]
+
+    def test_team_usernames_multiple_members_env(self, monkeypatch):
+        """Test USERNAMES_TEAM parsing with multiple team members."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("USERNAMES_TEAM", "alice,bob,charlie")
+
+        config = load_config_from_env()
+
+        assert config.team_usernames == ["alice", "bob", "charlie"]
+
+    def test_team_usernames_strips_whitespace_env(self, monkeypatch):
+        """Test USERNAMES_TEAM parsing strips whitespace around usernames."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("USERNAMES_TEAM", "  alice  ,  bob  ,  charlie  ")
+
+        config = load_config_from_env()
+
+        assert config.team_usernames == ["alice", "bob", "charlie"]
+
+    def test_team_usernames_ignores_empty_entries_env(self, monkeypatch):
+        """Test USERNAMES_TEAM parsing ignores empty entries (e.g., from trailing comma)."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("USERNAMES_TEAM", "alice,,bob,")
+
+        config = load_config_from_env()
+
+        assert config.team_usernames == ["alice", "bob"]
+
+    def _write_config(self, tmp_path, content):
+        """Helper to write a config file."""
+        config_file = tmp_path / "config"
+        config_file.write_text(content)
+        return config_file
+
+    def test_team_usernames_from_file(self, tmp_path, monkeypatch):
+        """Test USERNAMES_TEAM parsing from config file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser\n"
+            "USERNAMES_TEAM=teammate1,teammate2,teammate3",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.team_usernames == ["teammate1", "teammate2", "teammate3"]
+
+    def test_team_usernames_empty_by_default_file(self, tmp_path, monkeypatch):
+        """Test team_usernames defaults to empty list when USERNAMES_TEAM not in file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.team_usernames == []
+
+    def test_team_usernames_strips_whitespace_file(self, tmp_path, monkeypatch):
+        """Test USERNAMES_TEAM parsing strips whitespace from file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser\n"
+            "USERNAMES_TEAM=  alice  ,  bob  ",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.team_usernames == ["alice", "bob"]
+
+
+@pytest.mark.unit
+class TestBackwardIncompatibility:
+    """Tests ensuring ALLOWED_USERNAME is no longer supported (clean break)."""
+
+    def test_allowed_username_not_accepted_env(self, monkeypatch):
+        """Test that ALLOWED_USERNAME alone does not configure the username.
+
+        The config module no longer supports ALLOWED_USERNAME. Only USERNAME_SELF
+        is accepted. Using ALLOWED_USERNAME should result in a missing USERNAME_SELF error.
+        """
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("ALLOWED_USERNAME", "olduser")  # Old config option
+        monkeypatch.delenv("USERNAME_SELF", raising=False)
+
+        with pytest.raises(ValueError, match="USERNAME_SELF environment variable is required"):
+            load_config_from_env()
+
+    def test_allowed_username_not_accepted_file(self, tmp_path, monkeypatch):
+        """Test that ALLOWED_USERNAME in config file does not configure the username.
+
+        The config module no longer supports ALLOWED_USERNAME. Only USERNAME_SELF
+        is accepted. Using ALLOWED_USERNAME should result in a missing USERNAME_SELF error.
+        """
+        config_file = tmp_path / "config"
+        config_file.write_text(
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "ALLOWED_USERNAME=olduser"  # Old config option
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        with pytest.raises(ValueError, match="USERNAME_SELF is required"):
+            load_config_from_file(config_file)
+
+    def test_allowed_username_ignored_when_username_self_present(self, monkeypatch):
+        """Test that ALLOWED_USERNAME is ignored when USERNAME_SELF is also set.
+
+        Even if ALLOWED_USERNAME is present, it has no effect - only USERNAME_SELF
+        is used for the username configuration.
+        """
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "newuser")
+        monkeypatch.setenv("ALLOWED_USERNAME", "olduser")  # Should be ignored
+
+        config = load_config_from_env()
+
+        assert config.username_self == "newuser"
+        assert not hasattr(config, "allowed_username")
