@@ -162,7 +162,7 @@ class TestDaemonResponseComments:
         config.workspace_dir = temp_workspace_dir
         config.project_urls = []
         config.stage_models = {}
-        config.allowed_username = "real-user"
+        config.username_self = "real-user"
         config.github_enterprise_version = None
 
         with patch("src.ticket_clients.github.GitHubTicketClient"):
@@ -750,7 +750,7 @@ class TestDaemonProcessCommentsForItem:
         config.workspace_dir = temp_workspace_dir
         config.project_urls = []
         config.stage_models = {}
-        config.allowed_username = "real-user"
+        config.username_self = "real-user"
         config.github_enterprise_version = None
 
         with patch("src.ticket_clients.github.GitHubTicketClient"):
@@ -965,7 +965,7 @@ class TestDaemonProcessCommentsForItem:
         )
 
         # Mix of already-processed (has thumbs up) and new comments
-        # All comments must be from allowed_username ("real-user") to pass the filter
+        # All comments must be from username_self ("real-user") to pass the filter
         comments = [
             Comment(
                 id="IC_1",
@@ -1084,7 +1084,7 @@ class TestDaemonProcessCommentsForItem:
         )
 
         # Mix of comments being processed (has eyes) and new comments
-        # All comments must be from allowed_username ("real-user") to pass the filter
+        # All comments must be from username_self ("real-user") to pass the filter
         comments = [
             Comment(
                 id="IC_1",
@@ -1191,7 +1191,7 @@ class TestDaemonProcessCommentsForItem:
         )
 
         # Multiple comments to merge
-        # All comments must be from allowed_username ("real-user") to pass the filter
+        # All comments must be from username_self ("real-user") to pass the filter
         comments = [
             Comment(
                 id="IC_1",

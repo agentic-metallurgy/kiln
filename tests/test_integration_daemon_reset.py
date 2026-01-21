@@ -570,3 +570,179 @@ class TestDaemonClosePrsAndDeleteBranches:
         daemon.ticket_client.delete_branch.assert_called_once_with(
             "github.com/owner/repo", "42-open-branch"
         )
+
+    def test_pr_closure_validation_success(self, daemon):
+        """Test that PR closure is verified with fresh state check."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature-branch",
+            )
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = True
+        daemon.ticket_client.get_pr_state.return_value = "CLOSED"
+        daemon.ticket_client.delete_branch.return_value = True
+
+        daemon._close_prs_and_delete_branches(item)
+
+        # Verify get_pr_state was called to validate closure
+        daemon.ticket_client.get_pr_state.assert_called_once_with(
+            "github.com/owner/repo", 100
+        )
+
+    def test_pr_closure_validation_state_mismatch(self, daemon, caplog):
+        """Test warning logged when PR state doesn't match expected after close."""
+        import logging
+
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature-branch",
+            )
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = True
+        # State check returns OPEN despite close returning True
+        daemon.ticket_client.get_pr_state.return_value = "OPEN"
+        daemon.ticket_client.delete_branch.return_value = True
+
+        with caplog.at_level(logging.WARNING):
+            daemon._close_prs_and_delete_branches(item)
+
+        # Should continue to delete branch even if state mismatch
+        daemon.ticket_client.delete_branch.assert_called_once()
+        # Warning should be logged about state mismatch
+        assert any("state is OPEN" in record.message for record in caplog.records)
+
+    def test_pr_closure_validation_returns_none(self, daemon, caplog):
+        """Test warning logged when get_pr_state returns None."""
+        import logging
+
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature-branch",
+            )
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = True
+        daemon.ticket_client.get_pr_state.return_value = None  # Failed to get state
+        daemon.ticket_client.delete_branch.return_value = True
+
+        with caplog.at_level(logging.WARNING):
+            daemon._close_prs_and_delete_branches(item)
+
+        # Should continue to delete branch
+        daemon.ticket_client.delete_branch.assert_called_once()
+        # Warning should be logged about not being able to verify state
+        assert any("Could not verify" in record.message for record in caplog.records)
+
+    def test_close_pr_failure_logged(self, daemon, caplog):
+        """Test that warning is logged when close_pr returns False."""
+        import logging
+
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature-branch",
+            )
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = False  # Close failed
+        daemon.ticket_client.delete_branch.return_value = True
+
+        with caplog.at_level(logging.WARNING):
+            daemon._close_prs_and_delete_branches(item)
+
+        # Should still try to delete branch
+        daemon.ticket_client.delete_branch.assert_called_once()
+        # Warning should be logged about close failure
+        assert any("Failed to close PR" in record.message for record in caplog.records)
+
+    def test_close_pr_failure_skips_validation(self, daemon):
+        """Test that get_pr_state is not called when close_pr fails."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #42",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature-branch",
+            )
+        ]
+
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = False  # Close failed
+        daemon.ticket_client.delete_branch.return_value = True
+
+        daemon._close_prs_and_delete_branches(item)
+
+        # get_pr_state should NOT be called if close_pr failed
+        daemon.ticket_client.get_pr_state.assert_not_called()

@@ -32,7 +32,7 @@ from src.logger import (
     set_issue_context,
     setup_logging,
 )
-from src.security import check_actor_allowed
+from src.security import ActorCategory, check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients import get_github_client
 from src.workflows import (
@@ -235,6 +235,11 @@ class Daemon:
         self._in_progress: dict[str, float] = {}
         self._in_progress_lock = threading.Lock()
 
+        # Track issues with running workflow labels for cleanup on shutdown
+        # Maps "repo#issue_number" -> running_label (e.g., "implementing")
+        self._running_labels: dict[str, str] = {}
+        self._running_labels_lock = threading.Lock()
+
         # Thread pool for parallel workflow execution
         self.executor = ThreadPoolExecutor(
             max_workers=config.max_concurrent_workflows, thread_name_prefix="workflow-"
@@ -273,7 +278,8 @@ class Daemon:
             self.database,
             self.runner,
             config.workspace_dir,
-            allowed_username=config.allowed_username,
+            username_self=config.username_self,
+            team_usernames=config.team_usernames,
         )
 
         # Setup signal handlers for graceful shutdown
@@ -641,6 +647,9 @@ class Daemon:
         logger.debug("Stopping daemon")
         self._running = False
 
+        # Clean up running workflow labels before executor shutdown
+        self._cleanup_running_labels()
+
         # Shutdown executor and wait for running workflows
         try:
             logger.debug("Shutting down thread pool executor...")
@@ -657,6 +666,42 @@ class Daemon:
             logger.error(f"Error closing database: {e}")
 
         logger.debug("Daemon stopped")
+
+    def _cleanup_running_labels(self) -> None:
+        """Remove running workflow labels from issues on graceful shutdown.
+
+        This prevents "implementing" (and other running labels) from being left
+        on issues when the daemon shuts down, which would otherwise block
+        future workflow runs until manually removed.
+
+        Errors during cleanup are logged but don't fail the shutdown.
+        """
+        with self._running_labels_lock:
+            if not self._running_labels:
+                logger.debug("No running workflow labels to clean up")
+                return
+
+            labels_to_clean = dict(self._running_labels)
+
+        logger.info(f"Cleaning up {len(labels_to_clean)} running workflow label(s)...")
+
+        for key, label in labels_to_clean.items():
+            try:
+                # Parse key back to repo and issue_number
+                # Format: "hostname/owner/repo#issue_number"
+                repo, issue_str = key.rsplit("#", 1)
+                issue_number = int(issue_str)
+
+                self.ticket_client.remove_label(repo, issue_number, label)
+                logger.info(f"Removed '{label}' label from {key} during shutdown")
+
+                # Remove from tracking
+                with self._running_labels_lock:
+                    self._running_labels.pop(key, None)
+
+            except Exception as e:
+                # Don't fail shutdown if label removal fails
+                logger.warning(f"Failed to remove '{label}' label from {key} during shutdown: {e}")
 
     def _poll(self) -> None:
         """Poll GitHub for project items and handle status changes.
@@ -738,7 +783,10 @@ class Daemon:
                 actor = self.ticket_client.get_label_actor(
                     item.repo, item.ticket_id, Labels.YOLO
                 )
-                if not check_actor_allowed(actor, self.config.allowed_username, key, "YOLO"):
+                actor_category = check_actor_allowed(
+                    actor, self.config.username_self, key, "YOLO", self.config.team_usernames
+                )
+                if actor_category != ActorCategory.SELF:
                     continue
                 logger.info(
                     f"YOLO: Starting auto-progression for {key} from Backlog "
@@ -850,7 +898,10 @@ class Daemon:
         # Check actor authorization if supported by the client
         if self.ticket_client.supports_status_actor_check:
             actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
-            if not check_actor_allowed(actor, self.config.allowed_username, key):
+            actor_category = check_actor_allowed(
+                actor, self.config.username_self, key, "", self.config.team_usernames
+            )
+            if actor_category != ActorCategory.SELF:
                 return False
             logger.info(f"Workflow trigger: {key} in '{item.status}' by allowed user '{actor}'")
         else:
@@ -934,7 +985,10 @@ class Daemon:
             return
 
         actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.YOLO)
-        if not check_actor_allowed(actor, self.config.allowed_username, key, "YOLO"):
+        actor_category = check_actor_allowed(
+            actor, self.config.username_self, key, "YOLO", self.config.team_usernames
+        )
+        if actor_category != ActorCategory.SELF:
             return
 
         logger.info(
@@ -1223,10 +1277,13 @@ class Daemon:
         key = f"{item.repo}#{item.ticket_id}"
 
         actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.RESET)
-        if not check_actor_allowed(actor, self.config.allowed_username, key, "RESET"):
+        actor_category = check_actor_allowed(
+            actor, self.config.username_self, key, "RESET", self.config.team_usernames
+        )
+        if actor_category != ActorCategory.SELF:
             # Only remove reset label when actor is known but not allowed (to prevent repeated warnings)
             # When actor is unknown, keep the label for security logging visibility
-            if actor is not None:
+            if actor_category == ActorCategory.BLOCKED or actor_category == ActorCategory.TEAM:
                 self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.RESET)
             return
 
@@ -1376,7 +1433,19 @@ class Daemon:
 
             # Close the PR first
             if self.ticket_client.close_pr(item.repo, pr.number):
-                logger.info(f"RESET: Closed PR #{pr.number} for {key}")
+                # Verify PR is actually closed (fresh state check)
+                pr_state = self.ticket_client.get_pr_state(item.repo, pr.number)
+                if pr_state == "CLOSED":
+                    logger.info(f"RESET: Verified PR #{pr.number} is closed for {key}")
+                elif pr_state is None:
+                    logger.warning(f"RESET: Could not verify PR #{pr.number} state for {key}")
+                else:
+                    logger.warning(
+                        f"RESET: PR #{pr.number} close returned success but state is {pr_state} "
+                        f"for {key}"
+                    )
+            else:
+                logger.warning(f"RESET: Failed to close PR #{pr.number} for {key}")
 
             # Delete the branch if we have the name
             if pr.branch_name and self.ticket_client.delete_branch(item.repo, pr.branch_name):
@@ -1481,6 +1550,9 @@ class Daemon:
             # Add running label before starting workflow (soft lock)
             if running_label:
                 self.ticket_client.add_label(item.repo, item.ticket_id, running_label)
+                # Track for cleanup on shutdown
+                with self._running_labels_lock:
+                    self._running_labels[key] = running_label
                 logger.debug(f"Added '{running_label}' label to {key}")
 
             # Run the workflow
@@ -1490,6 +1562,9 @@ class Daemon:
             # Remove running label
             if running_label:
                 self.ticket_client.remove_label(item.repo, item.ticket_id, running_label)
+                # Remove from cleanup tracking
+                with self._running_labels_lock:
+                    self._running_labels.pop(key, None)
                 logger.debug(f"Removed '{running_label}' label from {key}")
 
             # Validate research block exists after Research workflow
@@ -1566,6 +1641,9 @@ class Daemon:
             if running_label:
                 try:
                     self.ticket_client.remove_label(item.repo, item.ticket_id, running_label)
+                    # Remove from cleanup tracking
+                    with self._running_labels_lock:
+                        self._running_labels.pop(key, None)
                     logger.debug(f"Removed '{running_label}' label from {key} after failure")
                 except Exception as label_err:
                     logger.warning(f"Could not remove running label after failure: {label_err}")
@@ -1693,7 +1771,7 @@ class Daemon:
             workspace_path=abs_workspace_path,  # Prepare runs in workspace root
             project_url=item.board_url,
             issue_body=issue_body,
-            allowed_username=self.config.allowed_username,
+            username_self=self.config.username_self,
             parent_issue_number=parent_issue_number,
             parent_branch=parent_branch,
         )
@@ -1753,7 +1831,7 @@ class Daemon:
             issue_title=item.title,
             workspace_path=workspace_path,
             project_url=item.board_url,
-            allowed_username=self.config.allowed_username,
+            username_self=self.config.username_self,
         )
 
         # Run workflow
