@@ -14,6 +14,7 @@ from src.logger import (
     DateRotatingFileHandler,
     MaskingFilter,
     PlainContextAwareFormatter,
+    RunLogger,
     _extract_org_from_url,
     clear_issue_context,
     get_issue_context,
@@ -741,3 +742,227 @@ class TestMaskingIntegration:
         # Verify github.com is NOT masked
         assert ghes_host in log_content, "github.com should NOT be masked"
         assert "<GHES>" not in log_content, "Log should NOT contain <GHES> placeholder"
+
+
+@pytest.mark.unit
+class TestRunLogger:
+    """Tests for RunLogger context manager."""
+
+    def teardown_method(self):
+        """Clean up root logger and issue context after each test."""
+        root = logging.getLogger()
+        # Remove any handlers we may have added
+        for handler in root.handlers[:]:
+            if isinstance(handler, logging.FileHandler):
+                handler.close()
+        root.handlers.clear()
+        root.setLevel(logging.WARNING)
+        clear_issue_context()
+
+    def test_generate_log_path_with_full_repo_format(self, tmp_path):
+        """Test log path generation with hostname/owner/repo format."""
+        run_logger = RunLogger(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            workflow="Research",
+            base_log_dir=str(tmp_path),
+        )
+        path = run_logger._generate_log_path()
+
+        assert str(tmp_path) in path
+        assert "github.com" in path
+        assert "owner/repo" in path
+        assert "42" in path
+        assert "research-" in path
+        assert path.endswith(".log")
+
+    def test_generate_log_path_with_owner_repo_format(self, tmp_path):
+        """Test log path generation with legacy owner/repo format (fallback)."""
+        run_logger = RunLogger(
+            repo="owner/repo",
+            issue_number=123,
+            workflow="Plan",
+            base_log_dir=str(tmp_path),
+        )
+        path = run_logger._generate_log_path()
+
+        # Should default to github.com
+        assert "github.com" in path
+        assert "owner/repo" in path
+        assert "123" in path
+        assert "plan-" in path
+
+    def test_creates_log_file_on_enter(self, tmp_path, monkeypatch):
+        """Test that entering the context creates a log file."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+        setup_logging(log_file=None)
+
+        with RunLogger(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            workflow="Research",
+            base_log_dir=str(tmp_path),
+        ) as run_logger:
+            assert run_logger.log_path is not None
+            assert Path(run_logger.log_path).exists()
+
+    def test_creates_parent_directories(self, tmp_path, monkeypatch):
+        """Test that parent directories are created if they don't exist."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+        setup_logging(log_file=None)
+
+        base_dir = tmp_path / "deep" / "nested" / "logs"
+
+        with RunLogger(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            workflow="Implement",
+            base_log_dir=str(base_dir),
+        ) as run_logger:
+            assert Path(run_logger.log_path).parent.exists()
+
+    def test_captures_log_messages(self, tmp_path, monkeypatch):
+        """Test that log messages are captured to the per-run file."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+        setup_logging(log_file=None)
+
+        with RunLogger(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            workflow="Research",
+            base_log_dir=str(tmp_path),
+        ) as run_logger:
+            logger = get_logger("test.run_logger")
+            logger.info("Test message from run logger")
+
+        log_content = Path(run_logger.log_path).read_text()
+        assert "Test message from run logger" in log_content
+
+    def test_removes_handler_on_exit(self, tmp_path, monkeypatch):
+        """Test that the file handler is removed when exiting context."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+        setup_logging(log_file=None)
+
+        initial_handler_count = len(logging.getLogger().handlers)
+
+        with RunLogger(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            workflow="Research",
+            base_log_dir=str(tmp_path),
+        ):
+            # Handler should be added during context
+            assert len(logging.getLogger().handlers) == initial_handler_count + 1
+
+        # Handler should be removed after context
+        assert len(logging.getLogger().handlers) == initial_handler_count
+
+    def test_set_session_id(self, tmp_path):
+        """Test that session_id can be set."""
+        run_logger = RunLogger(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            workflow="Research",
+            base_log_dir=str(tmp_path),
+        )
+        run_logger.set_session_id("session-123-abc")
+        assert run_logger.session_id == "session-123-abc"
+
+    def test_write_session_file(self, tmp_path, monkeypatch):
+        """Test that .session file is written with session_id."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+        setup_logging(log_file=None)
+
+        with RunLogger(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            workflow="Research",
+            base_log_dir=str(tmp_path),
+        ) as run_logger:
+            run_logger.set_session_id("session-xyz-789")
+            run_logger.write_session_file()
+
+        session_path = run_logger.log_path.replace(".log", ".session")
+        assert Path(session_path).exists()
+        assert Path(session_path).read_text() == "session-xyz-789"
+
+    def test_write_session_file_does_nothing_without_session_id(self, tmp_path, monkeypatch):
+        """Test that write_session_file does nothing if session_id not set."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+        setup_logging(log_file=None)
+
+        with RunLogger(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            workflow="Research",
+            base_log_dir=str(tmp_path),
+        ) as run_logger:
+            # Don't set session_id
+            run_logger.write_session_file()
+
+        session_path = run_logger.log_path.replace(".log", ".session")
+        assert not Path(session_path).exists()
+
+    def test_applies_masking_filter(self, tmp_path, monkeypatch):
+        """Test that masking filter is applied to per-run logs."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+        setup_logging(log_file=None)
+
+        masking_filter = MaskingFilter("github.corp.com", "secret-org")
+
+        with RunLogger(
+            repo="github.corp.com/secret-org/repo",
+            issue_number=42,
+            workflow="Research",
+            base_log_dir=str(tmp_path),
+            masking_filter=masking_filter,
+        ) as run_logger:
+            logger = get_logger("test.masking")
+            logger.info("Processing github.corp.com/secret-org/repo#42")
+
+        log_content = Path(run_logger.log_path).read_text()
+        assert "github.corp.com" not in log_content
+        assert "<GHES>" in log_content
+        assert "secret-org" not in log_content
+        assert "<ORG>" in log_content
+
+    def test_follows_global_log_level(self, tmp_path, monkeypatch):
+        """Test that RunLogger follows the global log level."""
+        monkeypatch.setenv("LOG_LEVEL", "WARNING")
+        setup_logging(log_file=None)
+
+        with RunLogger(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            workflow="Research",
+            base_log_dir=str(tmp_path),
+        ) as run_logger:
+            logger = get_logger("test.level")
+            logger.info("This INFO message should not appear")
+            logger.warning("This WARNING message should appear")
+
+        log_content = Path(run_logger.log_path).read_text()
+        assert "INFO message should not appear" not in log_content
+        assert "WARNING message should appear" in log_content
+
+    def test_timestamp_in_filename(self, tmp_path, monkeypatch):
+        """Test that log filename contains timestamp in expected format."""
+        monkeypatch.setenv("LOG_LEVEL", "INFO")
+        setup_logging(log_file=None)
+
+        with RunLogger(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            workflow="Research",
+            base_log_dir=str(tmp_path),
+        ) as run_logger:
+            pass
+
+        # Filename should be like research-YYYYMMDD-HHMM.log
+        filename = Path(run_logger.log_path).name
+        assert filename.startswith("research-")
+        # Check timestamp format (8 digits date + dash + 4 digits time)
+        parts = filename.replace("research-", "").replace(".log", "").split("-")
+        assert len(parts) == 2
+        assert len(parts[0]) == 8  # YYYYMMDD
+        assert len(parts[1]) == 4  # HHMM

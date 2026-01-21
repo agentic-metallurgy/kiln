@@ -435,3 +435,132 @@ def log_message(logger: logging.Logger, label: str, content: str) -> None:
         logger.debug(f"{label}:\n{content}")
     else:
         logger.debug(f"{label}: {content[:100]}...")
+
+
+class RunLogger:
+    """Context manager for per-run logging.
+
+    Adds a temporary file handler to capture logs for a specific workflow run.
+    Creates a dedicated log file at .kiln/logs/{hostname}/{owner}/{repo}/{issue_number}/{workflow}-{timestamp}.log
+
+    Example:
+        with RunLogger("github.com/owner/repo", 42, "Research") as run_logger:
+            # ... workflow execution ...
+            run_logger.set_session_id("session123")
+            run_logger.write_session_file()
+    """
+
+    def __init__(
+        self,
+        repo: str,
+        issue_number: int,
+        workflow: str,
+        base_log_dir: str = ".kiln/logs",
+        masking_filter: MaskingFilter | None = None,
+    ) -> None:
+        """Initialize RunLogger.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format (e.g., 'github.com/owner/repo')
+            issue_number: GitHub issue number
+            workflow: Workflow name ('Research', 'Plan', 'Implement')
+            base_log_dir: Base directory for log files
+            masking_filter: Optional MaskingFilter to apply to logs
+        """
+        self.repo = repo
+        self.issue_number = issue_number
+        self.workflow = workflow
+        self.base_log_dir = base_log_dir
+        self.masking_filter = masking_filter
+
+        self.started_at = datetime.now()
+        self.log_path: str | None = None
+        self.session_id: str | None = None
+        self._handler: logging.FileHandler | None = None
+
+    def _generate_log_path(self) -> str:
+        """Generate hierarchical log path.
+
+        Returns:
+            Path in format: {base_log_dir}/{hostname}/{owner}/{repo}/{issue_number}/{workflow}-{timestamp}.log
+        """
+        # repo is "hostname/owner/repo" -> split into parts
+        parts = self.repo.split("/")
+        if len(parts) >= 3:
+            # hostname/owner/repo format
+            hostname = parts[0]
+            owner_repo = "/".join(parts[1:])
+        else:
+            # Fallback for old owner/repo format
+            hostname = "github.com"
+            owner_repo = self.repo
+
+        timestamp = self.started_at.strftime("%Y%m%d-%H%M")
+        filename = f"{self.workflow.lower()}-{timestamp}.log"
+
+        return os.path.join(
+            self.base_log_dir,
+            hostname,
+            owner_repo,
+            str(self.issue_number),
+            filename,
+        )
+
+    def __enter__(self) -> "RunLogger":
+        """Set up per-run file handler.
+
+        Creates the log directory if needed and adds a file handler to the root logger.
+
+        Returns:
+            Self for context manager usage.
+        """
+        self.log_path = self._generate_log_path()
+        log_dir = os.path.dirname(self.log_path)
+        os.makedirs(log_dir, exist_ok=True)
+
+        # Create file handler with same format as global log
+        log_format = (
+            "[%(asctime)s] %(levelname)s %(issue_context)s %(threadName)s %(name)s: %(message)s"
+        )
+        formatter = PlainContextAwareFormatter(log_format, masking_filter=self.masking_filter)
+
+        self._handler = logging.FileHandler(self.log_path)
+        self._handler.setLevel(logging.getLogger().level)  # Follow global level
+        self._handler.setFormatter(formatter)
+        if self.masking_filter:
+            self._handler.addFilter(self.masking_filter)
+
+        logging.getLogger().addHandler(self._handler)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Remove the per-run file handler and clean up.
+
+        Args:
+            exc_type: Exception type if an exception was raised
+            exc_val: Exception value if an exception was raised
+            exc_tb: Exception traceback if an exception was raised
+        """
+        if self._handler:
+            self._handler.close()
+            logging.getLogger().removeHandler(self._handler)
+            self._handler = None
+
+    def set_session_id(self, session_id: str) -> None:
+        """Record the Claude session ID for this run.
+
+        Args:
+            session_id: The Claude session ID to associate with this run.
+        """
+        self.session_id = session_id
+
+    def write_session_file(self) -> None:
+        """Write .session file with session_id for Claude conversation lookup.
+
+        Creates a companion file alongside the log file containing the session ID.
+        This allows users to easily find the corresponding Claude conversation.
+        """
+        if self.log_path and self.session_id:
+            session_path = self.log_path.replace(".log", ".session")
+            with open(session_path, "w") as f:
+                f.write(self.session_id)
