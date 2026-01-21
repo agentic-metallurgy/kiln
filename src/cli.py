@@ -16,6 +16,15 @@ __version__ = "1.1.0"
 KILN_DIR = ".kiln"
 CONFIG_FILE = "config"
 
+# ANSI escape codes for startup message colors
+RESET = "\033[0m"
+STARTUP_COLORS = {
+    "glow": "\033[38;2;250;204;21m",   # #FACC15 - Phase 1 (brightest)
+    "ember": "\033[38;2;245;158;11m",  # #F59E0B - Phase 2
+    "fire": "\033[38;2;249;115;22m",   # #F97316 - Phase 3
+    "heat": "\033[38;2;239;98;52m",    # #EF6234 - Phase 4+ (hottest)
+}
+
 
 def get_sample_config() -> str:
     """Load sample config from bundled .env.example."""
@@ -58,6 +67,11 @@ BANNER_PLAIN = f"""
   v{__version__}
 
 """
+
+
+def startup_print(msg: str, color: str) -> None:
+    """Print a startup message with the specified fire gradient color."""
+    print(f"{STARTUP_COLORS.get(color, '')}{msg}{RESET}")
 
 
 def get_kiln_dir() -> Path:
