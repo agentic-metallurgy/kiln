@@ -253,7 +253,13 @@ def run_daemon(daemon_mode: bool = False) -> None:
     from src.config import load_config
     from src.daemon import Daemon
     from src.logger import get_logger, setup_logging
-    from src.setup import SetupError, check_required_tools, validate_project_columns
+    from src.setup import (
+    SetupError,
+    check_required_tools,
+    configure_git_credential_helper,
+    get_hostnames_from_project_urls,
+    validate_project_columns,
+)
     from src.telemetry import get_git_version, init_telemetry
     from src.ticket_clients.github import GitHubTicketClient
 
@@ -284,6 +290,14 @@ def run_daemon(daemon_mode: bool = False) -> None:
         config = load_config()
         print("  ✓ PROJECT_URLS configured")
         print("  ✓ ALLOWED_USERNAMES configured")
+        print()
+
+        # Phase 3b: Configure git credentials
+        print("Configuring git credentials...")
+        hostnames = get_hostnames_from_project_urls(config.project_urls)
+        for hostname in sorted(hostnames):
+            configure_git_credential_helper(hostname)
+            print(f"  ✓ Configured credential helper for {hostname}")
         print()
 
         # Phase 4: Validate project columns
