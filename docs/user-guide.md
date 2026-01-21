@@ -1,8 +1,18 @@
 # Kiln User Guide
 
-🎯 ← these indicate deliberate design decisions that may be unexpected.
+🎯 ← these indicate deliberate design decisions that may be unexpected at first, usually made due to limitations.
 
 Kiln is a GitHub automation daemon that uses Claude to research, plan, and implement issues from your project board.
+
+---
+
+- [Setup](#-setup)
+- [Your First Issue](#-your-first-issue)
+- [Workflows](#️-workflows)
+- [Special Labels](#️-special-labels)
+- [Quick Reference](#-quick-reference)
+
+---
 
 ## 🔧 Setup
 
