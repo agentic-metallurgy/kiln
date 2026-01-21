@@ -2,20 +2,23 @@
 
 Kiln is a GitHub automation daemon that uses Claude to research, plan, and implement issues from your project board.
 
-## Setup
+## 🔧 Setup
 
 ### 1. Install
 
 ```bash
-git clone <kiln-repo>
-cd kiln
-./run.sh
+brew tap agentic-metallurgy/tap
+brew install kiln
 ```
 
-On first run, kiln creates:
-- `.kiln/config` — configuration file
-- `.kiln/logs/` — log directory
-- `workspaces/` — git worktrees for implementation
+Then create a dedicated folder for kiln to work in:
+
+```bash
+mkdir kiln
+cd kiln
+```
+
+Kiln creates config folders and git worktrees in the current directory. Don't run it in your home folder.
 
 ### 2. Create a GitHub Token
 
@@ -27,7 +30,7 @@ Create a **Classic** Personal Access Token (not fine-grained) with exactly these
 | `project` | Move issues between board columns |
 | `read:org` | Read org membership for project access |
 
-Kiln validates scopes strictly—missing or extra scopes will error.
+⚠️ Kiln validates scopes strictly—missing or extra scopes will error. This is intentional for least privilege.
 
 ### 3. Prepare Your Project Board
 
@@ -35,11 +38,12 @@ Kiln validates scopes strictly—missing or extra scopes will error.
 2. Delete all default columns except **Backlog**
 3. Run kiln—it creates the remaining columns automatically:
    - Research → Plan → Implement → Validate → Done
-4. Optional: Add "Labels" to your board's visible fields
+4. Show labels on your board: click the **View** settings (next to the query bar), enable "Labels", then **Save** to persist
+5. Go to project **Settings** and set a default repository—makes creating issues from the board UI easier
 
 ### 4. Configure
 
-Edit `.kiln/config`:
+On first run, kiln creates `.kiln/config`. Edit it:
 
 ```bash
 # Required
@@ -53,37 +57,40 @@ MAX_CONCURRENT_WORKFLOWS=3
 LOG_LEVEL=INFO
 ```
 
-For GitHub Enterprise Server, replace `GITHUB_TOKEN` with:
+**GitHub Enterprise Server** — replace `GITHUB_TOKEN` with:
+
 ```bash
 GITHUB_ENTERPRISE_HOST=github.mycompany.com
 GITHUB_ENTERPRISE_TOKEN=ghp_your_token_here
 GITHUB_ENTERPRISE_VERSION=3.19
 ```
 
+⚠️ github.com and GHES are mutually exclusive. A single kiln instance cannot connect to both—run separate instances if needed.
+
 ### 5. Start
 
+From your kiln folder:
+
 ```bash
-./run.sh
+kiln
 ```
 
 Kiln polls your project board and processes issues based on their status.
 
 ---
 
-## Your First Issue
+## 🎯 Your First Issue
 
 ### Where to Create
 
-1. Create an issue in any repo within your org
-2. Add it to your project board → **Backlog** column
-3. Write a clear title and description of what you want done
+Create issues directly in the project board UI (preferred). Click **+ Add item** in any column.
+
+You can start from any column: Backlog, Research, Plan, or even Implement. Kiln picks up wherever you drop it.
 
 ### Status Progression
 
-Move your issue through columns to trigger each workflow:
-
-| Move to | What Happens |
-|---------|--------------|
+| Status | What Happens |
+|--------|--------------|
 | **Research** | Claude explores the codebase and writes findings to the issue |
 | **Plan** | Claude designs an implementation plan and writes it to the issue |
 | **Implement** | Claude executes the plan, commits code, and opens a PR |
@@ -102,7 +109,7 @@ Each workflow adds labels to show progress:
 
 ---
 
-## Workflows
+## ⚙️ Workflows
 
 ### Research
 
@@ -152,11 +159,11 @@ During Research or Plan, you can leave comments to request changes:
 2. Claude edits the relevant section in-place
 3. A diff of changes is posted as a reply
 
-Comment iteration is disabled during Implement to keep PRs clean.
+Comment iteration is disabled during Implement to keep PRs clean and prevent vibe coding at the end. Checkout the PR branch and do the last mile fix locally.
 
 ---
 
-## Special Labels
+## 🏷️ Special Labels
 
 ### `yolo` — Auto-progression
 
@@ -187,11 +194,11 @@ Useful when you want to completely redo an issue.
 
 ---
 
-## Quick Reference
+## 📋 Quick Reference
 
 | Action | How |
 |--------|-----|
-| Start a workflow | Move issue to Research |
+| Start a workflow | Move issue to Research (or any status) |
 | Progress manually | Move issue to next column |
 | Progress automatically | Add `yolo` label |
 | Request changes | Comment on issue (Research/Plan only) |
