@@ -231,6 +231,11 @@ class Daemon:
         self._in_progress: dict[str, float] = {}
         self._in_progress_lock = threading.Lock()
 
+        # Track issues with running workflow labels for cleanup on shutdown
+        # Maps "repo#issue_number" -> running_label (e.g., "implementing")
+        self._running_labels: dict[str, str] = {}
+        self._running_labels_lock = threading.Lock()
+
         # Thread pool for parallel workflow execution
         self.executor = ThreadPoolExecutor(
             max_workers=config.max_concurrent_workflows, thread_name_prefix="workflow-"
@@ -527,6 +532,9 @@ class Daemon:
         logger.debug("Stopping daemon")
         self._running = False
 
+        # Clean up running workflow labels before executor shutdown
+        self._cleanup_running_labels()
+
         # Shutdown executor and wait for running workflows
         try:
             logger.debug("Shutting down thread pool executor...")
@@ -543,6 +551,42 @@ class Daemon:
             logger.error(f"Error closing database: {e}")
 
         logger.debug("Daemon stopped")
+
+    def _cleanup_running_labels(self) -> None:
+        """Remove running workflow labels from issues on graceful shutdown.
+
+        This prevents "implementing" (and other running labels) from being left
+        on issues when the daemon shuts down, which would otherwise block
+        future workflow runs until manually removed.
+
+        Errors during cleanup are logged but don't fail the shutdown.
+        """
+        with self._running_labels_lock:
+            if not self._running_labels:
+                logger.debug("No running workflow labels to clean up")
+                return
+
+            labels_to_clean = dict(self._running_labels)
+
+        logger.info(f"Cleaning up {len(labels_to_clean)} running workflow label(s)...")
+
+        for key, label in labels_to_clean.items():
+            try:
+                # Parse key back to repo and issue_number
+                # Format: "hostname/owner/repo#issue_number"
+                repo, issue_str = key.rsplit("#", 1)
+                issue_number = int(issue_str)
+
+                self.ticket_client.remove_label(repo, issue_number, label)
+                logger.info(f"Removed '{label}' label from {key} during shutdown")
+
+                # Remove from tracking
+                with self._running_labels_lock:
+                    self._running_labels.pop(key, None)
+
+            except Exception as e:
+                # Don't fail shutdown if label removal fails
+                logger.warning(f"Failed to remove '{label}' label from {key} during shutdown: {e}")
 
     def _poll(self) -> None:
         """Poll GitHub for project items and handle status changes.
@@ -1379,6 +1423,9 @@ class Daemon:
             # Add running label before starting workflow (soft lock)
             if running_label:
                 self.ticket_client.add_label(item.repo, item.ticket_id, running_label)
+                # Track for cleanup on shutdown
+                with self._running_labels_lock:
+                    self._running_labels[key] = running_label
                 logger.debug(f"Added '{running_label}' label to {key}")
 
             # Run the workflow
@@ -1388,6 +1435,9 @@ class Daemon:
             # Remove running label
             if running_label:
                 self.ticket_client.remove_label(item.repo, item.ticket_id, running_label)
+                # Remove from cleanup tracking
+                with self._running_labels_lock:
+                    self._running_labels.pop(key, None)
                 logger.debug(f"Removed '{running_label}' label from {key}")
 
             # Validate research block exists after Research workflow
@@ -1464,6 +1514,9 @@ class Daemon:
             if running_label:
                 try:
                     self.ticket_client.remove_label(item.repo, item.ticket_id, running_label)
+                    # Remove from cleanup tracking
+                    with self._running_labels_lock:
+                        self._running_labels.pop(key, None)
                     logger.debug(f"Removed '{running_label}' label from {key} after failure")
                 except Exception as label_err:
                     logger.warning(f"Could not remove running label after failure: {label_err}")
