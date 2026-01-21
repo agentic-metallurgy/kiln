@@ -1,5 +1,7 @@
 # Kiln User Guide
 
+🎯 ← these indicate deliberate design decisions that may be unexpected. Long explanations at the very end.
+
 Kiln is a GitHub automation daemon that uses Claude to research, plan, and implement issues from your project board.
 
 ## 🔧 Setup
