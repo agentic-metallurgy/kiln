@@ -1318,7 +1318,19 @@ class Daemon:
 
             # Close the PR first
             if self.ticket_client.close_pr(item.repo, pr.number):
-                logger.info(f"RESET: Closed PR #{pr.number} for {key}")
+                # Verify PR is actually closed (fresh state check)
+                pr_state = self.ticket_client.get_pr_state(item.repo, pr.number)
+                if pr_state == "CLOSED":
+                    logger.info(f"RESET: Verified PR #{pr.number} is closed for {key}")
+                elif pr_state is None:
+                    logger.warning(f"RESET: Could not verify PR #{pr.number} state for {key}")
+                else:
+                    logger.warning(
+                        f"RESET: PR #{pr.number} close returned success but state is {pr_state} "
+                        f"for {key}"
+                    )
+            else:
+                logger.warning(f"RESET: Failed to close PR #{pr.number} for {key}")
 
             # Delete the branch if we have the name
             if pr.branch_name and self.ticket_client.delete_branch(item.repo, pr.branch_name):

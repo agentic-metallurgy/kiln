@@ -1919,6 +1919,109 @@ class TestDeleteBranch:
 
 
 @pytest.mark.unit
+class TestGetPrState:
+    """Tests for GitHubTicketClient.get_pr_state() method."""
+
+    def test_get_pr_state_returns_open(self, github_client):
+        """Test that OPEN state is returned for an open PR."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "state": "OPEN",
+                        "merged": False,
+                    }
+                }
+            }
+        }
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            result = github_client.get_pr_state("github.com/owner/repo", 123)
+
+        assert result == "OPEN"
+
+    def test_get_pr_state_returns_closed(self, github_client):
+        """Test that CLOSED state is returned for a closed PR."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "state": "CLOSED",
+                        "merged": False,
+                    }
+                }
+            }
+        }
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            result = github_client.get_pr_state("github.com/owner/repo", 123)
+
+        assert result == "CLOSED"
+
+    def test_get_pr_state_returns_merged(self, github_client):
+        """Test that MERGED state is returned for a merged PR."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "state": "CLOSED",
+                        "merged": True,
+                    }
+                }
+            }
+        }
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            result = github_client.get_pr_state("github.com/owner/repo", 123)
+
+        assert result == "MERGED"
+
+    def test_get_pr_state_returns_none_when_pr_not_found(self, github_client):
+        """Test that None is returned when PR doesn't exist."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "pullRequest": None
+                }
+            }
+        }
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            result = github_client.get_pr_state("github.com/owner/repo", 999)
+
+        assert result is None
+
+    def test_get_pr_state_returns_none_on_error(self, github_client):
+        """Test that None is returned on API error (fail-safe)."""
+        with patch.object(
+            github_client, "_execute_graphql_query", side_effect=Exception("API error")
+        ):
+            result = github_client.get_pr_state("github.com/owner/repo", 123)
+
+        assert result is None
+
+    def test_get_pr_state_queries_correct_repo(self, github_client):
+        """Test that the correct repo is queried."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "state": "OPEN",
+                        "merged": False,
+                    }
+                }
+            }
+        }
+        with patch.object(
+            github_client, "_execute_graphql_query", return_value=mock_response
+        ) as mock_query:
+            github_client.get_pr_state("github.com/myorg/myrepo", 456)
+
+        # Check the variables passed to the query
+        call_args = mock_query.call_args
+        variables = call_args[0][1]
+        assert variables["owner"] == "myorg"
+        assert variables["repo"] == "myrepo"
+        assert variables["prNumber"] == 456
+
+
+@pytest.mark.unit
 class TestLinkedPullRequest:
     """Tests for LinkedPullRequest dataclass."""
 
@@ -3014,11 +3117,11 @@ class TestSetCommitStatus:
 
 
 @pytest.mark.unit
-class TestGetIssueLabels:
-    """Tests for GitHubTicketClient.get_issue_labels() method."""
+class TestGetTicketLabels:
+    """Tests for GitHubTicketClient.get_ticket_labels() method."""
 
-    def test_get_issue_labels_returns_label_set(self, github_client):
-        """Test that get_issue_labels returns a set of label names."""
+    def test_get_ticket_labels_returns_label_set(self, github_client):
+        """Test that get_ticket_labels returns a set of label names."""
         mock_response = {
             "data": {
                 "repository": {
@@ -3036,12 +3139,12 @@ class TestGetIssueLabels:
         }
 
         with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
-            labels = github_client.get_issue_labels("github.com/owner/repo", 42)
+            labels = github_client.get_ticket_labels("github.com/owner/repo", 42)
 
         assert isinstance(labels, set)
         assert labels == {"yolo", "research_ready", "bug"}
 
-    def test_get_issue_labels_empty_labels(self, github_client):
+    def test_get_ticket_labels_empty_labels(self, github_client):
         """Test handling issue with no labels."""
         mock_response = {
             "data": {
@@ -3056,11 +3159,11 @@ class TestGetIssueLabels:
         }
 
         with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
-            labels = github_client.get_issue_labels("github.com/owner/repo", 42)
+            labels = github_client.get_ticket_labels("github.com/owner/repo", 42)
 
         assert labels == set()
 
-    def test_get_issue_labels_nonexistent_issue(self, github_client):
+    def test_get_ticket_labels_nonexistent_issue(self, github_client):
         """Test handling nonexistent issue returns empty set."""
         mock_response = {
             "data": {
@@ -3071,20 +3174,20 @@ class TestGetIssueLabels:
         }
 
         with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
-            labels = github_client.get_issue_labels("github.com/owner/repo", 99999)
+            labels = github_client.get_ticket_labels("github.com/owner/repo", 99999)
 
         assert labels == set()
 
-    def test_get_issue_labels_handles_api_error(self, github_client):
+    def test_get_ticket_labels_handles_api_error(self, github_client):
         """Test that API errors return empty set."""
         with patch.object(
             github_client, "_execute_graphql_query", side_effect=Exception("API error")
         ):
-            labels = github_client.get_issue_labels("github.com/owner/repo", 42)
+            labels = github_client.get_ticket_labels("github.com/owner/repo", 42)
 
         assert labels == set()
 
-    def test_get_issue_labels_handles_null_nodes(self, github_client):
+    def test_get_ticket_labels_handles_null_nodes(self, github_client):
         """Test handling of null entries in label nodes."""
         mock_response = {
             "data": {
@@ -3103,11 +3206,11 @@ class TestGetIssueLabels:
         }
 
         with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
-            labels = github_client.get_issue_labels("github.com/owner/repo", 42)
+            labels = github_client.get_ticket_labels("github.com/owner/repo", 42)
 
         assert labels == {"valid-label", "another-label"}
 
-    def test_get_issue_labels_makes_correct_api_call(self, github_client):
+    def test_get_ticket_labels_makes_correct_api_call(self, github_client):
         """Test that the correct GraphQL query is made."""
         mock_response = {
             "data": {
@@ -3122,7 +3225,7 @@ class TestGetIssueLabels:
         with patch.object(
             github_client, "_execute_graphql_query", return_value=mock_response
         ) as mock_query:
-            github_client.get_issue_labels("github.com/test-owner/test-repo", 123)
+            github_client.get_ticket_labels("github.com/test-owner/test-repo", 123)
 
             call_args = mock_query.call_args
             query = call_args[0][0]
@@ -3130,7 +3233,7 @@ class TestGetIssueLabels:
 
             assert "repository(owner: $owner, name: $repo)" in query
             assert "issue(number: $issueNumber)" in query
-            assert "labels(first: 50)" in query
+            assert "labels(first: 100)" in query
             assert variables["owner"] == "test-owner"
             assert variables["repo"] == "test-repo"
             assert variables["issueNumber"] == 123
