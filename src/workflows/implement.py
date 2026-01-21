@@ -248,12 +248,12 @@ class ImplementWorkflow:
             pr_number = pr_info.get("number")
             if total_tasks > 0 and completed_tasks == total_tasks and pr_number:
                 self._mark_pr_ready(ctx.repo, pr_number)
-            elif iteration >= max_iterations:
+            elif iteration >= max_iterations_estimate:
                 # Hit max iterations without completing all tasks
-                logger.warning(f"Hit max iterations ({max_iterations}) for {key}")
+                logger.warning(f"Hit max iterations ({max_iterations_estimate}) for {key}")
                 raise ImplementationIncompleteError(
                     reason="max_iterations",
-                    message=f"Hit max iterations ({max_iterations}) for {key} "
+                    message=f"Hit max iterations ({max_iterations_estimate}) for {key} "
                     f"({completed_tasks}/{total_tasks} tasks complete)",
                 )
 
