@@ -1,5 +1,6 @@
 """Pytest configuration and shared fixtures."""
 
+import tempfile
 from unittest.mock import patch
 
 import pytest
@@ -30,3 +31,24 @@ def mock_validate_connection(request):
             return_value=True,
         ):
             yield
+
+
+@pytest.fixture
+def temp_workspace_dir():
+    """Fixture providing a temporary workspace directory."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield tmpdir
+
+
+@pytest.fixture
+def mock_gh_subprocess():
+    """Fixture for mocking subprocess calls to gh CLI."""
+    with patch("subprocess.run") as mock_run:
+        yield mock_run
+
+
+@pytest.fixture
+def mock_claude_subprocess():
+    """Fixture for mocking subprocess.Popen for Claude CLI."""
+    with patch("subprocess.Popen") as mock_popen:
+        yield mock_popen

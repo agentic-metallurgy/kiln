@@ -74,6 +74,7 @@ class LinkedPullRequest:
         body: PR description/body text
         state: PR state (OPEN, CLOSED, MERGED)
         merged: Whether the PR has been merged
+        branch_name: Name of the PR's head branch (for cleanup operations)
     """
 
     number: int
@@ -81,6 +82,7 @@ class LinkedPullRequest:
     body: str
     state: str
     merged: bool
+    branch_name: str | None = None
 
 
 class TicketClient(Protocol):
@@ -204,5 +206,29 @@ class TicketClient(Protocol):
 
         Returns:
             True if the PR was edited, False if no linking keyword was found
+        """
+        ...
+
+    def close_pr(self, repo: str, pr_number: int) -> bool:
+        """Close a pull request without merging.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: PR number to close
+
+        Returns:
+            True if PR was closed successfully, False otherwise
+        """
+        ...
+
+    def delete_branch(self, repo: str, branch_name: str) -> bool:
+        """Delete a remote branch.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            branch_name: Name of the branch to delete
+
+        Returns:
+            True if branch was deleted successfully, False otherwise
         """
         ...

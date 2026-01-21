@@ -1,5 +1,5 @@
 ---
-name: pr-review
+name: kiln-pr-review
 description: Reviews a PR against its spec, comments findings, and approves when ready.
 tools: Read, Grep, Glob, Bash
 model: sonnet

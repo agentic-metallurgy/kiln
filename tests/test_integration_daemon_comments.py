@@ -1,519 +1,21 @@
-"""Integration tests for agentic-metallurgy components.
+"""Integration tests for Daemon comment processing.
 
-These tests verify that real components work together correctly,
-while mocking external dependencies (GitHub API, Claude CLI, etc.)
-to avoid network calls.
+Tests for CommentProcessor methods including:
+- _is_kiln_response() helper
+- _generate_diff() helper
+- Response comment posting
+- _is_kiln_post() helper
+- _initialize_comment_timestamp() method
+- process() method
 """
 
-import json
-import tempfile
 from datetime import UTC
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from src.claude_runner import ClaudeResult, ClaudeRunnerError, ClaudeTimeoutError, run_claude
-from src.daemon import Daemon, WorkflowRunner
+from src.daemon import Daemon
 from src.interfaces import Comment, TicketItem
-from src.labels import REQUIRED_LABELS, Labels
-from src.ticket_clients.github import GitHubTicketClient
-from src.workspace import WorkspaceError, WorkspaceManager
-
-
-@pytest.fixture
-def temp_workspace_dir():
-    """Fixture providing a temporary workspace directory."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield tmpdir
-
-
-@pytest.fixture
-def mock_gh_subprocess():
-    """Fixture for mocking subprocess calls to gh CLI."""
-    with patch("subprocess.run") as mock_run:
-        yield mock_run
-
-
-@pytest.fixture
-def mock_claude_subprocess():
-    """Fixture for mocking subprocess.Popen for Claude CLI."""
-    with patch("subprocess.Popen") as mock_popen:
-        yield mock_popen
-
-
-# ============================================================================
-# GitHubTicketClient Integration Tests
-# ============================================================================
-
-
-@pytest.mark.integration
-class TestGitHubTicketClientIntegration:
-    """Integration tests for GitHubTicketClient."""
-
-    def test_parse_board_url_valid_formats(self):
-        """Test _parse_board_url with various valid URL formats."""
-        client = GitHubTicketClient({"github.com": "fake_token"})
-
-        # Standard org format
-        hostname, entity_type, login, num = client._parse_board_url(
-            "https://github.com/orgs/chronoboost/projects/6/views/2"
-        )
-        assert hostname == "github.com"
-        assert entity_type == "organization"
-        assert login == "chronoboost"
-        assert num == 6
-
-        # Without views part
-        hostname, entity_type, login, num = client._parse_board_url(
-            "https://github.com/orgs/myorg/projects/42"
-        )
-        assert hostname == "github.com"
-        assert entity_type == "organization"
-        assert login == "myorg"
-        assert num == 42
-
-        # With trailing slash
-        hostname, entity_type, login, num = client._parse_board_url(
-            "https://github.com/orgs/test-org/projects/123/views/1/"
-        )
-        assert hostname == "github.com"
-        assert entity_type == "organization"
-        assert login == "test-org"
-        assert num == 123
-
-        # User project
-        hostname, entity_type, login, num = client._parse_board_url(
-            "https://github.com/users/myuser/projects/5"
-        )
-        assert hostname == "github.com"
-        assert entity_type == "user"
-        assert login == "myuser"
-        assert num == 5
-
-    def test_parse_board_url_invalid_formats(self):
-        """Test _parse_board_url raises ValueError for invalid URLs."""
-        client = GitHubTicketClient({"github.com": "fake_token"})
-
-        # Invalid URLs
-        with pytest.raises(ValueError, match="Invalid project URL format"):
-            client._parse_board_url("https://github.com/owner/repo")
-
-        with pytest.raises(ValueError, match="Invalid project URL format"):
-            client._parse_board_url("https://github.com/projects/123")
-
-        with pytest.raises(ValueError, match="Invalid project URL format"):
-            client._parse_board_url("not a url")
-
-    def test_parse_board_item_node_valid_issue(self):
-        """Test _parse_board_item_node with valid issue node data."""
-        client = GitHubTicketClient({"github.com": "fake_token"})
-
-        node = {
-            "id": "PVTI_item123",
-            "content": {
-                "number": 42,
-                "title": "Test Issue",
-                "repository": {"nameWithOwner": "owner/repo"},
-            },
-            "fieldValues": {"nodes": [{"field": {"name": "Status"}, "name": "Research"}]},
-        }
-
-        board_url = "https://github.com/orgs/test/projects/1"
-        item = client._parse_board_item_node(node, board_url, "github.com")
-
-        assert item is not None
-        assert item.item_id == "PVTI_item123"
-        assert item.board_url == board_url
-        assert item.ticket_id == 42
-        assert item.title == "Test Issue"
-        assert item.repo == "github.com/owner/repo"
-        assert item.status == "Research"
-
-    def test_parse_board_item_node_non_issue(self):
-        """Test _parse_board_item_node returns None for non-issue nodes."""
-        client = GitHubTicketClient({"github.com": "fake_token"})
-
-        # Node without issue content
-        node = {"id": "PVTI_item456", "content": None, "fieldValues": {"nodes": []}}
-
-        board_url = "https://github.com/orgs/test/projects/1"
-        item = client._parse_board_item_node(node, board_url, "github.com")
-        assert item is None
-
-    def test_parse_board_item_node_missing_status(self):
-        """Test _parse_board_item_node handles missing status field."""
-        client = GitHubTicketClient({"github.com": "fake_token"})
-
-        node = {
-            "id": "PVTI_item789",
-            "content": {
-                "number": 99,
-                "title": "No Status Issue",
-                "repository": {"nameWithOwner": "owner/repo"},
-            },
-            "fieldValues": {"nodes": []},
-        }
-
-        board_url = "https://github.com/orgs/test/projects/1"
-        item = client._parse_board_item_node(node, board_url, "github.com")
-
-        assert item is not None
-        assert item.status == "Unknown"
-
-    def test_parse_board_item_node_repo_format_always_includes_hostname(self):
-        """Test that repo format is always hostname/owner/repo."""
-        client = GitHubTicketClient({"github.com": "fake_token"})
-
-        node = {
-            "id": "PVTI_item123",
-            "content": {
-                "number": 42,
-                "title": "Test Issue",
-                "repository": {"nameWithOwner": "myorg/myrepo"},
-            },
-            "fieldValues": {"nodes": []},
-        }
-
-        # Test github.com
-        board_url = "https://github.com/orgs/test/projects/1"
-        item = client._parse_board_item_node(node, board_url, "github.com")
-        assert item.repo == "github.com/myorg/myrepo"
-        # Verify format: should have exactly 2 slashes (hostname/owner/repo)
-        assert item.repo.count("/") == 2
-        # Verify hostname is first segment
-        assert item.repo.split("/")[0] == "github.com"
-
-    def test_execute_graphql_query_mocked(self, mock_gh_subprocess):
-        """Test _execute_graphql_query with mocked subprocess."""
-        client = GitHubTicketClient({"github.com": "test_token"})
-
-        # Mock response
-        mock_response = {"data": {"organization": {"projectV2": {"title": "Test Project"}}}}
-        mock_gh_subprocess.return_value.stdout = json.dumps(mock_response)
-        mock_gh_subprocess.return_value.returncode = 0
-
-        query = "query { organization { projectV2 { title } } }"
-        variables = {"org": "testorg", "projectNumber": 1}
-
-        result = client._execute_graphql_query(query, variables)
-
-        assert result == mock_response
-        # Verify gh was called with correct arguments
-        mock_gh_subprocess.assert_called_once()
-        args = mock_gh_subprocess.call_args[0][0]
-        assert args[0] == "gh"
-        assert "api" in args
-        assert "graphql" in args
-
-    def test_execute_graphql_query_handles_errors(self, mock_gh_subprocess):
-        """Test _execute_graphql_query handles GraphQL errors in response."""
-        client = GitHubTicketClient({"github.com": "test_token"})
-
-        # Mock response with errors
-        mock_response = {
-            "errors": [{"message": "Invalid query"}, {"message": "Authentication failed"}]
-        }
-        mock_gh_subprocess.return_value.stdout = json.dumps(mock_response)
-        mock_gh_subprocess.return_value.returncode = 0
-
-        query = "query { invalid }"
-        variables = {}
-
-        with pytest.raises(ValueError, match="GraphQL errors"):
-            client._execute_graphql_query(query, variables)
-
-    def test_execute_graphql_query_handles_invalid_json(self, mock_gh_subprocess):
-        """Test _execute_graphql_query handles invalid JSON response."""
-        client = GitHubTicketClient({"github.com": "test_token"})
-
-        # Mock invalid JSON response
-        mock_gh_subprocess.return_value.stdout = "not valid json"
-        mock_gh_subprocess.return_value.returncode = 0
-
-        query = "query { test }"
-        variables = {}
-
-        with pytest.raises(ValueError, match="Invalid JSON response"):
-            client._execute_graphql_query(query, variables)
-
-
-# ============================================================================
-# WorkspaceManager Integration Tests
-# ============================================================================
-
-
-@pytest.mark.integration
-class TestWorkspaceManagerIntegration:
-    """Integration tests for WorkspaceManager."""
-
-    def test_create_workspace_creates_directories(self, temp_workspace_dir):
-        """Test create_workspace creates proper directory structure."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        # Verify base directories exist
-        assert Path(temp_workspace_dir).exists()
-        # No .repos directory should exist - main repo goes directly in workspace_dir
-        assert not (Path(temp_workspace_dir) / ".repos").exists()
-
-    def test_cleanup_workspace_requires_repo(self, temp_workspace_dir):
-        """Test cleanup_workspace raises error when main repo doesn't exist."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        # Create a fake workspace directory manually (not a real worktree)
-        worktree_name = "test-repo-issue-42"
-        worktree_path = Path(temp_workspace_dir) / worktree_name
-        worktree_path.mkdir()
-
-        # Create a fake file inside
-        (worktree_path / "test_file.txt").write_text("test content")
-
-        # Verify it exists
-        assert worktree_path.exists()
-        assert (worktree_path / "test_file.txt").exists()
-
-        # Clean up should raise error when main repo (test-repo) doesn't exist
-        with pytest.raises(WorkspaceError, match="Cannot cleanup worktree: repository not found"):
-            manager.cleanup_workspace("test-repo", 42)
-
-    def test_cleanup_workspace_handles_nonexistent_workspace(self, temp_workspace_dir):
-        """Test cleanup_workspace handles non-existent workspace gracefully."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        # Should not raise an error
-        manager.cleanup_workspace("nonexistent-repo", 999)
-
-    def test_extract_repo_name_https_url(self):
-        """Test _extract_repo_name parses HTTPS URLs."""
-        manager = WorkspaceManager("/tmp/test")
-
-        assert manager._extract_repo_name("https://github.com/org/repo") == "repo"
-        assert manager._extract_repo_name("https://github.com/org/repo.git") == "repo"
-        assert manager._extract_repo_name("https://github.com/org/my-repo.git") == "my-repo"
-
-    def test_extract_repo_name_ssh_url(self):
-        """Test _extract_repo_name parses SSH URLs."""
-        manager = WorkspaceManager("/tmp/test")
-
-        assert manager._extract_repo_name("git@github.com:org/repo.git") == "repo"
-        assert manager._extract_repo_name("git@github.com:org/my-repo.git") == "my-repo"
-
-    def test_extract_repo_name_trailing_slash(self):
-        """Test _extract_repo_name handles trailing slashes."""
-        manager = WorkspaceManager("/tmp/test")
-
-        assert manager._extract_repo_name("https://github.com/org/repo/") == "repo"
-        assert manager._extract_repo_name("https://github.com/org/repo.git/") == "repo"
-
-    def test_get_workspace_path(self, temp_workspace_dir):
-        """Test get_workspace_path returns expected path."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        path = manager.get_workspace_path("test-repo", 123)
-
-        # Use resolve() to handle symlinks (macOS /var -> /private/var)
-        expected = str(Path(temp_workspace_dir).resolve() / "test-repo-issue-123")
-        assert path == expected
-
-    def test_run_git_command_success(self, temp_workspace_dir):
-        """Test _run_git_command with successful git command."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        # Run git --version (should always work)
-        result = manager._run_git_command(["--version"])
-
-        assert result.returncode == 0
-        assert "git version" in result.stdout.lower()
-
-    def test_run_git_command_failure(self, temp_workspace_dir):
-        """Test _run_git_command raises WorkspaceError on failure."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        # Run invalid git command
-        with pytest.raises(WorkspaceError, match="Git command failed"):
-            manager._run_git_command(["invalid-command"])
-
-    def test_rebase_from_main_returns_false_for_nonexistent_worktree(self, temp_workspace_dir):
-        """Test rebase_from_main returns False for non-existent worktree."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        result = manager.rebase_from_main("/nonexistent/path")
-        assert result is False
-
-    def test_rebase_from_main_success(self, temp_workspace_dir):
-        """Test rebase_from_main calls correct git commands on success."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        # Create a fake worktree directory
-        worktree_path = Path(temp_workspace_dir) / "test-worktree"
-        worktree_path.mkdir()
-
-        git_commands = []
-
-        def mock_run_git_command(args, cwd=None, check=True):
-            git_commands.append(args)
-            return MagicMock(returncode=0, stdout="", stderr="")
-
-        with patch.object(manager, "_run_git_command", mock_run_git_command):
-            result = manager.rebase_from_main(str(worktree_path))
-
-        assert result is True
-        assert len(git_commands) == 2
-        assert git_commands[0] == ["fetch", "origin", "main"]
-        assert git_commands[1] == ["rebase", "origin/main"]
-
-    def test_rebase_from_main_handles_conflict(self, temp_workspace_dir):
-        """Test rebase_from_main returns False and aborts on conflict."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        # Create a fake worktree directory
-        worktree_path = Path(temp_workspace_dir) / "test-worktree"
-        worktree_path.mkdir()
-
-        git_commands = []
-
-        def mock_run_git_command(args, cwd=None, check=True):
-            git_commands.append(args)
-            if args == ["rebase", "origin/main"]:
-                raise WorkspaceError("CONFLICT: could not apply")
-            return MagicMock(returncode=0, stdout="", stderr="")
-
-        with patch.object(manager, "_run_git_command", mock_run_git_command):
-            result = manager.rebase_from_main(str(worktree_path))
-
-        assert result is False
-        # Should have called fetch, rebase, and abort
-        assert ["fetch", "origin", "main"] in git_commands
-        assert ["rebase", "origin/main"] in git_commands
-        assert ["rebase", "--abort"] in git_commands
-
-
-class TestWorkspaceSecurityValidation:
-    """Security tests for path traversal prevention."""
-
-    def test_rejects_path_traversal_in_repo_name(self, temp_workspace_dir):
-        """Test that path traversal in repo_name is rejected."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        with pytest.raises(WorkspaceError, match="forbidden path component"):
-            manager.get_workspace_path("../evil", 42)
-
-        with pytest.raises(WorkspaceError, match="forbidden path component"):
-            manager.get_workspace_path("foo/../bar", 42)
-
-        with pytest.raises(WorkspaceError, match="forbidden path component"):
-            manager.get_workspace_path("foo/bar", 42)
-
-    def test_rejects_backslash_in_repo_name(self, temp_workspace_dir):
-        """Test that backslash in repo_name is rejected."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        with pytest.raises(WorkspaceError, match="forbidden path component"):
-            manager.get_workspace_path("foo\\bar", 42)
-
-    def test_validate_path_containment_rejects_escape(self, temp_workspace_dir):
-        """Test that path containment validation works correctly."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        # Create path that would escape
-        evil_path = Path(temp_workspace_dir) / ".." / "evil"
-
-        with pytest.raises(WorkspaceError, match="outside allowed directory"):
-            manager._validate_path_containment(evil_path, Path(temp_workspace_dir), "test")
-
-    def test_git_command_rejects_cwd_outside_workspace(self, temp_workspace_dir):
-        """Test that git commands with cwd outside workspace are rejected."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        with pytest.raises(WorkspaceError, match="outside workspace boundaries"):
-            manager._run_git_command(["status"], cwd=Path("/tmp"))
-
-    def test_cleanup_validates_paths(self, temp_workspace_dir):
-        """Test that cleanup validates paths before operations."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        with pytest.raises(WorkspaceError, match="forbidden path component"):
-            manager.cleanup_workspace("../evil", 42)
-
-    def test_validate_name_component_accepts_valid_names(self, temp_workspace_dir):
-        """Test that valid repo names are accepted."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        # These should not raise
-        manager._validate_name_component("valid-repo", "test")
-        manager._validate_name_component("repo_name", "test")
-        manager._validate_name_component("repo123", "test")
-
-    def test_validate_path_containment_accepts_valid_paths(self, temp_workspace_dir):
-        """Test that valid paths are accepted."""
-        manager = WorkspaceManager(temp_workspace_dir)
-
-        valid_path = Path(temp_workspace_dir) / "valid-dir"
-        result = manager._validate_path_containment(valid_path, Path(temp_workspace_dir), "test")
-        assert result == valid_path.resolve()
-
-
-
-# ============================================================================
-# GitHubTicketClient Label Method Tests
-# ============================================================================
-
-
-@pytest.mark.integration
-class TestGitHubTicketClientLabelMethods:
-    """Integration tests for GitHubTicketClient label methods."""
-
-    def test_add_label_mocked(self, mock_gh_subprocess):
-        """Test add_label uses REST API via gh issue edit."""
-        client = GitHubTicketClient({"github.com": "test_token"})
-
-        mock_result = MagicMock()
-        mock_result.stdout = ""
-        mock_result.returncode = 0
-        mock_gh_subprocess.return_value = mock_result
-
-        client.add_label("owner/repo", 42, "researching")
-
-        # Should make single call to gh issue edit
-        assert mock_gh_subprocess.call_count == 1
-        call_args = mock_gh_subprocess.call_args[0][0]
-        assert "issue" in call_args
-        assert "edit" in call_args
-        assert "--add-label" in call_args
-        assert "researching" in call_args
-
-    def test_remove_label_mocked(self, mock_gh_subprocess):
-        """Test remove_label uses REST API via gh issue edit."""
-        client = GitHubTicketClient({"github.com": "test_token"})
-
-        mock_result = MagicMock()
-        mock_result.stdout = ""
-        mock_result.returncode = 0
-        mock_gh_subprocess.return_value = mock_result
-
-        client.remove_label("owner/repo", 42, "researching")
-
-        # Should make single call to gh issue edit
-        assert mock_gh_subprocess.call_count == 1
-        call_args = mock_gh_subprocess.call_args[0][0]
-        assert "issue" in call_args
-        assert "edit" in call_args
-        assert "--remove-label" in call_args
-        assert "researching" in call_args
-
-    def test_remove_label_handles_missing_label(self, mock_gh_subprocess):
-        """Test remove_label handles label not on issue gracefully."""
-        import subprocess
-
-        client = GitHubTicketClient({"github.com": "test_token"})
-
-        # Simulate gh failing when label doesn't exist
-        mock_gh_subprocess.side_effect = subprocess.CalledProcessError(1, "gh")
-
-        # Should not raise - just logs debug message
-        client.remove_label("owner/repo", 42, "nonexistent-label")
-
-        assert mock_gh_subprocess.call_count == 1
 
 
 # ============================================================================
@@ -536,6 +38,7 @@ class TestDaemonIsKilnResponse:
         config.workspace_dir = temp_workspace_dir
         config.project_urls = []
         config.stage_models = {}
+        config.github_enterprise_version = None
 
         with patch("src.ticket_clients.github.GitHubTicketClient"):
             daemon = Daemon(config)
@@ -585,6 +88,7 @@ class TestDaemonGenerateDiff:
         config.workspace_dir = temp_workspace_dir
         config.project_urls = []
         config.stage_models = {}
+        config.github_enterprise_version = None
 
         with patch("src.ticket_clients.github.GitHubTicketClient"):
             daemon = Daemon(config)
@@ -659,6 +163,7 @@ class TestDaemonResponseComments:
         config.project_urls = []
         config.stage_models = {}
         config.allowed_username = "real-user"
+        config.github_enterprise_version = None
 
         with patch("src.ticket_clients.github.GitHubTicketClient"):
             daemon = Daemon(config)
@@ -987,6 +492,7 @@ class TestDaemonIsKilnPost:
         config.workspace_dir = temp_workspace_dir
         config.project_urls = []
         config.stage_models = {}
+        config.github_enterprise_version = None
 
         with patch("src.ticket_clients.github.GitHubTicketClient"):
             daemon = Daemon(config)
@@ -1062,6 +568,7 @@ class TestDaemonInitializeCommentTimestamp:
         config.workspace_dir = temp_workspace_dir
         config.project_urls = []
         config.stage_models = {}
+        config.github_enterprise_version = None
 
         with patch("src.ticket_clients.github.GitHubTicketClient"):
             daemon = Daemon(config)
@@ -1244,6 +751,7 @@ class TestDaemonProcessCommentsForItem:
         config.project_urls = []
         config.stage_models = {}
         config.allowed_username = "real-user"
+        config.github_enterprise_version = None
 
         with patch("src.ticket_clients.github.GitHubTicketClient"):
             daemon = Daemon(config)
@@ -2101,5 +1609,3 @@ class TestYoloLabelRemovalDuringWorkflow:
             daemon.ticket_client.add_label.assert_any_call(
                 "github.com/owner/repo", 42, Labels.YOLO_FAILED
             )
-
-

@@ -1,8 +1,19 @@
 """Unit tests for the CLI module."""
 
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 import pytest
 
-from src.cli import BANNER_PLAIN, __version__, get_banner, get_readme, get_sample_config
+from src.cli import (
+    BANNER_PLAIN,
+    __version__,
+    extract_claude_resources,
+    get_banner,
+    get_readme,
+    get_sample_config,
+    install_claude_resources,
+)
 
 
 @pytest.mark.unit
@@ -101,3 +112,265 @@ class TestInitKiln:
         assert (tmp_path / "workspaces" / ".gitkeep").exists()
         assert (tmp_path / ".kiln").exists()
         assert (tmp_path / ".kiln" / "README.md").exists()
+
+
+@pytest.mark.unit
+class TestExtractClaudeResources:
+    """Tests for extract_claude_resources function."""
+
+    def test_extract_creates_directories(self, tmp_path, monkeypatch):
+        """Test that extract_claude_resources creates commands, agents, skills directories."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create .kiln directory first
+        kiln_dir = tmp_path / ".kiln"
+        kiln_dir.mkdir()
+
+        # Create mock source .claude directory with resources
+        source_claude = tmp_path / "mock_source" / ".claude"
+        for subdir in ["commands", "agents", "skills"]:
+            (source_claude / subdir).mkdir(parents=True)
+            (source_claude / subdir / f"test_{subdir}.md").write_text(f"# Test {subdir}")
+
+        # Mock the base_path to use our mock source
+        with patch("src.cli.Path") as mock_path_class:
+            # We need to be careful - only override the parent.parent lookup
+            real_path = Path
+
+            def path_side_effect(arg):
+                if arg == Path(__file__):
+                    mock = MagicMock()
+                    mock.parent.parent = tmp_path / "mock_source"
+                    return mock
+                return real_path(arg)
+
+            # Instead, patch at the module level by setting the base_path calculation
+            with patch.object(Path, "__new__", lambda cls, *args: real_path(*args)):
+                # Simpler approach: monkeypatch the function's internal logic
+                pass
+
+        # Directly test by creating source and using monkeypatch
+        # Set up source .claude relative to where cli.py thinks it is
+        repo_root = Path(__file__).parent.parent
+        source_claude = repo_root / ".claude"
+
+        # Call the function
+        result = extract_claude_resources()
+
+        # Verify extraction happened
+        assert result == kiln_dir
+        for subdir in ["commands", "agents", "skills"]:
+            dest = kiln_dir / subdir
+            # Check that directory was created if source exists
+            if (source_claude / subdir).exists():
+                assert dest.exists(), f".kiln/{subdir} should exist"
+                assert dest.is_dir(), f".kiln/{subdir} should be a directory"
+
+    def test_extract_copies_files(self, tmp_path, monkeypatch):
+        """Test that extract_claude_resources copies files from source."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create .kiln directory
+        kiln_dir = tmp_path / ".kiln"
+        kiln_dir.mkdir()
+
+        # Call extract - uses real .claude source from repo
+        result = extract_claude_resources()
+
+        # The repo has .claude/commands, .claude/agents, .claude/skills
+        # At minimum, commands should have files
+        commands_dir = kiln_dir / "commands"
+        if commands_dir.exists():
+            files = list(commands_dir.glob("*.md"))
+            assert len(files) > 0, "Should have extracted command files"
+
+    def test_extract_overwrites_existing(self, tmp_path, monkeypatch):
+        """Test that extract_claude_resources replaces existing directories."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create .kiln directory
+        kiln_dir = tmp_path / ".kiln"
+        kiln_dir.mkdir()
+
+        # Create existing commands directory with old file
+        old_commands = kiln_dir / "commands"
+        old_commands.mkdir()
+        old_file = old_commands / "old_file.md"
+        old_file.write_text("old content")
+
+        # Call extract
+        extract_claude_resources()
+
+        # Old file should be gone (directory was replaced)
+        assert not old_file.exists(), "Old file should be removed after extraction"
+
+    def test_extract_is_idempotent(self, tmp_path, monkeypatch):
+        """Test that calling extract_claude_resources twice doesn't fail."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create .kiln directory
+        (tmp_path / ".kiln").mkdir()
+
+        # Call twice - should not raise
+        extract_claude_resources()
+        extract_claude_resources()
+
+        # Verify .kiln still has expected structure
+        assert (tmp_path / ".kiln").exists()
+
+    def test_extract_handles_missing_source(self, tmp_path, monkeypatch):
+        """Test that extract_claude_resources handles missing .claude gracefully."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create .kiln directory
+        kiln_dir = tmp_path / ".kiln"
+        kiln_dir.mkdir()
+
+        # Create a fake base path with no .claude directory
+        fake_base = tmp_path / "fake_base"
+        fake_base.mkdir()
+
+        # Patch sys to simulate bundled mode without .claude
+        with patch("src.cli.sys") as mock_sys:
+            mock_sys._MEIPASS = str(fake_base)
+
+            # Should return without error
+            result = extract_claude_resources()
+            assert result == kiln_dir
+
+
+@pytest.mark.unit
+class TestInstallClaudeResources:
+    """Tests for install_claude_resources function."""
+
+    def test_install_copies_files(self, tmp_path, monkeypatch):
+        """Test that install_claude_resources copies files to ~/.claude/."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create .kiln directory with kiln-prefixed resources
+        kiln_dir = tmp_path / ".kiln"
+        (kiln_dir / "commands").mkdir(parents=True)
+        (kiln_dir / "commands" / "kiln-create_plan_github.md").write_text("# Test command")
+        (kiln_dir / "agents").mkdir(parents=True)
+        (kiln_dir / "agents" / "kiln-codebase-analyzer.md").write_text("# Test agent")
+        (kiln_dir / "skills" / "kiln-edit-github-issue-components").mkdir(parents=True)
+        (kiln_dir / "skills" / "kiln-edit-github-issue-components" / "SKILL.md").write_text("# Test skill")
+
+        # Create fake home directory
+        fake_home = tmp_path / "fake_home"
+        fake_home.mkdir()
+
+        with patch.object(Path, "home", return_value=fake_home):
+            install_claude_resources()
+
+        # Verify files were copied (not symlinks)
+        cmd_file = fake_home / ".claude" / "commands" / "kiln-create_plan_github.md"
+        assert cmd_file.exists(), "Command file should be copied"
+        assert not cmd_file.is_symlink(), "Should be a file, not a symlink"
+        assert cmd_file.read_text() == "# Test command"
+
+        agent_file = fake_home / ".claude" / "agents" / "kiln-codebase-analyzer.md"
+        assert agent_file.exists(), "Agent file should be copied"
+
+        skill_dir = fake_home / ".claude" / "skills" / "kiln-edit-github-issue-components"
+        assert skill_dir.exists(), "Skill directory should be copied"
+        assert skill_dir.is_dir(), "Skill should be a directory"
+
+    def test_install_creates_parent_directories(self, tmp_path, monkeypatch):
+        """Test that install_claude_resources creates parent directories if needed."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create .kiln with a command
+        kiln_dir = tmp_path / ".kiln"
+        (kiln_dir / "commands").mkdir(parents=True)
+        (kiln_dir / "commands" / "kiln-implement_github.md").write_text("# Test")
+
+        # Create fake home without ~/.claude/
+        fake_home = tmp_path / "fake_home"
+        fake_home.mkdir()
+
+        with patch.object(Path, "home", return_value=fake_home):
+            install_claude_resources()
+
+        # Verify parent directory was created
+        assert (fake_home / ".claude" / "commands").exists()
+        assert (fake_home / ".claude" / "commands").is_dir()
+
+    def test_install_overwrites_existing(self, tmp_path, monkeypatch):
+        """Test that install_claude_resources overwrites existing files."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create .kiln with a command
+        kiln_dir = tmp_path / ".kiln"
+        (kiln_dir / "commands").mkdir(parents=True)
+        (kiln_dir / "commands" / "kiln-implement_github.md").write_text("# New content")
+
+        # Create fake home with existing file
+        fake_home = tmp_path / "fake_home"
+        (fake_home / ".claude" / "commands").mkdir(parents=True)
+        existing = fake_home / ".claude" / "commands" / "kiln-implement_github.md"
+        existing.write_text("# Old content")
+
+        with patch.object(Path, "home", return_value=fake_home):
+            install_claude_resources()
+
+        # Verify file was overwritten
+        assert existing.read_text() == "# New content"
+
+    def test_install_is_idempotent(self, tmp_path, monkeypatch):
+        """Test that calling install_claude_resources twice doesn't fail."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create .kiln with a command
+        kiln_dir = tmp_path / ".kiln"
+        (kiln_dir / "commands").mkdir(parents=True)
+        (kiln_dir / "commands" / "kiln-implement_github.md").write_text("# Test")
+
+        fake_home = tmp_path / "fake_home"
+        fake_home.mkdir()
+
+        with patch.object(Path, "home", return_value=fake_home):
+            # Call twice - should not raise
+            install_claude_resources()
+            install_claude_resources()
+
+        # File should still exist
+        cmd_file = fake_home / ".claude" / "commands" / "kiln-implement_github.md"
+        assert cmd_file.exists()
+
+    def test_install_raises_on_write_failure(self, tmp_path, monkeypatch):
+        """Test that install_claude_resources raises RuntimeError on failure."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create .kiln with a command
+        kiln_dir = tmp_path / ".kiln"
+        (kiln_dir / "commands").mkdir(parents=True)
+        (kiln_dir / "commands" / "kiln-implement_github.md").write_text("# Test")
+
+        # Create fake home where commands dir is a file (will fail to copy)
+        fake_home = tmp_path / "fake_home"
+        (fake_home / ".claude").mkdir(parents=True)
+        (fake_home / ".claude" / "commands").write_text("not a directory")
+
+        with patch.object(Path, "home", return_value=fake_home):
+            with pytest.raises(RuntimeError, match="Failed to install kiln resources"):
+                install_claude_resources()
+
+    def test_install_skips_missing_source_dirs(self, tmp_path, monkeypatch):
+        """Test that install_claude_resources handles missing source directories."""
+        monkeypatch.chdir(tmp_path)
+
+        # Create .kiln with only commands (no agents or skills dirs)
+        kiln_dir = tmp_path / ".kiln"
+        (kiln_dir / "commands").mkdir(parents=True)
+        (kiln_dir / "commands" / "kiln-implement_github.md").write_text("# Test")
+
+        fake_home = tmp_path / "fake_home"
+        fake_home.mkdir()
+
+        with patch.object(Path, "home", return_value=fake_home):
+            # Should not raise even with missing source dirs
+            install_claude_resources()
+
+        # Command should still be installed
+        assert (fake_home / ".claude" / "commands" / "kiln-implement_github.md").exists()

@@ -1,8 +1,7 @@
-"""GitHub implementation of the TicketClient protocol.
+"""Base GitHub client with shared functionality.
 
-This module provides a client for GitHub Projects using the GitHub CLI (gh).
-It handles authentication, GraphQL queries, and translates GitHub-specific
-data to abstract TicketItem and Comment types.
+This module provides the base class for GitHub clients, containing common
+GraphQL/REST logic that works across github.com and GitHub Enterprise Server.
 """
 
 import json
@@ -17,29 +16,34 @@ from src.logger import get_logger, is_debug_mode
 logger = get_logger(__name__)
 
 
-class GitHubTicketClient:
-    """GitHub implementation of TicketClient protocol.
+class GitHubClientBase:
+    """Base class for GitHub clients with shared functionality.
 
-    Uses the GitHub CLI to execute GraphQL and REST API calls against
-    GitHub to manage project items, issues, and comments.
-
-    Automatically tracks hostname per-repository when board items are fetched.
+    Provides common token management, GraphQL execution, and methods that
+    work identically across github.com and GHES versions.
     """
 
-    @property
-    def supports_linked_prs(self) -> bool:
-        """github.com supports closedByPullRequestsReferences."""
-        return True
+    # Required OAuth scopes for Kiln operations
+    REQUIRED_SCOPES = {"repo", "read:org", "project"}
 
-    @property
-    def supports_sub_issues(self) -> bool:
-        """github.com supports sub-issues API."""
-        return True
+    # Scopes that grant excessive permissions - reject these for security
+    EXCESSIVE_SCOPES = {
+        "admin:org",
+        "delete_repo",
+        "admin:org_hook",
+        "admin:repo_hook",
+        "admin:public_key",
+        "admin:gpg_key",
+        "write:org",
+        "workflow",
+        "delete:packages",
+        "codespace",
+        "user",
+    }
 
-    @property
-    def client_description(self) -> str:
-        """Human-readable description of this client."""
-        return "GitHub.com"
+    # Token prefix constants for type detection
+    CLASSIC_PAT_PREFIX = "ghp_"
+    FINE_GRAINED_PAT_PREFIX = "github_pat_"
 
     def __init__(self, tokens: dict[str, str] | None = None) -> None:
         """Initialize the GitHub client.
@@ -51,7 +55,28 @@ class GitHubTicketClient:
         self.tokens = tokens or {}
         # Internal cache mapping repo -> hostname, populated by get_board_items()
         self._repo_host_map: dict[str, str] = {}
-        logger.debug("GitHubTicketClient initialized")
+        logger.debug(f"{self.__class__.__name__} initialized")
+
+    # Feature capability properties - override in subclasses as needed
+    @property
+    def supports_linked_prs(self) -> bool:
+        """Whether this client supports querying linked PRs."""
+        return True
+
+    @property
+    def supports_sub_issues(self) -> bool:
+        """Whether this client supports sub-issues (parent/child relationships)."""
+        return True
+
+    @property
+    def supports_status_actor_check(self) -> bool:
+        """Whether this client supports checking who changed project status."""
+        return True
+
+    @property
+    def client_description(self) -> str:
+        """Human-readable description of this client for logging."""
+        return "GitHub"
 
     def validate_connection(self, hostname: str = "github.com") -> bool:
         """Validate that the client can authenticate with GitHub.
@@ -98,24 +123,6 @@ class GitHubTicketClient:
         except ValueError as e:
             raise RuntimeError(f"GitHub authentication failed for {hostname}: {e}") from e
 
-    # Required OAuth scopes for Kiln operations
-    REQUIRED_SCOPES = {"repo", "read:org", "project"}
-
-    # Scopes that grant excessive permissions - reject these for security
-    EXCESSIVE_SCOPES = {
-        "admin:org",
-        "delete_repo",
-        "admin:org_hook",
-        "admin:repo_hook",
-        "admin:public_key",
-        "admin:gpg_key",
-        "write:org",
-        "workflow",
-        "delete:packages",
-        "codespace",
-        "user",
-    }
-
     def _get_token_scopes(self, hostname: str = "github.com") -> set[str] | None:
         """Get the OAuth scopes for the configured token.
 
@@ -138,7 +145,11 @@ class GitHubTicketClient:
             env = {}
             token = self._get_token_for_host(hostname)
             if token:
-                env["GITHUB_TOKEN"] = token
+                # gh CLI uses different env vars for github.com vs GHES
+                if hostname == "github.com":
+                    env["GITHUB_TOKEN"] = token
+                else:
+                    env["GH_ENTERPRISE_TOKEN"] = token
 
             import os
 
@@ -167,10 +178,6 @@ class GitHubTicketClient:
         except subprocess.CalledProcessError as e:
             logger.warning(f"Failed to get token scopes for {hostname}: {e.stderr}")
             return None
-
-    # Token prefix constants for type detection
-    CLASSIC_PAT_PREFIX = "ghp_"
-    FINE_GRAINED_PAT_PREFIX = "github_pat_"
 
     def validate_scopes(self, hostname: str = "github.com") -> bool:
         """Validate that the token has exactly the required OAuth scopes.
@@ -427,12 +434,15 @@ class GitHubTicketClient:
         )
         logger.info(f"Updated Status field options for field {field_id}")
 
-    def update_item_status(self, item_id: str, new_status: str) -> None:
+    def update_item_status(
+        self, item_id: str, new_status: str, *, hostname: str = "github.com"
+    ) -> None:
         """Update the status of a project item.
 
         Args:
             item_id: The ID of the project item to update
             new_status: The new status value to set
+            hostname: GitHub hostname for API calls
         """
         logger.info(f"Updating project item {item_id} to status: {new_status}")
 
@@ -458,7 +468,9 @@ class GitHubTicketClient:
         }
         """
 
-        response = self._execute_graphql_query(item_query, {"itemId": item_id})
+        response = self._execute_graphql_query(
+            item_query, {"itemId": item_id}, hostname=hostname
+        )
 
         try:
             node = response["data"]["node"]
@@ -504,16 +516,20 @@ class GitHubTicketClient:
                 "fieldId": field_id,
                 "optionId": option_id,
             },
+            hostname=hostname,
         )
 
         logger.info(f"Successfully updated project item {item_id} to '{new_status}'")
 
-    def archive_item(self, board_id: str, item_id: str) -> bool:
+    def archive_item(
+        self, board_id: str, item_id: str, *, hostname: str = "github.com"
+    ) -> bool:
         """Archive a project item.
 
         Args:
             board_id: The project's node ID
             item_id: The project item's node ID
+            hostname: GitHub hostname for API calls
 
         Returns:
             True if archived successfully, False otherwise
@@ -535,6 +551,7 @@ class GitHubTicketClient:
                     "projectId": board_id,
                     "itemId": item_id,
                 },
+                hostname=hostname,
             )
             logger.info(f"Archived project item {item_id}")
             return True
@@ -587,15 +604,15 @@ class GitHubTicketClient:
             logger.error(f"Failed to get issue body for {repo}#{ticket_id}: {e}")
             return None
 
-    def get_ticket_labels(self, repo: str, ticket_id: int) -> set[str]:
-        """Get the current labels on an issue.
+    def get_issue_labels(self, repo: str, ticket_id: int) -> set[str]:
+        """Get current labels for an issue via GraphQL.
 
         Args:
-            repo: Repository in hostname/owner/repo format
+            repo: Repository in 'hostname/owner/repo' format
             ticket_id: Issue number
 
         Returns:
-            Set of label names, empty set if issue does not exist or on error
+            Set of label names currently on the issue
         """
         _, owner, repo_name = self._parse_repo(repo)
 
@@ -603,7 +620,7 @@ class GitHubTicketClient:
         query($owner: String!, $repo: String!, $issueNumber: Int!) {
           repository(owner: $owner, name: $repo) {
             issue(number: $issueNumber) {
-              labels(first: 100) {
+              labels(first: 50) {
                 nodes {
                   name
                 }
@@ -614,7 +631,6 @@ class GitHubTicketClient:
         """
 
         try:
-            logger.debug(f"Fetching labels for {repo}#{ticket_id}")
             response = self._execute_graphql_query(
                 query,
                 {
@@ -626,14 +642,14 @@ class GitHubTicketClient:
             )
 
             issue_data = response.get("data", {}).get("repository", {}).get("issue")
-            if issue_data is None:
+            if not issue_data:
                 return set()
 
             label_nodes = issue_data.get("labels", {}).get("nodes", [])
             return {label["name"] for label in label_nodes if label}
 
         except Exception as e:
-            logger.error(f"Failed to get labels for {repo}#{ticket_id}: {e}")
+            logger.error(f"Failed to get issue labels for {repo}#{ticket_id}: {e}")
             return set()
 
     def add_label(self, repo: str, ticket_id: int, label: str) -> None:
@@ -1102,13 +1118,13 @@ class GitHubTicketClient:
             logger.error(f"Failed to get label actor for {repo}#{ticket_id}: {e}")
             return None
 
-    # PR operations (for reset functionality)
+    # PR operations - these may be overridden by version-specific clients
 
     def get_linked_prs(self, repo: str, ticket_id: int) -> list[LinkedPullRequest]:
         """Get pull requests that are linked to close this issue.
 
-        Queries the issue's closedByPullRequestsReferences to find PRs with
-        linking keywords (closes, fixes, resolves, etc.) pointing to this issue.
+        This is a base implementation that should be overridden by clients
+        that don't support closedByPullRequestsReferences.
 
         Args:
             repo: Repository in 'hostname/owner/repo' format
@@ -1117,70 +1133,13 @@ class GitHubTicketClient:
         Returns:
             List of LinkedPullRequest objects with PR details
         """
-        _, owner, repo_name = self._parse_repo(repo)
-
-        query = """
-        query($owner: String!, $repo: String!, $issueNumber: Int!) {
-          repository(owner: $owner, name: $repo) {
-            issue(number: $issueNumber) {
-              closedByPullRequestsReferences(first: 10) {
-                nodes {
-                  number
-                  url
-                  body
-                  state
-                  merged
-                }
-              }
-            }
-          }
-        }
-        """
-
-        try:
-            response = self._execute_graphql_query(
-                query,
-                {
-                    "owner": owner,
-                    "repo": repo_name,
-                    "issueNumber": ticket_id,
-                },
-                repo=repo,
-            )
-
-            issue_data = response.get("data", {}).get("repository", {}).get("issue")
-            if not issue_data:
-                logger.debug(f"No issue data found for {repo}#{ticket_id}")
-                return []
-
-            pr_nodes = issue_data.get("closedByPullRequestsReferences", {}).get("nodes", [])
-
-            linked_prs = []
-            for pr in pr_nodes:
-                if pr is None:
-                    continue
-                linked_prs.append(
-                    LinkedPullRequest(
-                        number=pr["number"],
-                        url=pr["url"],
-                        body=pr.get("body", ""),
-                        state=pr["state"],
-                        merged=pr.get("merged", False),
-                    )
-                )
-
-            logger.debug(f"Found {len(linked_prs)} linked PRs for {repo}#{ticket_id}")
-            return linked_prs
-
-        except Exception as e:
-            logger.error(f"Failed to get linked PRs for {repo}#{ticket_id}: {e}")
-            return []
+        raise NotImplementedError("Subclasses must implement get_linked_prs")
 
     def get_parent_issue(self, repo: str, ticket_id: int) -> int | None:
         """Get the parent issue number if this issue is a sub-issue.
 
-        Uses GitHub's sub-issues API to check if the given issue has a parent
-        issue set.
+        This is a base implementation that should be overridden by clients
+        that don't support sub-issues.
 
         Args:
             repo: Repository in 'hostname/owner/repo' format
@@ -1189,58 +1148,15 @@ class GitHubTicketClient:
         Returns:
             Parent issue number if this issue has a parent, None otherwise
         """
-        hostname, owner, repo_name = self._parse_repo(repo)
-
-        query = """
-        query($owner: String!, $repo: String!, $issueNumber: Int!) {
-          repository(owner: $owner, name: $repo) {
-            issue(number: $issueNumber) {
-              parent {
-                number
-              }
-            }
-          }
-        }
-        """
-
-        try:
-            # Sub-issues API requires special header
-            response = self._execute_graphql_query_with_headers(
-                query,
-                {
-                    "owner": owner,
-                    "repo": repo_name,
-                    "issueNumber": ticket_id,
-                },
-                headers=["GraphQL-Features: sub_issues"],
-                hostname=hostname,
-            )
-
-            issue_data = response.get("data", {}).get("repository", {}).get("issue")
-            if not issue_data:
-                logger.debug(f"No issue data found for {repo}#{ticket_id}")
-                return None
-
-            parent = issue_data.get("parent")
-            if parent is None:
-                logger.debug(f"Issue {repo}#{ticket_id} has no parent")
-                return None
-
-            parent_number = parent.get("number")
-            logger.info(f"Issue {repo}#{ticket_id} has parent issue #{parent_number}")
-            return parent_number
-
-        except Exception as e:
-            logger.error(f"Failed to get parent issue for {repo}#{ticket_id}: {e}")
-            return None
+        raise NotImplementedError("Subclasses must implement get_parent_issue")
 
     def get_pr_for_issue(
         self, repo: str, ticket_id: int, state: str = "OPEN"
     ) -> dict[str, str | int] | None:
         """Get a PR that is linked to close this issue.
 
-        Queries the issue's closedByPullRequestsReferences to find PRs with
-        linking keywords (closes, fixes, resolves, etc.) pointing to this issue.
+        This is a base implementation that should be overridden by clients
+        that don't support closedByPullRequestsReferences.
 
         Args:
             repo: Repository in 'hostname/owner/repo' format
@@ -1250,64 +1166,13 @@ class GitHubTicketClient:
         Returns:
             Dict with PR info (number, url, branch_name) or None if not found
         """
-        _, owner, repo_name = self._parse_repo(repo)
-
-        query = """
-        query($owner: String!, $repo: String!, $issueNumber: Int!) {
-          repository(owner: $owner, name: $repo) {
-            issue(number: $issueNumber) {
-              closedByPullRequestsReferences(first: 10, includeClosedPrs: false) {
-                nodes {
-                  number
-                  url
-                  headRefName
-                  state
-                }
-              }
-            }
-          }
-        }
-        """
-
-        try:
-            response = self._execute_graphql_query(
-                query,
-                {
-                    "owner": owner,
-                    "repo": repo_name,
-                    "issueNumber": ticket_id,
-                },
-                repo=repo,
-            )
-
-            issue_data = response.get("data", {}).get("repository", {}).get("issue")
-            if not issue_data:
-                logger.debug(f"No issue data found for {repo}#{ticket_id}")
-                return None
-
-            pr_nodes = issue_data.get("closedByPullRequestsReferences", {}).get("nodes", [])
-
-            for pr in pr_nodes:
-                if pr is None:
-                    continue
-                if pr.get("state") == state:
-                    result = {
-                        "number": pr["number"],
-                        "url": pr["url"],
-                        "branch_name": pr["headRefName"],
-                    }
-                    logger.debug(f"Found {state} PR #{pr['number']} for {repo}#{ticket_id}")
-                    return result
-
-            logger.debug(f"No {state} PR found for {repo}#{ticket_id}")
-            return None
-
-        except Exception as e:
-            logger.error(f"Failed to get PR for {repo}#{ticket_id}: {e}")
-            return None
+        raise NotImplementedError("Subclasses must implement get_pr_for_issue")
 
     def get_child_issues(self, repo: str, ticket_id: int) -> list[dict[str, int | str]]:
         """Get child issues of a parent issue using sub-issues API.
+
+        This is a base implementation that should be overridden by clients
+        that don't support sub-issues.
 
         Args:
             repo: Repository in 'hostname/owner/repo' format
@@ -1317,55 +1182,7 @@ class GitHubTicketClient:
             List of dicts with child issue info: {'number': int, 'state': str}
             Empty list if no children or on error
         """
-        hostname, owner, repo_name = self._parse_repo(repo)
-
-        query = """
-        query($owner: String!, $repo: String!, $issueNumber: Int!) {
-          repository(owner: $owner, name: $repo) {
-            issue(number: $issueNumber) {
-              subIssues(first: 50) {
-                nodes {
-                  number
-                  state
-                }
-              }
-            }
-          }
-        }
-        """
-
-        try:
-            response = self._execute_graphql_query_with_headers(
-                query,
-                {
-                    "owner": owner,
-                    "repo": repo_name,
-                    "issueNumber": ticket_id,
-                },
-                headers=["GraphQL-Features: sub_issues"],
-                hostname=hostname,
-            )
-
-            issue_data = response.get("data", {}).get("repository", {}).get("issue")
-            if not issue_data:
-                logger.debug(f"No issue data found for {repo}#{ticket_id}")
-                return []
-
-            sub_issues = issue_data.get("subIssues", {}).get("nodes", [])
-            children = []
-            for child in sub_issues:
-                if child:
-                    children.append({
-                        "number": child["number"],
-                        "state": child["state"],
-                    })
-
-            logger.debug(f"Found {len(children)} child issues for {repo}#{ticket_id}")
-            return children
-
-        except Exception as e:
-            logger.error(f"Failed to get child issues for {repo}#{ticket_id}: {e}")
-            return []
+        raise NotImplementedError("Subclasses must implement get_child_issues")
 
     def get_pr_head_sha(self, repo: str, pr_number: int) -> str | None:
         """Get the HEAD commit SHA of a pull request.
@@ -1585,161 +1402,22 @@ class GitHubTicketClient:
     def _query_board_items(
         self, hostname: str, entity_type: str, login: str, project_number: int, board_url: str
     ) -> list[TicketItem]:
-        """Query GitHub API for project items using GraphQL."""
-        query = f"""
-        query($login: String!, $projectNumber: Int!, $cursor: String) {{
-          {entity_type}(login: $login) {{
-            projectV2(number: $projectNumber) {{
-              items(first: 100, after: $cursor) {{
-                pageInfo {{
-                  hasNextPage
-                  endCursor
-                }}
-                nodes {{
-                  id
-                  fieldValues(first: 20) {{
-                    nodes {{
-                      ... on ProjectV2ItemFieldSingleSelectValue {{
-                        name
-                        field {{
-                          ... on ProjectV2SingleSelectField {{
-                            name
-                          }}
-                        }}
-                      }}
-                    }}
-                  }}
-                  content {{
-                    ... on Issue {{
-                      number
-                      title
-                      state
-                      stateReason
-                      repository {{
-                        nameWithOwner
-                      }}
-                      labels(first: 20) {{
-                        nodes {{
-                          name
-                        }}
-                      }}
-                      closedByPullRequestsReferences(first: 10) {{
-                        nodes {{
-                          merged
-                        }}
-                      }}
-                      comments {{
-                        totalCount
-                      }}
-                    }}
-                  }}
-                }}
-              }}
-            }}
-          }}
-        }}
+        """Query GitHub API for project items using GraphQL.
+
+        This method should be overridden by version-specific clients that need
+        different GraphQL queries (e.g., without closedByPullRequestsReferences).
         """
-
-        items: list[TicketItem] = []
-        cursor: str | None = None
-        has_next_page = True
-        max_pages = 100
-        page_count = 0
-
-        while has_next_page and page_count < max_pages:
-            page_count += 1
-            prev_cursor = cursor
-            variables = {"login": login, "projectNumber": project_number, "cursor": cursor}
-
-            logger.debug(f"Executing GraphQL query page {page_count} with cursor: {cursor}")
-            response = self._execute_graphql_query(query, variables, hostname=hostname)
-
-            try:
-                project_data = response["data"][entity_type]["projectV2"]
-                items_data = project_data["items"]
-                page_info = items_data["pageInfo"]
-                nodes = items_data["nodes"]
-
-                for node in nodes:
-                    item = self._parse_board_item_node(node, board_url, hostname)
-                    if item:
-                        items.append(item)
-                        # Cache repo -> hostname mapping for future API calls
-                        self._repo_host_map[item.repo] = hostname
-
-                has_next_page = page_info["hasNextPage"]
-                cursor = page_info["endCursor"] if has_next_page else None
-
-                if has_next_page and cursor == prev_cursor:
-                    logger.error("Pagination cursor not advancing, breaking loop")
-                    break
-
-            except (KeyError, TypeError) as e:
-                logger.error(f"Failed to parse GraphQL response: {e}")
-                logger.debug(f"Response data: {json.dumps(response, indent=2)}")
-                raise ValueError(f"Unexpected GraphQL response structure: {e}") from e
-
-        if page_count >= max_pages:
-            logger.warning(f"Reached max pagination limit ({max_pages} pages)")
-
-        return items
+        raise NotImplementedError("Subclasses must implement _query_board_items")
 
     def _parse_board_item_node(
         self, node: dict[str, Any], board_url: str, hostname: str
     ) -> TicketItem | None:
-        """Parse a project item node from GraphQL response."""
-        try:
-            item_id = node["id"]
+        """Parse a project item node from GraphQL response.
 
-            content = node.get("content")
-            if not content or "number" not in content:
-                logger.debug(f"Skipping non-issue item: {item_id}")
-                return None
-
-            ticket_id = content["number"]
-            title = content["title"]
-            name_with_owner = content["repository"]["nameWithOwner"]
-            # Include hostname in repo for unambiguous identification
-            # Format: hostname/owner/repo (e.g., github.com/owner/repo)
-            repo = f"{hostname}/{name_with_owner}"
-
-            label_nodes = content.get("labels", {}).get("nodes", [])
-            labels = {label["name"] for label in label_nodes if label}
-
-            state = content.get("state", "OPEN")
-            state_reason = content.get("stateReason")
-
-            pr_refs = content.get("closedByPullRequestsReferences", {}).get("nodes", [])
-            has_merged_changes = any(pr.get("merged", False) for pr in pr_refs if pr)
-
-            comment_count = content.get("comments", {}).get("totalCount", 0)
-
-            status = "Unknown"
-            field_values = node.get("fieldValues", {}).get("nodes", [])
-            for field_value in field_values:
-                field_info = field_value.get("field", {})
-                if field_info.get("name") == "Status":
-                    status = field_value.get("name", "Unknown")
-                    break
-
-            return TicketItem(
-                item_id=item_id,
-                board_url=board_url,
-                ticket_id=ticket_id,
-                repo=repo,
-                status=status,
-                title=title,
-                labels=labels,
-                state=state,
-                state_reason=state_reason,
-                has_merged_changes=has_merged_changes,
-                comment_count=comment_count,
-            )
-
-        except (KeyError, TypeError) as e:
-            logger.warning(f"Failed to parse project item node: {e}")
-            logger.debug(f"Node data: {json.dumps(node, indent=2)}")
-            return None
+        This method should be overridden by version-specific clients that parse
+        different response structures.
+        """
+        raise NotImplementedError("Subclasses must implement _parse_board_item_node")
 
     def _execute_graphql_query(
         self,
@@ -1873,7 +1551,11 @@ class GitHubTicketClient:
             env = {}
             token = self._get_token_for_host(hostname)
             if token:
-                env["GITHUB_TOKEN"] = token
+                # gh CLI uses different env vars for github.com vs GHES
+                if hostname == "github.com":
+                    env["GITHUB_TOKEN"] = token
+                else:
+                    env["GH_ENTERPRISE_TOKEN"] = token
 
             result = subprocess.run(
                 cmd,

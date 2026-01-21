@@ -30,7 +30,6 @@ class Labels:
     IMPLEMENTING = "implementing"
     REVIEWING = "reviewing"
     EDITING = "editing"
-    TESTING_ACCESS = "testing_access"
 
     # Workflow complete labels
     RESEARCH_READY = "research_ready"

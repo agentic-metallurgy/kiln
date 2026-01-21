@@ -6,6 +6,7 @@ On subsequent runs, it loads the config and starts the daemon.
 """
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -64,6 +65,142 @@ def get_kiln_dir() -> Path:
     return Path.cwd() / KILN_DIR
 
 
+def extract_claude_resources() -> Path:
+    """Extract bundled Claude resources to .kiln/ directory.
+
+    Copies commands, agents, and skills from the bundled .claude/ folder
+    (or repo root in development) to .kiln/commands, .kiln/agents, .kiln/skills.
+
+    This is called on every startup to ensure the latest resources are available.
+
+    Returns:
+        Path to the .kiln directory containing extracted resources
+    """
+    kiln_dir = get_kiln_dir()
+
+    # Source .claude from bundle or repo root
+    base_path = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else Path(__file__).parent.parent  # type: ignore[attr-defined]
+
+    source_claude = base_path / ".claude"
+
+    if not source_claude.exists():
+        return kiln_dir
+
+    # Extract each subdirectory (commands, agents, skills)
+    for subdir in ["commands", "agents", "skills"]:
+        src = source_claude / subdir
+        dest = kiln_dir / subdir
+
+        if not src.exists():
+            continue
+
+        # Remove existing and copy fresh
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(src, dest)
+
+    return kiln_dir
+
+
+def install_claude_resources() -> None:
+    """Copy kiln resources to ~/.claude/ for Claude Code to discover.
+
+    Copies kiln-prefixed commands, agents, and skills from .kiln/ to ~/.claude/.
+    Files are copied directly (not into a subdirectory), overwriting existing files.
+
+    This approach avoids symlink issues where Claude Code may recreate directories
+    on startup, removing symlinks.
+
+    Raises:
+        RuntimeError: If resources cannot be written to ~/.claude/
+    """
+    from src.logger import get_logger
+
+    logger = get_logger(__name__)
+
+    kiln_dir = get_kiln_dir()
+    claude_home = Path.home() / ".claude"
+
+    # Define exactly which resources to install (excludes arch-eval.md)
+    RESOURCES_TO_INSTALL = {
+        "commands": [
+            "kiln-create_plan_github.md",
+            "kiln-create_plan_simple.md",
+            "kiln-implement_github.md",
+            "kiln-prepare_implementation_github.md",
+            "kiln-research_codebase_github.md",
+        ],
+        "agents": [
+            "kiln-codebase-analyzer.md",
+            "kiln-codebase-locator.md",
+            "kiln-codebase-pattern-finder.md",
+            "kiln-pr-review.md",
+            "kiln-thoughts-analyzer.md",
+            "kiln-thoughts-locator.md",
+            "kiln-web-search-researcher.md",
+        ],
+        "skills": [
+            "kiln-create-worktree-from-issues",
+            "kiln-edit-github-issue-components",
+        ],
+    }
+
+    logger.debug(f"Installing kiln resources from {kiln_dir} to {claude_home}")
+
+    installed_count = 0
+    errors = []
+
+    for subdir, items in RESOURCES_TO_INSTALL.items():
+        source_dir = kiln_dir / subdir
+        dest_dir = claude_home / subdir
+
+        if not source_dir.exists():
+            logger.debug(f"Skipping {subdir}: source {source_dir} does not exist")
+            continue
+
+        # Ensure destination directory exists
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            errors.append(f"Failed to create {dest_dir}: {e}")
+            continue
+
+        for item in items:
+            src = source_dir / item
+            dest = dest_dir / item
+
+            if not src.exists():
+                logger.warning(f"Source not found: {src}")
+                continue
+
+            try:
+                if src.is_dir():
+                    # Skills are directories - remove existing and copy
+                    if dest.exists():
+                        shutil.rmtree(dest)
+                    shutil.copytree(src, dest)
+                else:
+                    # Commands/agents are files - copy with overwrite
+                    shutil.copy2(src, dest)
+
+                logger.debug(f"Installed: {dest}")
+                installed_count += 1
+            except Exception as e:
+                errors.append(f"Failed to copy {src} to {dest}: {e}")
+
+    if errors:
+        error_msg = f"Failed to install kiln resources:\n" + "\n".join(errors)
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    if installed_count > 0:
+        logger.info(f"Installed {installed_count} kiln resource(s) to {claude_home}")
+    else:
+        logger.warning(f"No kiln resources installed - check {kiln_dir}")
+
+
+
+
 def print_banner() -> None:
     """Print the kiln ASCII banner with fire gradient."""
     print(get_banner())
@@ -115,8 +252,14 @@ def run_daemon(daemon_mode: bool = False) -> None:
     """
     from src.config import load_config
     from src.daemon import Daemon
-    from src.logger import get_logger, setup_logging
-    from src.setup import SetupError, check_required_tools, validate_project_columns
+    from src.logger import _extract_org_from_url, get_logger, setup_logging
+    from src.setup import (
+        SetupError,
+        check_required_tools,
+        configure_git_credential_helper,
+        get_hostnames_from_project_urls,
+        validate_project_columns,
+    )
     from src.telemetry import get_git_version, init_telemetry
     from src.ticket_clients.github import GitHubTicketClient
 
@@ -130,19 +273,41 @@ def run_daemon(daemon_mode: bool = False) -> None:
         print("  ✓ claude CLI found")
         print()
 
-        # Phase 2: Load and validate config
+        # Phase 2: Extract Claude resources to .kiln/
+        print("Extracting Claude resources...")
+        extract_claude_resources()
+        print("  ✓ Resources extracted to .kiln/")
+        print()
+
+        # Phase 2b: Install kiln resources to ~/.claude/
+        print("Installing kiln resources to ~/.claude/...")
+        install_claude_resources()
+        print("  ✓ Kiln resources installed")
+        print()
+
+        # Phase 3: Load and validate config
         print("Loading configuration...")
         config = load_config()
         print("  ✓ PROJECT_URLS configured")
         print("  ✓ ALLOWED_USERNAMES configured")
         print()
 
-        # Phase 3: Validate project columns
+        # Phase 3b: Configure git credentials
+        print("Configuring git credentials...")
+        hostnames = get_hostnames_from_project_urls(config.project_urls)
+        for hostname in sorted(hostnames):
+            configure_git_credential_helper(hostname)
+            print(f"  ✓ Configured credential helper for {hostname}")
+        print()
+
+        # Phase 4: Validate project columns
         print("Validating project boards...")
 
         # Build tokens dict for client
         tokens: dict[str, str] = {}
-        if config.github_token:
+        if config.github_enterprise_host and config.github_enterprise_token:
+            tokens[config.github_enterprise_host] = config.github_enterprise_token
+        elif config.github_token:
             tokens["github.com"] = config.github_token
 
         client = GitHubTicketClient(tokens)
@@ -157,12 +322,20 @@ def run_daemon(daemon_mode: bool = False) -> None:
                 print(f"      {result.message}")
         print()
 
+        # Extract org name from first project URL for log masking
+        org_name = None
+        if config.project_urls:
+            org_name = _extract_org_from_url(config.project_urls[0])
+
         # Always log to file; stdout/stderr only in non-daemon mode
         setup_logging(
             log_file=config.log_file,
             log_size=config.log_size,
             log_backups=config.log_backups,
             daemon_mode=daemon_mode,
+            ghes_logs_mask=config.ghes_logs_mask,
+            ghes_host=config.github_enterprise_host,
+            org_name=org_name,
         )
 
         logger = get_logger(__name__)

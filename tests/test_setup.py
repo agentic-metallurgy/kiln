@@ -5,7 +5,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.setup.checks import SetupError, check_required_tools
+from src.setup.checks import (
+    SetupError,
+    check_required_tools,
+    configure_git_credential_helper,
+    get_hostnames_from_project_urls,
+)
 from src.setup.project import (
     REQUIRED_COLUMN_NAMES,
     ValidationResult,
@@ -78,6 +83,152 @@ class TestCheckRequiredTools:
                 check_required_tools()
 
             assert "gh CLI error" in str(exc_info.value)
+
+
+@pytest.mark.unit
+class TestConfigureGitCredentialHelper:
+    """Tests for configure_git_credential_helper()."""
+
+    def test_configures_github_com_by_default(self):
+        """Test that github.com is configured by default."""
+        with patch("src.setup.checks.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            configure_git_credential_helper()
+
+            # Should be called twice: once to clear, once to add
+            assert mock_run.call_count == 2
+
+            # First call clears existing helper
+            first_call = mock_run.call_args_list[0]
+            assert first_call[0][0] == [
+                "git",
+                "config",
+                "--global",
+                "credential.https://github.com.helper",
+                "",
+            ]
+
+            # Second call adds gh as helper
+            second_call = mock_run.call_args_list[1]
+            assert second_call[0][0] == [
+                "git",
+                "config",
+                "--global",
+                "--add",
+                "credential.https://github.com.helper",
+                "!gh auth git-credential",
+            ]
+
+    def test_configures_custom_hostname(self):
+        """Test that custom hostnames are configured correctly."""
+        with patch("src.setup.checks.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            configure_git_credential_helper("ghes.company.com")
+
+            # Should use the custom hostname
+            first_call = mock_run.call_args_list[0]
+            assert "credential.https://ghes.company.com.helper" in first_call[0][0]
+
+            second_call = mock_run.call_args_list[1]
+            assert "credential.https://ghes.company.com.helper" in second_call[0][0]
+
+    def test_handles_subprocess_error_gracefully(self):
+        """Test that subprocess errors are logged but don't raise."""
+        with patch("src.setup.checks.subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(1, "git")
+
+            with patch("src.setup.checks.logger") as mock_logger:
+                # Should not raise
+                configure_git_credential_helper("github.com")
+                mock_logger.warning.assert_called_once()
+                assert "Could not configure" in mock_logger.warning.call_args[0][0]
+
+    def test_clear_does_not_fail_on_missing_config(self):
+        """Test that clearing missing config doesn't fail startup."""
+        def side_effect(args, **kwargs):
+            # First call (clear) fails - no existing config
+            if args[-1] == "":
+                raise subprocess.CalledProcessError(1, "git")
+            # Second call (add) succeeds
+            return MagicMock(returncode=0)
+
+        with patch("src.setup.checks.subprocess.run", side_effect=side_effect):
+            with patch("src.setup.checks.logger") as mock_logger:
+                # Should log warning but handle gracefully
+                configure_git_credential_helper()
+                # First call with check=False shouldn't raise even on error
+                # but the side_effect still raises, so warning should be logged
+                mock_logger.warning.assert_called()
+
+
+@pytest.mark.unit
+class TestGetHostnamesFromProjectUrls:
+    """Tests for get_hostnames_from_project_urls()."""
+
+    def test_extracts_github_com(self):
+        """Test extracting github.com from standard URL."""
+        urls = ["https://github.com/orgs/test/projects/1"]
+        result = get_hostnames_from_project_urls(urls)
+        assert result == {"github.com"}
+
+    def test_extracts_ghes_hostname(self):
+        """Test extracting GHES hostname."""
+        urls = ["https://ghes.company.com/orgs/test/projects/1"]
+        result = get_hostnames_from_project_urls(urls)
+        assert result == {"ghes.company.com"}
+
+    def test_extracts_multiple_unique_hostnames(self):
+        """Test extracting multiple unique hostnames."""
+        urls = [
+            "https://github.com/orgs/test/projects/1",
+            "https://ghes.company.com/orgs/test/projects/2",
+            "https://github.example.org/orgs/test/projects/3",
+        ]
+        result = get_hostnames_from_project_urls(urls)
+        assert result == {"github.com", "ghes.company.com", "github.example.org"}
+
+    def test_deduplicates_hostnames(self):
+        """Test that duplicate hostnames are deduplicated."""
+        urls = [
+            "https://github.com/orgs/test/projects/1",
+            "https://github.com/orgs/other/projects/2",
+            "https://github.com/orgs/third/projects/3",
+        ]
+        result = get_hostnames_from_project_urls(urls)
+        assert result == {"github.com"}
+
+    def test_empty_list_returns_github_com(self):
+        """Test that empty list defaults to github.com."""
+        result = get_hostnames_from_project_urls([])
+        assert result == {"github.com"}
+
+    def test_malformed_url_defaults_to_github_com(self):
+        """Test that malformed URLs default to github.com."""
+        urls = ["not-a-url", "just-some-text"]
+        result = get_hostnames_from_project_urls(urls)
+        assert result == {"github.com"}
+
+    def test_mixed_valid_and_invalid_urls(self):
+        """Test mixed valid and invalid URLs."""
+        urls = [
+            "https://ghes.company.com/orgs/test/projects/1",
+            "not-a-url",
+            "https://github.com/orgs/test/projects/2",
+        ]
+        result = get_hostnames_from_project_urls(urls)
+        assert result == {"ghes.company.com", "github.com"}
+
+    def test_http_url_also_works(self):
+        """Test that http (non-https) URLs are also parsed."""
+        urls = ["http://github.internal.com/orgs/test/projects/1"]
+        result = get_hostnames_from_project_urls(urls)
+        assert result == {"github.internal.com"}
+
+    def test_url_with_port(self):
+        """Test URL with port number."""
+        urls = ["https://github.local:8443/orgs/test/projects/1"]
+        result = get_hostnames_from_project_urls(urls)
+        assert result == {"github.local:8443"}
 
 
 @pytest.mark.unit

@@ -9,6 +9,8 @@ A polling-based daemon that monitors GitHub Project Kanban boards and orchestrat
 - GitHub PAT (classic) with scopes: `repo`, `project`, `read:org` ONLY (will error out on missing or excessive scopes—**security first**: ONLY least-privilege tokens allowed)
 - A GitHub Project Kanban board configured as described below
 
+> **Note:** Kiln automatically configures git to use `gh` CLI for HTTPS authentication by setting a credential helper in your global git config. This eliminates the need to run `gh auth setup-git` manually.
+
 ## Quick Start
 
 ### 🔥 Create your GitHub Project Kanban Board
@@ -201,3 +203,21 @@ These labels trigger autonomous workflows:
 | Implement: Code | opus | Code generation from plan |
 | Implement: Review | sonnet | PR review iteration |
 | Comment Iteration | sonnet | Feedback processing in Research/Plan |
+
+### 🔥 GHES Log Masking
+
+For GitHub Enterprise Server users, Kiln automatically masks sensitive hostname and organization information in log files to prevent accidental exposure.
+
+| Config | Default | Description |
+|--------|---------|-------------|
+| `GHES_LOGS_MASK` | `true` | Enable/disable log masking |
+
+When enabled (default), logs show:
+- `<GHES>` instead of your GHES hostname
+- `<ORG>` instead of your organization name
+
+Example: `github.corp.com/myorg/repo#123` becomes `<GHES>/<ORG>/repo#123`
+
+To disable masking (e.g., for debugging), set `GHES_LOGS_MASK=false` in `.kiln/config`.
+
+**Note**: This only applies to GHES configurations. GitHub.com hostnames are not masked.
