@@ -117,7 +117,7 @@ Each workflow adds labels to show progress:
 
 ## ⚙️ Workflows
 
-### Research
+### 🔵 Research
 
 **Trigger**: Move issue to Research column
 
@@ -130,7 +130,7 @@ Claude:
 
 **Next**: Review findings, then move to Plan
 
-### Plan
+### 🟣 Plan
 
 **Trigger**: Move issue to Plan column
 
@@ -143,13 +143,13 @@ Claude:
 
 **Next**: Review plan, then move to Implement
 
-### Implement
+### 🟠 Implement
 
 **Trigger**: Move issue to Implement column
 
 Claude:
 1. Creates a git worktree for the issue
-2. Executes each TASK in the plan
+2. Executes TASKs in a loop, one at a time (max iterations = number of TASKs, with failsafes to catch infinite loops)
 3. Commits changes and opens a PR
 4. Links the PR to the issue
 
