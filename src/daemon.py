@@ -43,6 +43,7 @@ from src.workflows import (
     Workflow,
     WorkflowContext,
 )
+from src.workflows.implement import ImplementationIncompleteError
 from src.workspace import WorkspaceError, WorkspaceManager
 
 logger = get_logger(__name__)
@@ -1650,6 +1651,15 @@ class Daemon:
                 logger.info(
                     f"Saved {workflow_name} session for future resumption: {session_id[:8]}..."
                 )
+        except ImplementationIncompleteError as e:
+            logger.warning(f"Implementation incomplete for {workflow_name}: {e} (reason: {e.reason})")
+            if workflow_name == "Implement":
+                self.ticket_client.add_label(item.repo, item.ticket_id, Labels.IMPLEMENTATION_FAILED)
+                logger.info(
+                    f"Added '{Labels.IMPLEMENTATION_FAILED}' label to "
+                    f"{item.repo}#{item.ticket_id} (reason: {e.reason})"
+                )
+            raise
         except Exception as e:
             logger.error(f"Workflow '{workflow_name}' failed: {e}", exc_info=True)
             # Add failure label for Implement workflow
