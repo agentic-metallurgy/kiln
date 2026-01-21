@@ -24,7 +24,10 @@ Kiln creates files in the current directory—don't run it in your home folder.
 On first run, kiln creates:
 - `.kiln/config` — configuration file (you'll edit this next)
 - `.kiln/logs/` — log files
+- `.kiln/commands/`, `.kiln/agents/`, `.kiln/skills/` — Claude workflow files
 - `workspaces/` — git worktrees for implementation
+
+The workflow files are copied to `~/.claude/{commands,agents,skills}`. All kiln files are prefixed with `kiln-` to avoid overwriting your global commands. Kiln never removes existing files.
 
 It will error out until you configure the required fields.
 
