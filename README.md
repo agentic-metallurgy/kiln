@@ -28,25 +28,25 @@ See the [User Guide](docs/user-guide.md) for setup instructions.
 │  GitHub Project │────▶│     Daemon      │────▶│   SQLite DB     │
 │ (State Machine) │     │    (Poller)     │     │    (Cache)      │
 └─────────────────┘     └────────┬────────┘     └─────────────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │  WorkflowRunner │
-                       │  (Orchestrator) │
-                       └────────┬────────┘
-                                │
-                ┌───────────────┼───────────────┐
-                ▼               ▼               ▼
-          ┌──────────┐    ┌──────────┐    ┌───────────┐
-          │ Research │    │   Plan   │    │ Implement │
-          │ Workflow │    │ Workflow │    │  Workflow │
-          └──────────┘    └──────────┘    └───────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │   Claude CLI    │
-                       │   (Executor)    │
-                       └─────────────────┘
+                                 │
+                                 ▼
+                        ┌─────────────────┐
+                        │  WorkflowRunner │
+                        │  (Orchestrator) │
+                        └────────┬────────┘
+                                 │
+                 ┌───────────────┼───────────────┐
+                 ▼               ▼               ▼
+           ┌──────────┐    ┌──────────┐    ┌───────────┐
+           │ Research │    │   Plan   │    │ Implement │
+           │ Workflow │    │ Workflow │    │  Workflow │
+           └──────────┘    └──────────┘    └───────────┘
+                                 │
+                                 ▼
+                        ┌─────────────────┐
+                        │   Claude CLI    │
+                        │   (Executor)    │
+                        └─────────────────┘
 ```
 
 ## Capabilities
