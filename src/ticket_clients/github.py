@@ -1135,6 +1135,7 @@ class GitHubTicketClient:
                   body
                   state
                   merged
+                  headRefName
                 }
               }
             }
@@ -1171,6 +1172,7 @@ class GitHubTicketClient:
                         body=pr.get("body", ""),
                         state=pr["state"],
                         merged=pr.get("merged", False),
+                        branch_name=pr.get("headRefName"),
                     )
                 )
 
