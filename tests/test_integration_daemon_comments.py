@@ -1239,3 +1239,373 @@ class TestDaemonProcessCommentsForItem:
             assert call("IC_2", "EYES", repo="owner/repo") in calls
             assert call("IC_1", "THUMBS_UP", repo="owner/repo") in calls
             assert call("IC_2", "THUMBS_UP", repo="owner/repo") in calls
+
+
+@pytest.mark.integration
+class TestDaemonBackoff:
+    """Tests for daemon exponential backoff behavior using tenacity."""
+
+    @pytest.fixture
+    def mock_config(self, temp_workspace_dir):
+        """Fixture providing mock Config object."""
+        from src.config import Config
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        config = Config(
+            github_token="test_token",
+            project_urls=["https://github.com/orgs/test/projects/1"],
+            workspace_dir=temp_workspace_dir,
+            database_path=db_path,
+            poll_interval=60,
+            watched_statuses=["Research", "Plan", "Implement"],
+        )
+
+        yield config
+
+        Path(db_path).unlink(missing_ok=True)
+
+    @pytest.fixture
+    def daemon(self, mock_config):
+        """Fixture providing Daemon with mocked dependencies."""
+        daemon = Daemon(mock_config)
+        daemon.ticket_client = MagicMock()
+        # Also update the ticket_client reference in comment_processor
+        daemon.comment_processor.ticket_client = daemon.ticket_client
+        yield daemon
+        daemon.stop()
+
+    def test_backoff_increases_on_consecutive_failures(self, daemon):
+        """Test that backoff increases exponentially on failures using tenacity."""
+        wait_timeouts = []
+
+        # Mock Event.wait to track timeout values and return False (not interrupted)
+        def mock_wait(timeout=None):
+            wait_timeouts.append(timeout)
+            return False  # Not interrupted
+
+        # Fail twice then request shutdown on the second failure
+        call_count = [0]
+
+        def mock_poll():
+            call_count[0] += 1
+            if call_count[0] >= 2:
+                daemon._shutdown_requested = True
+            raise Exception("Simulated failure")
+
+        with (
+            patch.object(daemon, "_poll", side_effect=mock_poll),
+            patch.object(daemon, "_initialize_project_metadata"),
+            patch.object(daemon._shutdown_event, "wait", mock_wait),
+        ):
+            daemon.run()
+
+        # First failure: 2^1 = 2 seconds backoff
+        # Second failure: 2^2 = 4 seconds backoff (then shutdown detected on loop check)
+        # Uses Event.wait with the full timeout (not 1-second loops)
+        assert wait_timeouts == [2.0, 4.0]
+
+    def test_backoff_resets_on_success(self, daemon):
+        """Test that consecutive failure count resets after successful poll."""
+        wait_timeouts = []
+
+        def mock_wait(timeout=None):
+            wait_timeouts.append(timeout)
+            return False  # Not interrupted
+
+        # Fail once, succeed, fail once, then shutdown on the third failure
+        call_count = [0]
+
+        def mock_poll():
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise Exception("First failure")
+            elif call_count[0] == 2:
+                pass  # Success
+            elif call_count[0] == 3:
+                daemon._shutdown_requested = True
+                raise Exception("Third call failure triggers shutdown")
+
+        with (
+            patch.object(daemon, "_poll", side_effect=mock_poll),
+            patch.object(daemon, "_initialize_project_metadata"),
+            patch.object(daemon._shutdown_event, "wait", mock_wait),
+        ):
+            daemon.run()
+
+        # First failure: 2s backoff (consecutive_failures=1)
+        # Success: 60s poll interval wait (consecutive_failures reset to 0)
+        # Third failure: 2s backoff (consecutive_failures=1, reset after success)
+        assert wait_timeouts == [2.0, 60, 2.0]
+
+    def test_backoff_caps_at_maximum(self, daemon):
+        """Test that backoff caps at 300 seconds using tenacity."""
+        wait_timeouts = []
+
+        call_count = [0]
+
+        def mock_poll():
+            call_count[0] += 1
+            # Shutdown on the 10th call to get exactly 10 backoffs
+            if call_count[0] >= 10:
+                daemon._shutdown_requested = True
+            raise Exception("Simulated failure")
+
+        def mock_wait(timeout=None):
+            wait_timeouts.append(timeout)
+            return False  # Not interrupted
+
+        with (
+            patch.object(daemon, "_poll", side_effect=mock_poll),
+            patch.object(daemon, "_initialize_project_metadata"),
+            patch.object(daemon._shutdown_event, "wait", mock_wait),
+        ):
+            daemon.run()
+
+        # Expected backoffs: 2, 4, 8, 16, 32, 64, 128, 256, 300, 300
+        # (2^1 through 2^8=256, then capped at 300 by tenacity for 2^9=512 and beyond)
+        expected = [2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 300.0, 300.0]
+        assert wait_timeouts == expected
+
+    def test_backoff_interruptible_for_shutdown(self, daemon):
+        """Test that backoff sleep is interruptible during shutdown via Event."""
+        wait_count = [0]
+
+        def mock_poll():
+            raise Exception("Always fail")
+
+        def mock_wait(timeout=None):
+            wait_count[0] += 1
+            # Return True on first wait to indicate shutdown was signaled
+            return True
+
+        with (
+            patch.object(daemon, "_poll", side_effect=mock_poll),
+            patch.object(daemon, "_initialize_project_metadata"),
+            patch.object(daemon._shutdown_event, "wait", mock_wait),
+        ):
+            daemon.run()
+
+        # Should have only 1 wait call before shutdown was detected
+        assert wait_count[0] == 1
+
+
+# ============================================================================
+# YOLO Label Removal During Workflow Tests
+# ============================================================================
+
+
+@pytest.mark.integration
+class TestYoloLabelRemovalDuringWorkflow:
+    """Tests for YOLO label removal detection during workflow execution.
+
+    These tests verify that removing the YOLO label during a workflow
+    prevents automatic progression (auto-advance and failure handling).
+    """
+
+    @pytest.fixture
+    def daemon(self, temp_workspace_dir):
+        """Create a daemon instance for testing."""
+        config = MagicMock()
+        config.poll_interval = 60
+        config.watched_statuses = ["Research", "Plan", "Implement"]
+        config.max_concurrent_workflows = 2
+        config.database_path = f"{temp_workspace_dir}/test.db"
+        config.workspace_dir = temp_workspace_dir
+        config.project_urls = []
+        config.stage_models = {}
+
+        with patch("src.ticket_clients.github.GitHubTicketClient"):
+            daemon = Daemon(config)
+            daemon.ticket_client = MagicMock()
+            yield daemon
+            daemon.stop()
+
+    def test_yolo_auto_advance_cancelled_when_label_removed(self, daemon):
+        """Test that YOLO auto-advance is cancelled when label is removed during workflow.
+
+        Scenario:
+        1. Issue has YOLO label at poll time (in item.labels)
+        2. Workflow runs successfully
+        3. Before checking YOLO auto-advance, fresh labels are fetched
+        4. YOLO label was removed during workflow (not in fresh_labels)
+        5. Auto-advance should NOT happen
+        6. Log message should indicate cancellation
+        """
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="github.com/owner/repo",
+            status="Research",
+            title="Test YOLO Issue",
+            labels={Labels.YOLO},  # YOLO present at poll time
+        )
+
+        # Mock successful workflow completion
+        daemon._run_workflow = MagicMock()
+
+        # Mock worktree path exists
+        with patch("pathlib.Path.exists", return_value=True):
+            # Mock get_ticket_body to return valid research block
+            daemon.ticket_client.get_ticket_body.return_value = (
+                "Issue body\n<!-- kiln:research -->\nResearch content\n<!-- /kiln:research -->"
+            )
+
+            # Fresh labels do NOT contain YOLO (removed during workflow)
+            daemon.ticket_client.get_ticket_labels.return_value = {"bug", "enhancement"}
+
+            # Mock comments for timestamp update
+            daemon.ticket_client.get_comments.return_value = []
+
+            with patch("src.daemon.logger") as mock_logger:
+                daemon._process_item_workflow(item)
+
+                # Verify auto-advance was NOT called
+                daemon.ticket_client.update_item_status.assert_not_called()
+
+                # Verify cancellation was logged
+                mock_logger.info.assert_any_call(
+                    "YOLO: Cancelled auto-advance for github.com/owner/repo#42, "
+                    "label removed during workflow"
+                )
+
+    def test_yolo_auto_advance_works_when_label_present(self, daemon):
+        """Test that YOLO auto-advance works when label is still present.
+
+        Scenario:
+        1. Issue has YOLO label at poll time
+        2. Workflow runs successfully
+        3. Fresh labels still contain YOLO
+        4. Auto-advance SHOULD happen
+        """
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="github.com/owner/repo",
+            status="Research",
+            title="Test YOLO Issue",
+            labels={Labels.YOLO},  # YOLO present at poll time
+        )
+
+        # Mock successful workflow completion
+        daemon._run_workflow = MagicMock()
+
+        # Mock worktree path exists
+        with patch("pathlib.Path.exists", return_value=True):
+            # Mock get_ticket_body to return valid research block
+            daemon.ticket_client.get_ticket_body.return_value = (
+                "Issue body\n<!-- kiln:research -->\nResearch content\n<!-- /kiln:research -->"
+            )
+
+            # Fresh labels still contain YOLO
+            daemon.ticket_client.get_ticket_labels.return_value = {Labels.YOLO, "bug"}
+
+            # Mock comments for timestamp update
+            daemon.ticket_client.get_comments.return_value = []
+
+            daemon._process_item_workflow(item)
+
+            # Verify auto-advance WAS called (Research -> Plan)
+            daemon.ticket_client.update_item_status.assert_called_once_with(
+                "PVI_123", "Plan"
+            )
+
+    def test_yolo_failure_handling_skipped_when_label_removed(self, daemon):
+        """Test that YOLO failure handling is skipped when label is removed.
+
+        Scenario:
+        1. Issue has YOLO label at poll time
+        2. Workflow fails
+        3. Before handling YOLO failure, fresh labels are fetched
+        4. YOLO label was removed during workflow
+        5. yolo_failed label should NOT be added
+        6. Log message should indicate skipped handling
+        """
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="github.com/owner/repo",
+            status="Research",
+            title="Test YOLO Issue",
+            labels={Labels.YOLO},  # YOLO present at poll time
+        )
+
+        # Mock workflow failure
+        daemon._run_workflow = MagicMock(side_effect=Exception("Workflow failed"))
+
+        # Mock worktree path exists
+        with patch("pathlib.Path.exists", return_value=True):
+            # Fresh labels do NOT contain YOLO (removed during workflow)
+            daemon.ticket_client.get_ticket_labels.return_value = {"bug"}
+
+            with patch("src.daemon.logger") as mock_logger:
+                # Expect the exception to be re-raised
+                with pytest.raises(Exception, match="Workflow failed"):
+                    daemon._process_item_workflow(item)
+
+                # Verify yolo_failed was NOT added
+                add_label_calls = daemon.ticket_client.add_label.call_args_list
+                yolo_failed_calls = [
+                    c for c in add_label_calls if Labels.YOLO_FAILED in c[0]
+                ]
+                assert len(yolo_failed_calls) == 0
+
+                # Verify YOLO label was NOT removed (since it's already gone)
+                remove_label_calls = daemon.ticket_client.remove_label.call_args_list
+                yolo_remove_calls = [
+                    c for c in remove_label_calls if Labels.YOLO in c[0]
+                ]
+                # The only remove_label call should be for the running label, not YOLO
+                for call_args in yolo_remove_calls:
+                    assert call_args[0][2] != Labels.YOLO
+
+                # Verify skipped handling was logged
+                mock_logger.info.assert_any_call(
+                    "YOLO: Skipped failure handling for github.com/owner/repo#42, "
+                    "label removed during workflow"
+                )
+
+    def test_yolo_failure_handling_works_when_label_present(self, daemon):
+        """Test that YOLO failure handling works when label is still present.
+
+        Scenario:
+        1. Issue has YOLO label at poll time
+        2. Workflow fails
+        3. Fresh labels still contain YOLO
+        4. yolo label should be removed and yolo_failed should be added
+        """
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="github.com/owner/repo",
+            status="Research",
+            title="Test YOLO Issue",
+            labels={Labels.YOLO},  # YOLO present at poll time
+        )
+
+        # Mock workflow failure
+        daemon._run_workflow = MagicMock(side_effect=Exception("Workflow failed"))
+
+        # Mock worktree path exists
+        with patch("pathlib.Path.exists", return_value=True):
+            # Fresh labels still contain YOLO
+            daemon.ticket_client.get_ticket_labels.return_value = {Labels.YOLO, "bug"}
+
+            # Expect the exception to be re-raised
+            with pytest.raises(Exception, match="Workflow failed"):
+                daemon._process_item_workflow(item)
+
+            # Verify YOLO label was removed
+            daemon.ticket_client.remove_label.assert_any_call(
+                "github.com/owner/repo", 42, Labels.YOLO
+            )
+
+            # Verify yolo_failed label was added
+            daemon.ticket_client.add_label.assert_any_call(
+                "github.com/owner/repo", 42, Labels.YOLO_FAILED
+            )

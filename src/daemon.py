@@ -1424,7 +1424,7 @@ class Daemon:
                         logger.info(f"YOLO: Auto-advanced {key} from '{item.status}' to '{yolo_next}'")
                     else:
                         logger.info(
-                            f"YOLO: Skipping advancement for {key} - yolo label was removed during workflow"
+                            f"YOLO: Cancelled auto-advance for {key}, label removed during workflow"
                         )
 
             # After workflow completes, update last_processed_comment timestamp to skip
@@ -1456,11 +1456,19 @@ class Daemon:
                     logger.warning(f"Could not remove running label after failure: {label_err}")
 
             # YOLO mode failure: remove yolo label, add yolo_failed
+            # Fetch fresh labels to detect if YOLO was removed during workflow
             if Labels.YOLO in item.labels:
                 try:
-                    self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.YOLO)
-                    self.ticket_client.add_label(item.repo, item.ticket_id, Labels.YOLO_FAILED)
-                    logger.warning(f"YOLO: Workflow failed for {key}, cancelled auto-progression")
+                    fresh_labels = self.ticket_client.get_ticket_labels(item.repo, item.ticket_id)
+                    if Labels.YOLO in fresh_labels:
+                        self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.YOLO)
+                        self.ticket_client.add_label(item.repo, item.ticket_id, Labels.YOLO_FAILED)
+                        logger.warning(f"YOLO: Workflow failed for {key}, cancelled auto-progression")
+                    else:
+                        # YOLO label was removed during workflow, skip failure handling
+                        logger.info(
+                            f"YOLO: Skipped failure handling for {key}, label removed during workflow"
+                        )
                 except Exception as yolo_err:
                     logger.warning(f"Could not update YOLO labels after failure: {yolo_err}")
 

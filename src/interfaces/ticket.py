@@ -114,6 +114,18 @@ class TicketClient(Protocol):
         """Get the body/description of a ticket."""
         ...
 
+    def get_ticket_labels(self, repo: str, ticket_id: int) -> set[str]:
+        """Get the current labels on a ticket.
+
+        Args:
+            repo: Repository in hostname/owner/repo format
+            ticket_id: Issue number
+
+        Returns:
+            Set of label names currently on the ticket, empty set if issue does not exist
+        """
+        ...
+
     def add_label(self, repo: str, ticket_id: int, label: str) -> None:
         """Add a label to a ticket."""
         ...
