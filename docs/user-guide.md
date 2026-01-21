@@ -19,9 +19,14 @@ cd kiln
 kiln
 ```
 
-Kiln creates config folders and git worktrees in the current directory. Don't run it in your home folder.
+Kiln creates files in the current directory—don't run it in your home folder.
 
-On first run, kiln scaffolds `.kiln/config` and starts polling your project board.
+On first run, kiln creates:
+- `.kiln/config` — configuration file (you'll edit this next)
+- `.kiln/logs/` — log files
+- `workspaces/` — git worktrees for implementation
+
+It will error out until you configure the required fields.
 
 ### 2. Create a GitHub Token
 
