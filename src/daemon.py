@@ -498,6 +498,53 @@ class Daemon:
             self._hibernating = False
             logger.info("Exiting hibernation mode: connectivity restored")
 
+    def _check_github_connectivity(self) -> bool:
+        """Check if GitHub API is reachable for all configured project hosts.
+
+        Performs a lightweight connectivity check by calling validate_connection()
+        on each unique hostname extracted from configured project URLs. This is
+        used at the top of the main polling loop to detect network issues before
+        attempting any operations.
+
+        Returns:
+            True if all configured GitHub hosts are reachable.
+            False if any host is unreachable due to network errors.
+
+        Note:
+            This method catches NetworkError exceptions from the ticket client
+            and returns False. Other exceptions (auth errors, etc.) are allowed
+            to propagate since they indicate configuration issues, not transient
+            network problems.
+        """
+        # Import here to avoid circular imports
+        from src.ticket_clients.base import NetworkError
+
+        # Extract unique hostnames from project URLs
+        hostnames: set[str] = set()
+        for url in self.config.project_urls:
+            hostname = self._get_hostname_from_url(url)
+            hostnames.add(hostname)
+
+        if not hostnames:
+            logger.warning("No hostnames found in project URLs, skipping connectivity check")
+            return True
+
+        # Check connectivity for each unique hostname
+        for hostname in sorted(hostnames):
+            try:
+                self.ticket_client.validate_connection(hostname)
+            except NetworkError as e:
+                logger.warning(f"GitHub API unreachable for {hostname}: {e}")
+                return False
+            except Exception as e:
+                # Auth errors and other config issues should be logged but not
+                # trigger hibernation - they require manual intervention
+                logger.error(f"Connectivity check failed for {hostname}: {e}")
+                # Return True to skip hibernation - this isn't a network issue
+                return True
+
+        return True
+
     def run(self) -> None:
         """Start the polling loop.
 
