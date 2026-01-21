@@ -1691,7 +1691,7 @@ def main() -> None:
             log_file=config.log_file,
             log_size=config.log_size,
             log_backups=config.log_backups,
-            mask_ghes_logs=config.mask_ghes_logs,
+            ghes_logs_mask=config.ghes_logs_mask,
             ghes_host=config.github_enterprise_host,
             org_name=org_name,
         )

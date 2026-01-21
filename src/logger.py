@@ -309,7 +309,7 @@ def setup_logging(
     log_size: int = 10 * 1024 * 1024,
     log_backups: int = 50,
     daemon_mode: bool = False,
-    mask_ghes_logs: bool = False,
+    ghes_logs_mask: bool = False,
     ghes_host: str | None = None,
     org_name: str | None = None,
 ) -> None:
@@ -325,9 +325,9 @@ def setup_logging(
         log_backups: Number of backup files to keep. Default: 50
         daemon_mode: If True, log to file only (no stdout/stderr).
                      If False, log to both stdout/stderr and file.
-        mask_ghes_logs: If True, mask GHES hostname and org name in logs.
+        ghes_logs_mask: If True, mask GHES hostname and org name in logs.
         ghes_host: GitHub Enterprise Server hostname to mask. If None or
-                   "github.com", masking is disabled regardless of mask_ghes_logs.
+                   "github.com", masking is disabled regardless of ghes_logs_mask.
         org_name: Organization name to mask. Extracted from project URLs.
 
     Format: "[%(asctime)s] %(levelname)s %(threadName)s %(name)s: %(message)s"
@@ -340,7 +340,7 @@ def setup_logging(
 
     # Create masking filter if enabled and GHES is configured
     masking_filter = None
-    if mask_ghes_logs and ghes_host and ghes_host != "github.com":
+    if ghes_logs_mask and ghes_host and ghes_host != "github.com":
         masking_filter = MaskingFilter(ghes_host, org_name)
 
     # Create context-aware colored formatter (with optional masking)
