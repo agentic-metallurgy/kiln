@@ -1109,3 +1109,165 @@ class TestGHESConfiguration:
         assert config.github_enterprise_version == "3.18"
         assert config.github_enterprise_host == "github.mycompany.com"
         assert config.github_enterprise_token == "ghp_enterprise"
+
+
+@pytest.mark.unit
+class TestTeamUsernamesConfiguration:
+    """Tests for team usernames configuration (USERNAMES_TEAM)."""
+
+    def test_team_usernames_empty_by_default_env(self, monkeypatch):
+        """Test team_usernames defaults to empty list when USERNAMES_TEAM not set."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.delenv("USERNAMES_TEAM", raising=False)
+
+        config = load_config_from_env()
+
+        assert config.team_usernames == []
+
+    def test_team_usernames_single_member_env(self, monkeypatch):
+        """Test USERNAMES_TEAM parsing with single team member."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("USERNAMES_TEAM", "teammate1")
+
+        config = load_config_from_env()
+
+        assert config.team_usernames == ["teammate1"]
+
+    def test_team_usernames_multiple_members_env(self, monkeypatch):
+        """Test USERNAMES_TEAM parsing with multiple team members."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("USERNAMES_TEAM", "alice,bob,charlie")
+
+        config = load_config_from_env()
+
+        assert config.team_usernames == ["alice", "bob", "charlie"]
+
+    def test_team_usernames_strips_whitespace_env(self, monkeypatch):
+        """Test USERNAMES_TEAM parsing strips whitespace around usernames."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("USERNAMES_TEAM", "  alice  ,  bob  ,  charlie  ")
+
+        config = load_config_from_env()
+
+        assert config.team_usernames == ["alice", "bob", "charlie"]
+
+    def test_team_usernames_ignores_empty_entries_env(self, monkeypatch):
+        """Test USERNAMES_TEAM parsing ignores empty entries (e.g., from trailing comma)."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("USERNAMES_TEAM", "alice,,bob,")
+
+        config = load_config_from_env()
+
+        assert config.team_usernames == ["alice", "bob"]
+
+    def _write_config(self, tmp_path, content):
+        """Helper to write a config file."""
+        config_file = tmp_path / "config"
+        config_file.write_text(content)
+        return config_file
+
+    def test_team_usernames_from_file(self, tmp_path, monkeypatch):
+        """Test USERNAMES_TEAM parsing from config file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser\n"
+            "USERNAMES_TEAM=teammate1,teammate2,teammate3",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.team_usernames == ["teammate1", "teammate2", "teammate3"]
+
+    def test_team_usernames_empty_by_default_file(self, tmp_path, monkeypatch):
+        """Test team_usernames defaults to empty list when USERNAMES_TEAM not in file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.team_usernames == []
+
+    def test_team_usernames_strips_whitespace_file(self, tmp_path, monkeypatch):
+        """Test USERNAMES_TEAM parsing strips whitespace from file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser\n"
+            "USERNAMES_TEAM=  alice  ,  bob  ",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.team_usernames == ["alice", "bob"]
+
+
+@pytest.mark.unit
+class TestBackwardIncompatibility:
+    """Tests ensuring ALLOWED_USERNAME is no longer supported (clean break)."""
+
+    def test_allowed_username_not_accepted_env(self, monkeypatch):
+        """Test that ALLOWED_USERNAME alone does not configure the username.
+
+        The config module no longer supports ALLOWED_USERNAME. Only USERNAME_SELF
+        is accepted. Using ALLOWED_USERNAME should result in a missing USERNAME_SELF error.
+        """
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("ALLOWED_USERNAME", "olduser")  # Old config option
+        monkeypatch.delenv("USERNAME_SELF", raising=False)
+
+        with pytest.raises(ValueError, match="USERNAME_SELF environment variable is required"):
+            load_config_from_env()
+
+    def test_allowed_username_not_accepted_file(self, tmp_path, monkeypatch):
+        """Test that ALLOWED_USERNAME in config file does not configure the username.
+
+        The config module no longer supports ALLOWED_USERNAME. Only USERNAME_SELF
+        is accepted. Using ALLOWED_USERNAME should result in a missing USERNAME_SELF error.
+        """
+        config_file = tmp_path / "config"
+        config_file.write_text(
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "ALLOWED_USERNAME=olduser"  # Old config option
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        with pytest.raises(ValueError, match="USERNAME_SELF is required"):
+            load_config_from_file(config_file)
+
+    def test_allowed_username_ignored_when_username_self_present(self, monkeypatch):
+        """Test that ALLOWED_USERNAME is ignored when USERNAME_SELF is also set.
+
+        Even if ALLOWED_USERNAME is present, it has no effect - only USERNAME_SELF
+        is used for the username configuration.
+        """
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "newuser")
+        monkeypatch.setenv("ALLOWED_USERNAME", "olduser")  # Should be ignored
+
+        config = load_config_from_env()
+
+        assert config.username_self == "newuser"
+        assert not hasattr(config, "allowed_username")
