@@ -11,14 +11,17 @@ brew tap agentic-metallurgy/tap
 brew install kiln
 ```
 
-Then create a dedicated folder for kiln to work in:
+Then create a dedicated folder and start kiln:
 
 ```bash
 mkdir kiln
 cd kiln
+kiln
 ```
 
 Kiln creates config folders and git worktrees in the current directory. Don't run it in your home folder.
+
+On first run, kiln scaffolds `.kiln/config` and starts polling your project board.
 
 ### 2. Create a GitHub Token
 
@@ -43,7 +46,7 @@ Create a **Classic** Personal Access Token (not fine-grained) with exactly these
 
 ### 4. Configure
 
-On first run, kiln creates `.kiln/config`. Edit it:
+Edit `.kiln/config`:
 
 ```bash
 # Required
@@ -66,16 +69,6 @@ GITHUB_ENTERPRISE_VERSION=3.19
 ```
 
 ⚠️ github.com and GHES are mutually exclusive. A single kiln instance cannot connect to both—run separate instances if needed.
-
-### 5. Start
-
-From your kiln folder:
-
-```bash
-kiln
-```
-
-Kiln polls your project board and processes issues based on their status.
 
 ---
 
