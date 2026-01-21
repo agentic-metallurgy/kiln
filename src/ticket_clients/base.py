@@ -16,6 +16,31 @@ from src.logger import get_logger, is_debug_mode
 logger = get_logger(__name__)
 
 
+class NetworkError(Exception):
+    """Raised when a GitHub API call fails due to network connectivity issues.
+
+    This exception is used to distinguish transient network errors (TLS timeouts,
+    connection refused, etc.) from permanent failures (auth errors, invalid requests).
+    The daemon uses this to trigger hibernation mode when GitHub API connectivity
+    is lost.
+
+    Examples of network errors that should raise this exception:
+    - TLS handshake timeout
+    - Connection timeout
+    - Connection refused
+    - Temporary DNS failures
+    - I/O timeout
+
+    This exception should NOT be raised for:
+    - Authentication errors (bad token, expired token)
+    - Permission errors (insufficient scopes)
+    - Invalid API requests (bad query, missing fields)
+    - Rate limiting (has its own handling)
+    """
+
+    pass
+
+
 class GitHubClientBase:
     """Base class for GitHub clients with shared functionality.
 
