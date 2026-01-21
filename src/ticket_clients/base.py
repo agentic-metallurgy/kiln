@@ -1366,6 +1366,50 @@ class GitHubClientBase:
 
         return re.sub(pattern, replace_fn, body, flags=re.IGNORECASE)
 
+    def close_pr(self, repo: str, pr_number: int) -> bool:
+        """Close a pull request without merging.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: PR number to close
+
+        Returns:
+            True if PR was closed successfully, False otherwise
+        """
+        repo_ref = self._get_repo_ref(repo)
+        try:
+            self._run_gh_command(["pr", "close", str(pr_number), "--repo", repo_ref], repo=repo)
+            logger.info(f"Closed PR #{pr_number} in {repo}")
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Failed to close PR #{pr_number} in {repo}: {e.stderr}")
+            return False
+
+    def delete_branch(self, repo: str, branch_name: str) -> bool:
+        """Delete a remote branch.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            branch_name: Name of the branch to delete
+
+        Returns:
+            True if branch was deleted successfully, False otherwise
+        """
+        from urllib.parse import quote
+
+        _, owner, repo_name = self._parse_repo(repo)
+        hostname = self._get_hostname_for_repo(repo)
+        # URL-encode branch name to handle slashes (e.g., feature/my-feature)
+        encoded_branch = quote(branch_name, safe="")
+        endpoint = f"repos/{owner}/{repo_name}/git/refs/heads/{encoded_branch}"
+        try:
+            self._run_gh_command(["api", endpoint, "-X", "DELETE"], hostname=hostname)
+            logger.info(f"Deleted branch '{branch_name}' in {repo}")
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Failed to delete branch '{branch_name}' in {repo}: {e.stderr}")
+            return False
+
     # Internal helpers
 
     def _parse_board_url(self, board_url: str) -> tuple[str, str, str, int]:
