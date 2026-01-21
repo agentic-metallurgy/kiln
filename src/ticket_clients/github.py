@@ -13,6 +13,7 @@ from typing import Any
 
 from src.interfaces import Comment, LinkedPullRequest, TicketItem
 from src.logger import get_logger, is_debug_mode
+from src.ticket_clients.base import NetworkError
 
 logger = get_logger(__name__)
 
@@ -1895,8 +1896,23 @@ class GitHubTicketClient:
         except subprocess.CalledProcessError as e:
             logger.error(f"Command failed with exit code {e.returncode}")
             logger.error(f"Error output: {e.stderr}")
-            # Check for authentication errors and provide user-friendly message
             error_output = (e.stderr or "").lower()
+
+            # Check for network/connectivity errors first
+            network_error_patterns = [
+                "tls handshake timeout",
+                "connection timeout",
+                "network error",
+                "connection refused",
+                "temporary failure",
+                "i/o timeout",
+                "dial tcp",  # Go network dial errors
+                "no such host",  # DNS resolution failures
+            ]
+            if any(pattern in error_output for pattern in network_error_patterns):
+                raise NetworkError(f"GitHub API network error: {e.stderr}") from e
+
+            # Check for authentication errors and provide user-friendly message
             if any(
                 indicator in error_output
                 for indicator in [
