@@ -9,6 +9,8 @@ A polling-based daemon that monitors GitHub Project Kanban boards and orchestrat
 - GitHub PAT (classic) with scopes: `repo`, `project`, `read:org` ONLY (will error out on missing or excessive scopes—**security first**: ONLY least-privilege tokens allowed)
 - A GitHub Project Kanban board configured as described below
 
+> **Note:** Kiln automatically configures git to use `gh` CLI for HTTPS authentication by setting a credential helper in your global git config. This eliminates the need to run `gh auth setup-git` manually.
+
 ## Quick Start
 
 ### 🔥 Create your GitHub Project Kanban Board
