@@ -3101,3 +3101,49 @@ class TestGetIssueLabels:
             assert variables["owner"] == "test-owner"
             assert variables["repo"] == "test-repo"
             assert variables["issueNumber"] == 123
+
+
+@pytest.mark.unit
+class TestGHES316Client:
+    """Tests for GitHubEnterprise316Client."""
+
+    def test_get_github_client_returns_ghes_316_client(self):
+        """Test that get_github_client returns GitHubEnterprise316Client for version 3.16."""
+        from src.ticket_clients import GitHubEnterprise316Client, get_github_client
+
+        client = get_github_client(enterprise_version="3.16")
+        assert isinstance(client, GitHubEnterprise316Client)
+
+    def test_client_description_returns_expected_value(self):
+        """Test that client_description returns 'GitHub Enterprise Server 3.16'."""
+        from src.ticket_clients import GitHubEnterprise316Client
+
+        client = GitHubEnterprise316Client()
+        assert client.client_description == "GitHub Enterprise Server 3.16"
+
+    def test_ghes_316_inherits_from_ghes_314(self):
+        """Test that GitHubEnterprise316Client inherits from GitHubEnterprise314Client."""
+        from src.ticket_clients import GitHubEnterprise314Client, GitHubEnterprise316Client
+
+        assert issubclass(GitHubEnterprise316Client, GitHubEnterprise314Client)
+
+    def test_supports_linked_prs_property(self):
+        """Test that supports_linked_prs returns True (inherited from GHES 3.14)."""
+        from src.ticket_clients import GitHubEnterprise316Client
+
+        client = GitHubEnterprise316Client()
+        assert client.supports_linked_prs is True
+
+    def test_supports_sub_issues_property(self):
+        """Test that supports_sub_issues returns False (inherited from GHES 3.14)."""
+        from src.ticket_clients import GitHubEnterprise316Client
+
+        client = GitHubEnterprise316Client()
+        assert client.supports_sub_issues is False
+
+    def test_supports_status_actor_check_property(self):
+        """Test that supports_status_actor_check returns True (inherited from GHES 3.14)."""
+        from src.ticket_clients import GitHubEnterprise316Client
+
+        client = GitHubEnterprise316Client()
+        assert client.supports_status_actor_check is True
