@@ -919,10 +919,14 @@ class TestImplementWorkflow:
         assert mock_run.call_count == 2
 
     def test_execute_max_iterations_based_on_task_count(self, workflow_context):
-        """Test that execute() sets max_iterations based on TASK count in PR body."""
+        """Test that execute() sets max_iterations based on TASK count in PR body.
+
+        With no progress made, stall detection raises ImplementationIncompleteError.
+        """
         from unittest.mock import MagicMock, patch
 
         from src.config import Config
+        from src.workflows.implement import ImplementationIncompleteError
 
         workflow = ImplementWorkflow()
 
@@ -955,22 +959,27 @@ class TestImplementWorkflow:
         with (
             patch.object(workflow, "_get_pr_for_issue", return_value=pr_info),
             patch.object(workflow, "_run_prompt", side_effect=mock_run_prompt),
+            pytest.raises(ImplementationIncompleteError) as exc_info,
         ):
             workflow.execute(workflow_context, mock_config)
 
         # With 3 TASKs, loop continues indefinitely until stall detection kicks in
         # Iteration 1: 0/3 complete, last_completed=-1, no stall (stall_count stays 0), run prompt, last_completed=0
         # Iteration 2: 0/3 complete, last_completed=0, stall_count=1, run prompt
-        # Iteration 3: 0/3 complete, last_completed=0, stall_count=2 (>=MAX_STALL_COUNT), exit BEFORE running
+        # Iteration 3: 0/3 complete, last_completed=0, stall_count=2 (>=MAX_STALL_COUNT), raises exception BEFORE running
         # So 2 iterations run (stall detected on iteration 3 before running)
-        assert iterations_run["count"] == 2  # Exits due to stall detection
+        assert iterations_run["count"] == 2
+        assert exc_info.value.reason == "stall"
 
     def test_execute_stall_detection(self, workflow_context):
-        """Test that execute() exits after MAX_STALL_COUNT iterations with no progress."""
+        """Test that execute() raises ImplementationIncompleteError after MAX_STALL_COUNT iterations with no progress."""
         from unittest.mock import MagicMock, patch
 
         from src.config import Config
-        from src.workflows.implement import MAX_STALL_COUNT
+        from src.workflows.implement import (
+            MAX_STALL_COUNT,
+            ImplementationIncompleteError,
+        )
 
         workflow = ImplementWorkflow()
 
@@ -1009,15 +1018,17 @@ class TestImplementWorkflow:
         with (
             patch.object(workflow, "_get_pr_for_issue", return_value=pr_info),
             patch.object(workflow, "_run_prompt", side_effect=mock_run_prompt),
+            pytest.raises(ImplementationIncompleteError) as exc_info,
         ):
             workflow.execute(workflow_context, mock_config)
 
         # Loop continues indefinitely until stall detection:
         # Iteration 1: completed=1, last_completed=-1, no stall (stall_count stays 0), run prompt, last_completed=1
         # Iteration 2: completed=1, last_completed=1, stall_count=1, run prompt
-        # Iteration 3: completed=1, last_completed=1, stall_count=2 (>=MAX_STALL_COUNT), exit BEFORE running
+        # Iteration 3: completed=1, last_completed=1, stall_count=2 (>=MAX_STALL_COUNT), raises exception BEFORE running
         # So MAX_STALL_COUNT iterations run (stall detected on iteration 3 before running)
         assert iterations_run["count"] == MAX_STALL_COUNT
+        assert exc_info.value.reason == "stall"
 
     def test_execute_completion_detection(self, workflow_context):
         """Test that execute() exits and marks PR ready when all checkboxes complete."""
@@ -1117,6 +1128,7 @@ class TestImplementWorkflow:
         mock_config = MagicMock(spec=Config)
         mock_config.stage_models = {"implement": "sonnet"}
         mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 0
 
         # PR with no checkbox tasks
         pr_info = {
@@ -1140,8 +1152,12 @@ Some other content here.
         assert exc_info.value.reason == "no_tasks"
         assert "No checkbox tasks found" in str(exc_info.value)
 
-    def test_execute_max_iterations_raises_error(self, workflow_context):
-        """Test that execute() raises ImplementationIncompleteError when max iterations hit."""
+    def test_execute_stall_raises_error(self, workflow_context):
+        """Test that execute() raises ImplementationIncompleteError when no progress made.
+
+        With the current implementation, stall detection (reason="stall") triggers before
+        max_iterations check when no progress is made, since MAX_STALL_COUNT=2 is reached first.
+        """
         from unittest.mock import MagicMock, patch
 
         from src.config import Config
@@ -1152,36 +1168,23 @@ Some other content here.
         mock_config = MagicMock(spec=Config)
         mock_config.stage_models = {"implement": "sonnet"}
         mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 0
 
-        # PR with 1 TASK, so max_iterations=1
-        # The implementation makes progress each iteration (to avoid stall detection)
-        # but never completes all tasks
-        call_count = {"value": 0}
-
-        def mock_get_pr_max_iter(*_args, **_kwargs):
-            # Each call, one more task is completed but new tasks appear
-            call_count["value"] += 1
-            if call_count["value"] == 1:
-                # Initial check
-                return {
-                    "number": 42,
-                    "body": "Closes #42\n\n## TASK 1: Test\n- [ ] Task 1",
-                }
-            # After running, still have incomplete tasks
-            return {
-                "number": 42,
-                "body": "Closes #42\n\n## TASK 1: Test\n- [ ] Task 1",
-            }
+        # PR with 1 TASK that never makes progress
+        pr_info = {
+            "number": 42,
+            "body": "Closes #42\n\n## TASK 1: Test\n- [ ] Task 1",
+        }
 
         with (
-            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr_max_iter),
+            patch.object(workflow, "_get_pr_for_issue", return_value=pr_info),
             patch.object(workflow, "_run_prompt"),
             pytest.raises(ImplementationIncompleteError) as exc_info,
         ):
             workflow.execute(workflow_context, mock_config)
 
-        assert exc_info.value.reason == "max_iterations"
-        assert "Hit max iterations" in str(exc_info.value)
+        assert exc_info.value.reason == "stall"
+        assert "No progress" in str(exc_info.value)
 
     def test_execute_continues_past_max_iterations_when_progress_made(self, workflow_context):
         """Test that execute() continues past max_iterations when progress is made."""
@@ -1249,12 +1252,15 @@ Some other content here.
         """Test stall detection after continuing past max_iterations (Scenario 1).
 
         Scenario: PR has 3 TASKs, 2 completed, 1 never completes.
-        The loop should continue past max_iterations=3 but eventually stall.
+        The loop should continue past max_iterations=3 but eventually stall and raise exception.
         """
         from unittest.mock import MagicMock, patch
 
         from src.config import Config
-        from src.workflows.implement import MAX_STALL_COUNT
+        from src.workflows.implement import (
+            MAX_STALL_COUNT,
+            ImplementationIncompleteError,
+        )
 
         workflow = ImplementWorkflow()
 
@@ -1287,14 +1293,16 @@ Some other content here.
         with (
             patch.object(workflow, "_get_pr_for_issue", return_value=pr_info),
             patch.object(workflow, "_run_prompt", side_effect=mock_run_prompt),
+            pytest.raises(ImplementationIncompleteError) as exc_info,
         ):
             workflow.execute(workflow_context, mock_config)
 
         # Iteration 1: 2/3 complete, last_completed=-1, no stall (progress!), run prompt, last=2
         # Iteration 2: 2/3 complete, last_completed=2, stall_count=1, run prompt
-        # Iteration 3: 2/3 complete, last_completed=2, stall_count=2 (>=MAX_STALL_COUNT), exit BEFORE running
+        # Iteration 3: 2/3 complete, last_completed=2, stall_count=2 (>=MAX_STALL_COUNT), raises exception BEFORE running
         # So MAX_STALL_COUNT iterations run
         assert iterations_run["count"] == MAX_STALL_COUNT
+        assert exc_info.value.reason == "stall"
 
     def test_execute_successful_overrun(self, workflow_context):
         """Test successful completion after continuing past max_iterations (Scenario 2).
