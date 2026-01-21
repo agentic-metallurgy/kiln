@@ -1919,6 +1919,109 @@ class TestDeleteBranch:
 
 
 @pytest.mark.unit
+class TestGetPrState:
+    """Tests for GitHubTicketClient.get_pr_state() method."""
+
+    def test_get_pr_state_returns_open(self, github_client):
+        """Test that OPEN state is returned for an open PR."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "state": "OPEN",
+                        "merged": False,
+                    }
+                }
+            }
+        }
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            result = github_client.get_pr_state("github.com/owner/repo", 123)
+
+        assert result == "OPEN"
+
+    def test_get_pr_state_returns_closed(self, github_client):
+        """Test that CLOSED state is returned for a closed PR."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "state": "CLOSED",
+                        "merged": False,
+                    }
+                }
+            }
+        }
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            result = github_client.get_pr_state("github.com/owner/repo", 123)
+
+        assert result == "CLOSED"
+
+    def test_get_pr_state_returns_merged(self, github_client):
+        """Test that MERGED state is returned for a merged PR."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "state": "CLOSED",
+                        "merged": True,
+                    }
+                }
+            }
+        }
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            result = github_client.get_pr_state("github.com/owner/repo", 123)
+
+        assert result == "MERGED"
+
+    def test_get_pr_state_returns_none_when_pr_not_found(self, github_client):
+        """Test that None is returned when PR doesn't exist."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "pullRequest": None
+                }
+            }
+        }
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            result = github_client.get_pr_state("github.com/owner/repo", 999)
+
+        assert result is None
+
+    def test_get_pr_state_returns_none_on_error(self, github_client):
+        """Test that None is returned on API error (fail-safe)."""
+        with patch.object(
+            github_client, "_execute_graphql_query", side_effect=Exception("API error")
+        ):
+            result = github_client.get_pr_state("github.com/owner/repo", 123)
+
+        assert result is None
+
+    def test_get_pr_state_queries_correct_repo(self, github_client):
+        """Test that the correct repo is queried."""
+        mock_response = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "state": "OPEN",
+                        "merged": False,
+                    }
+                }
+            }
+        }
+        with patch.object(
+            github_client, "_execute_graphql_query", return_value=mock_response
+        ) as mock_query:
+            github_client.get_pr_state("github.com/myorg/myrepo", 456)
+
+        # Check the variables passed to the query
+        call_args = mock_query.call_args
+        variables = call_args[0][1]
+        assert variables["owner"] == "myorg"
+        assert variables["repo"] == "myrepo"
+        assert variables["prNumber"] == 456
+
+
+@pytest.mark.unit
 class TestLinkedPullRequest:
     """Tests for LinkedPullRequest dataclass."""
 

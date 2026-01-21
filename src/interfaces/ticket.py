@@ -232,3 +232,18 @@ class TicketClient(Protocol):
             True if branch was deleted successfully, False otherwise
         """
         ...
+
+    def get_pr_state(self, repo: str, pr_number: int) -> str | None:
+        """Get the current state of a pull request.
+
+        Fetches fresh state from the GitHub API for validation purposes.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: PR number to check
+
+        Returns:
+            PR state string: "OPEN", "CLOSED", or "MERGED"
+            None on error (fail-safe - don't block workflow)
+        """
+        ...
