@@ -546,19 +546,29 @@ class Daemon:
         return True
 
     def run(self) -> None:
-        """Start the polling loop.
+        """Start the polling loop with hibernation mode support.
 
         This method runs continuously, polling the GitHub project board
         at regular intervals until stopped or a shutdown signal is received.
 
-        Uses tenacity's wait_exponential for calculating backoff times on failures.
+        Before each poll cycle, a health check validates GitHub API connectivity.
+        If the health check fails, the daemon enters hibernation mode and re-checks
+        connectivity every HIBERNATION_INTERVAL seconds until restored.
+
+        Uses tenacity's wait_exponential for calculating backoff times on non-network
+        failures.
         """
+        # Import here to avoid circular imports
+        from src.ticket_clients.base import NetworkError
+
         # Configure exponential backoff using tenacity (2, 4, 8, 16... up to 300s)
         # We use tenacity's wait_exponential class to compute backoff durations
+        # This is only used for non-network errors; network errors use hibernation
         backoff_strategy = wait_exponential(multiplier=1, min=2, max=300)
 
         logger.debug("Starting daemon polling loop")
         logger.debug(f"Polling interval: {self.config.poll_interval} seconds")
+        logger.debug(f"Hibernation check interval: {self.HIBERNATION_INTERVAL} seconds")
         logger.debug(f"Watching statuses: {self.config.watched_statuses}")
 
         # Initialize project metadata cache on startup
@@ -569,9 +579,37 @@ class Daemon:
 
         try:
             while self._running and not self._shutdown_requested:
+                # HEALTH CHECK: Validate GitHub API connectivity before polling
+                if not self._check_github_connectivity():
+                    # GitHub API unreachable - enter hibernation mode
+                    if not self._hibernating:
+                        self._enter_hibernation("GitHub API unreachable")
+
+                    logger.info(
+                        f"Hibernating for {self.HIBERNATION_INTERVAL}s "
+                        f"(re-checking connectivity)..."
+                    )
+
+                    # Sleep for hibernation interval, then re-check connectivity
+                    if self._shutdown_event.wait(timeout=self.HIBERNATION_INTERVAL):
+                        break  # Shutdown requested during hibernation
+                    continue  # Loop back to health check
+
+                # Connectivity restored or was never lost
+                if self._hibernating:
+                    self._exit_hibernation()
+
+                # Reset consecutive failures after successful connectivity check
+                # (hibernation handles network issues separately)
+
+                # Health check passed - proceed with normal poll cycle
                 try:
                     self._poll()
                     consecutive_failures = 0  # Reset on success
+                except NetworkError as e:
+                    # Network error during poll - will trigger hibernation on next loop
+                    logger.warning(f"Network error during poll: {e}")
+                    continue  # Loop back to health check
                 except Exception as e:
                     consecutive_failures += 1
                     # Calculate backoff using tenacity's exponential formula:
