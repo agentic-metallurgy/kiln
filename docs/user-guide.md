@@ -1,6 +1,6 @@
 # Kiln User Guide
 
-🎯 ← these indicate deliberate design decisions that may be unexpected. Long explanations at the very end.
+🎯 ← these indicate deliberate design decisions that may be unexpected.
 
 Kiln is a GitHub automation daemon that uses Claude to research, plan, and implement issues from your project board.
 
@@ -29,7 +29,7 @@ On first run, kiln creates:
 - `.kiln/commands/`, `.kiln/agents/`, `.kiln/skills/` — Claude workflow files
 - `workspaces/` — git worktrees for implementation
 
-The workflow files are copied to `~/.claude/{commands,agents,skills}`. All kiln files are prefixed with `kiln-` to avoid overwriting your global commands. Kiln never removes existing files.
+🎯 The workflow files are copied to `~/.claude/{commands,agents,skills}`. All kiln files are prefixed with `kiln-` to avoid overwriting your global commands. Kiln never removes existing files.
 
 It will error out until you configure the required fields.
 
@@ -43,7 +43,7 @@ Create a **Classic** Personal Access Token (not fine-grained) with exactly these
 | `project` | Move issues between board columns |
 | `read:org` | Read org membership for project access |
 
-⚠️ Kiln validates scopes strictly—missing or extra scopes will error. This is intentional for least privilege.
+⚠️🎯 Kiln validates scopes strictly—missing or extra scopes will error. This is intentional for least privilege.
 
 ### 3. Prepare Your Project Board
 
@@ -83,7 +83,7 @@ GITHUB_ENTERPRISE_TOKEN=ghp_your_token_here
 GITHUB_ENTERPRISE_VERSION=3.19
 ```
 
-⚠️ github.com and GHES are mutually exclusive. A single kiln instance cannot connect to both—run separate instances if needed.
+⚠️🎯 github.com and GHES are mutually exclusive. A single kiln instance cannot connect to both—run separate instances if needed.
 
 ---
 
@@ -151,7 +151,7 @@ Claude:
 
 Claude:
 1. Creates a git worktree for the issue
-2. Executes TASKs in a loop, one at a time (max iterations = number of TASKs, with failsafes to catch infinite loops)
+2. Executes TASKs in a ralph loop, one at a time (max iterations = number of TASKs, with failsafes to catch infinite loops)
 3. Commits changes and opens a PR
 4. Links the PR to the issue
 
@@ -159,7 +159,7 @@ Claude:
 
 **Next**: Automatically moves to Validate when done
 
-### Comment Iteration (Research & Plan only)
+### 🔄 Comment Iteration (Research & Plan only)
 
 During Research or Plan, you can leave comments to request changes:
 
@@ -167,7 +167,7 @@ During Research or Plan, you can leave comments to request changes:
 2. Claude edits the relevant section in-place
 3. A diff of changes is posted as a reply
 
-Comment iteration is disabled during Implement to keep PRs clean and prevent vibe coding at the end. Checkout the PR branch and do the last mile fix locally.
+🎯 Comment iteration is disabled during Implement to keep PRs clean and prevent vibe coding at the end. Checkout the PR branch and do the last mile fix locally.
 
 ---
 
