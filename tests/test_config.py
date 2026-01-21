@@ -301,6 +301,62 @@ class TestLoadConfig:
 
         assert config.claude_code_enable_telemetry is False
 
+    # Tests for MASK_GHES_LOGS
+
+    def test_load_config_mask_ghes_logs_default(self, monkeypatch):
+        """Test mask_ghes_logs defaults to True when not specified."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.delenv("MASK_GHES_LOGS", raising=False)
+
+        config = load_config_from_env()
+
+        assert config.mask_ghes_logs is True
+
+    def test_load_config_mask_ghes_logs_explicit_true(self, monkeypatch):
+        """Test mask_ghes_logs parses 'true' as True."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("MASK_GHES_LOGS", "true")
+
+        config = load_config_from_env()
+
+        assert config.mask_ghes_logs is True
+
+    def test_load_config_mask_ghes_logs_explicit_false(self, monkeypatch):
+        """Test mask_ghes_logs parses 'false' as False."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+        monkeypatch.setenv("MASK_GHES_LOGS", "false")
+
+        config = load_config_from_env()
+
+        assert config.mask_ghes_logs is False
+
+    def test_load_config_mask_ghes_logs_case_insensitive(self, monkeypatch):
+        """Test mask_ghes_logs parsing is case-insensitive."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+
+        # Test uppercase TRUE
+        monkeypatch.setenv("MASK_GHES_LOGS", "TRUE")
+        config = load_config_from_env()
+        assert config.mask_ghes_logs is True
+
+        # Test mixed case False
+        monkeypatch.setenv("MASK_GHES_LOGS", "False")
+        config = load_config_from_env()
+        assert config.mask_ghes_logs is False
+
+        # Test mixed case True
+        monkeypatch.setenv("MASK_GHES_LOGS", "True")
+        config = load_config_from_env()
+        assert config.mask_ghes_logs is True
+
     # Tests for ALLOWED_USERNAME
 
     def test_load_config_missing_allowed_username(self, monkeypatch):
@@ -627,6 +683,47 @@ class TestLoadConfigFromFile:
         config = load_config_from_file(config_file)
 
         assert config.max_concurrent_workflows == 5
+
+    def test_load_config_from_file_mask_ghes_logs_default(self, tmp_path, monkeypatch):
+        """Test mask_ghes_logs defaults to True when not specified in file."""
+        config_file = self._write_minimal_config(tmp_path)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.mask_ghes_logs is True
+
+    def test_load_config_from_file_mask_ghes_logs_true(self, tmp_path, monkeypatch):
+        """Test MASK_GHES_LOGS=true parsing from config file."""
+        config_file = self._write_minimal_config(tmp_path, "MASK_GHES_LOGS=true")
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.mask_ghes_logs is True
+
+    def test_load_config_from_file_mask_ghes_logs_false(self, tmp_path, monkeypatch):
+        """Test MASK_GHES_LOGS=false parsing from config file."""
+        config_file = self._write_minimal_config(tmp_path, "MASK_GHES_LOGS=false")
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.mask_ghes_logs is False
+
+    def test_load_config_from_file_mask_ghes_logs_case_insensitive(self, tmp_path, monkeypatch):
+        """Test MASK_GHES_LOGS parsing is case-insensitive in file."""
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        # Test uppercase TRUE
+        config_file = self._write_minimal_config(tmp_path, "MASK_GHES_LOGS=TRUE")
+        config = load_config_from_file(config_file)
+        assert config.mask_ghes_logs is True
+
+        # Test mixed case False
+        config_file = self._write_minimal_config(tmp_path, "MASK_GHES_LOGS=False")
+        config = load_config_from_file(config_file)
+        assert config.mask_ghes_logs is False
 
 
 @pytest.mark.unit
