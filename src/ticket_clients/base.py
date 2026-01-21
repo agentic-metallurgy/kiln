@@ -1410,6 +1410,58 @@ class GitHubClientBase:
             logger.warning(f"Failed to delete branch '{branch_name}' in {repo}: {e.stderr}")
             return False
 
+    def get_pr_state(self, repo: str, pr_number: int) -> str | None:
+        """Get the current state of a pull request.
+
+        Fetches fresh state from the GitHub API for validation purposes.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: PR number to check
+
+        Returns:
+            PR state string: "OPEN", "CLOSED", or "MERGED"
+            None on error (fail-safe - don't block workflow)
+        """
+        _, owner, repo_name = self._parse_repo(repo)
+
+        query = """
+        query($owner: String!, $repo: String!, $prNumber: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $prNumber) {
+              state
+              merged
+            }
+          }
+        }
+        """
+
+        try:
+            response = self._execute_graphql_query(
+                query,
+                {
+                    "owner": owner,
+                    "repo": repo_name,
+                    "prNumber": pr_number,
+                },
+                repo=repo,
+            )
+
+            pr_data = response.get("data", {}).get("repository", {}).get("pullRequest")
+            if not pr_data:
+                logger.warning(f"Could not find PR {repo}#{pr_number}")
+                return None
+
+            # GitHub API returns state as OPEN, CLOSED, or MERGED
+            # But we also check the merged field for clarity
+            if pr_data.get("merged"):
+                return "MERGED"
+            return pr_data.get("state")
+
+        except Exception as e:
+            logger.warning(f"Failed to get PR state for {repo}#{pr_number}: {e}")
+            return None
+
     # Internal helpers
 
     def _parse_board_url(self, board_url: str) -> tuple[str, str, str, int]:
