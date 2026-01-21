@@ -47,10 +47,15 @@ Create a **Classic** Personal Access Token (not fine-grained) with exactly these
 
 1. Create a new GitHub Project (board view)
 2. Delete all default columns except **Backlog**
-3. Run kiln—it creates the remaining columns automatically:
-   - Research → Plan → Implement → Validate → Done
+3. Run kiln—it creates the remaining columns automatically
 4. Show labels on your board: click the **View** settings (next to the query bar), enable "Labels", then **Save** to persist
 5. Go to project **Settings** and set a default repository—makes creating issues from the board UI easier
+
+Your board should look like this:
+
+| ⚪ Backlog | 🔵 Research | 🟣 Plan | 🟠 Implement | 🟡 Validate | 🟢 Done |
+|-----------|-------------|---------|--------------|-------------|---------|
+| *new issues* | *codebase exploration* | *design tasks* | *write code* | *human review* | *complete* |
 
 ### 4. Configure
 
