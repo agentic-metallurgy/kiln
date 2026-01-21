@@ -1076,3 +1076,36 @@ class TestGHESConfiguration:
         assert config.github_token == "ghp_regular"
         assert config.github_enterprise_host == "github.mycompany.com"
         assert config.github_enterprise_token is None
+
+    def test_ghes_version_318_parsed_from_file(self, tmp_path, monkeypatch):
+        """Test GHES version 3.18 is parsed from config file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
+            "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
+            "GITHUB_ENTERPRISE_VERSION=3.18\n"
+            "PROJECT_URLS=https://github.mycompany.com/orgs/test/projects/1\n"
+            "ALLOWED_USERNAME=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.github_enterprise_version == "3.18"
+        assert config.github_enterprise_host == "github.mycompany.com"
+        assert config.github_enterprise_token == "ghp_enterprise"
+
+    def test_ghes_version_318_parsed_from_env(self, monkeypatch):
+        """Test GHES version 3.18 is parsed from environment."""
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.setenv("GITHUB_ENTERPRISE_HOST", "github.mycompany.com")
+        monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_enterprise")
+        monkeypatch.setenv("GITHUB_ENTERPRISE_VERSION", "3.18")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.mycompany.com/orgs/test/projects/1")
+        monkeypatch.setenv("ALLOWED_USERNAME", "testuser")
+
+        config = load_config_from_env()
+
+        assert config.github_enterprise_version == "3.18"
+        assert config.github_enterprise_host == "github.mycompany.com"
+        assert config.github_enterprise_token == "ghp_enterprise"
