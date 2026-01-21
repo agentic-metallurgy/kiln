@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 
 from tenacity import wait_exponential
@@ -21,10 +22,12 @@ from tenacity import wait_exponential
 from src.claude_runner import run_claude
 from src.comment_processor import CommentProcessor
 from src.config import Config, load_config
-from src.database import Database, ProjectMetadata
+from src.database import Database, ProjectMetadata, RunRecord
 from src.interfaces import TicketItem
 from src.labels import REQUIRED_LABELS, Labels
 from src.logger import (
+    MaskingFilter,
+    RunLogger,
     _extract_org_from_url,
     clear_issue_context,
     get_logger,
@@ -1327,6 +1330,8 @@ class Daemon:
 
         Auto-prepares worktree if it doesn't exist before running the workflow.
 
+        Also creates per-run log files and database records for tracking run history.
+
         Args:
             item: TicketItem to process
         """
@@ -1344,6 +1349,10 @@ class Daemon:
         running_label = config["running_label"] if config else None
         complete_label = config["complete_label"] if config else None
         next_status = config["next_status"] if config else None
+
+        # Initialize run tracking variables
+        run_id: int | None = None
+        run_logger: RunLogger | None = None
 
         try:
             # Ensure issue state exists before workflow runs (needed for session ID storage)
@@ -1368,8 +1377,54 @@ class Daemon:
                 self.ticket_client.add_label(item.repo, item.ticket_id, running_label)
                 logger.debug(f"Added '{running_label}' label to {key}")
 
-            # Run the workflow
-            self._run_workflow(item.status, item)
+            # Create masking filter if configured
+            masking_filter: MaskingFilter | None = None
+            if self.config.ghes_logs_mask and self.config.github_enterprise_host:
+                org_name = _extract_org_from_url(self.config.project_urls[0]) if self.config.project_urls else None
+                masking_filter = MaskingFilter(self.config.github_enterprise_host, org_name)
+
+            # Create RunRecord at workflow start
+            run_record = RunRecord(
+                repo=item.repo,
+                issue_number=item.ticket_id,
+                workflow=item.status,
+                started_at=datetime.now(),
+            )
+
+            # Create RunLogger for per-run logging
+            run_logger = RunLogger(
+                repo=item.repo,
+                issue_number=item.ticket_id,
+                workflow=item.status,
+                base_log_dir=".kiln/logs",
+                masking_filter=masking_filter,
+            )
+
+            # Enter RunLogger context and run workflow
+            with run_logger:
+                # Set log_path on record now that RunLogger has generated it
+                run_record.log_path = run_logger.log_path
+
+                # Insert run record into database
+                run_id = self.database.insert_run_record(run_record)
+                logger.debug(f"Created run record {run_id} for {key}")
+
+                # Run the workflow
+                session_id = self._run_workflow(item.status, item)
+
+                # Workflow completed successfully - update run record
+                self.database.update_run_record(
+                    run_id,
+                    completed_at=datetime.now(),
+                    outcome="success",
+                    session_id=session_id,
+                )
+
+                # Pass session_id to RunLogger and write session file
+                if session_id:
+                    run_logger.set_session_id(session_id)
+                    run_logger.write_session_file()
+                    logger.debug(f"Wrote session file for run {run_id}")
 
             # Workflow completed successfully
             # Remove running label
@@ -1385,6 +1440,9 @@ class Daemon:
                     logger.warning(
                         f"Research completed but no research block found for {key}"
                     )
+                    # Update run record to reflect stalled state
+                    if run_id:
+                        self.database.update_run_record(run_id, outcome="stalled")
                     # Don't add research_ready, don't advance YOLO
                     return
 
@@ -1446,6 +1504,14 @@ class Daemon:
 
         except Exception as e:
             logger.error(f"Error in workflow: {e}", exc_info=True)
+
+            # Update run record with failure outcome
+            if run_id:
+                self.database.update_run_record(
+                    run_id,
+                    completed_at=datetime.now(),
+                    outcome="failed",
+                )
 
             # On failure: remove running label (workflow is no longer running)
             if running_label:
@@ -1593,12 +1659,15 @@ class Daemon:
         self,
         workflow_name: str,
         item: TicketItem,
-    ) -> None:
+    ) -> str | None:
         """Run a workflow for a project item.
 
         Args:
             workflow_name: Name of the workflow status (e.g., "Research", "Plan")
             item: TicketItem to process
+
+        Returns:
+            The Claude session ID from the workflow, or None if not available.
         """
         logger.debug(f"Running workflow '{workflow_name}'")
 
@@ -1659,6 +1728,8 @@ class Daemon:
                 logger.info(
                     f"Saved {workflow_name} session for future resumption: {session_id[:8]}..."
                 )
+
+            return session_id
         except ImplementationIncompleteError as e:
             logger.warning(f"Implementation incomplete for {workflow_name}: {e} (reason: {e.reason})")
             if workflow_name == "Implement":
