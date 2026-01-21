@@ -97,7 +97,7 @@ GITHUB_ENTERPRISE_VERSION=3.19
 
 ---
 
-## 🎯 Your First Issue
+## 🚀 Your First Issue
 
 ### Where to Create
 
