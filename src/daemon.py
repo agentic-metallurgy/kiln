@@ -270,6 +270,7 @@ class Daemon:
             self.runner,
             config.workspace_dir,
             username_self=config.username_self,
+            team_usernames=config.team_usernames,
         )
 
         # Setup signal handlers for graceful shutdown

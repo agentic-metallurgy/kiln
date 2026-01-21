@@ -326,6 +326,119 @@ class TestCommentProcessorAllowlist:
             assert "IC_1" in comment_ids  # allowed_comment was processed
             assert "IC_2" not in comment_ids  # blocked_comment was filtered out
 
+    def test_init_with_team_usernames(self):
+        """Test constructor stores team_usernames."""
+        processor = CommentProcessor(
+            Mock(),
+            Mock(),
+            Mock(),
+            "/workspaces",
+            username_self="user1",
+            team_usernames=["teammate1", "teammate2"],
+        )
+        assert processor.team_usernames == ["teammate1", "teammate2"]
+
+    def test_init_without_team_usernames_defaults_empty_list(self):
+        """Test constructor defaults to empty list for team_usernames."""
+        processor = CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
+        assert processor.team_usernames == []
+
+    def test_team_member_comments_filtered_silently(self):
+        """Test that comments from team members are filtered out without WARNING log."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        # Create processor with username_self and team_usernames
+        processor = CommentProcessor(
+            ticket_client,
+            database,
+            runner,
+            "/workspaces",
+            username_self="allowed_user",
+            team_usernames=["teammate1", "teammate2"],
+        )
+
+        # Mock database to return stored state with a timestamp
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Create comments - one from allowed user, one from team member, one from blocked user
+        allowed_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="This is from an allowed user",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="allowed_user",
+            is_processed=False,
+            is_processing=False,
+        )
+        team_comment = Comment(
+            id="IC_2",
+            database_id=2,
+            body="This is from a team member",
+            created_at=datetime(2024, 1, 15, 11, 0, 0),
+            author="teammate1",
+            is_processed=False,
+            is_processing=False,
+        )
+        blocked_comment = Comment(
+            id="IC_3",
+            database_id=3,
+            body="This is from a blocked user",
+            created_at=datetime(2024, 1, 15, 12, 0, 0),
+            author="blocked_user",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [
+            allowed_comment,
+            team_comment,
+            blocked_comment,
+        ]
+
+        # Create a ticket item using abstract TicketItem type
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Research",
+            title="Test Issue",
+            comment_count=3,
+        )
+
+        # Mock the methods that would be called after filtering
+        with (
+            patch.object(processor, "_get_target_type", return_value="research"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_apply_comment_to_kiln_post"),
+            patch.object(processor, "_generate_diff", return_value="-old\n+new"),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+        ):
+            ticket_client.add_comment.return_value = Comment(
+                id="IC_4",
+                database_id=4,
+                body="response",
+                created_at=datetime(2024, 1, 15, 13, 0, 0),
+                author="test-user",
+            )
+
+            processor.process(item)
+
+            # Verify only allowed_comment was processed
+            reaction_calls = [
+                c for c in ticket_client.add_reaction.call_args_list if c[0][1] == "THUMBS_UP"
+            ]
+            comment_ids = [c[0][0] for c in reaction_calls]
+            assert "IC_1" in comment_ids  # allowed_comment was processed
+            assert "IC_2" not in comment_ids  # team_comment was filtered out
+            assert "IC_3" not in comment_ids  # blocked_comment was filtered out
+
 
 @pytest.mark.unit
 class TestCommentProcessorWrapDiffLine:

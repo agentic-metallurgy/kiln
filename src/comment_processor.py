@@ -59,6 +59,7 @@ class CommentProcessor:
         runner,  # WorkflowRunner - avoiding circular import
         workspace_dir: str,
         username_self: str | None = None,
+        team_usernames: list[str] | None = None,
     ) -> None:
         """Initialize the comment processor.
 
@@ -68,12 +69,14 @@ class CommentProcessor:
             runner: WorkflowRunner for executing Claude workflows
             workspace_dir: Base directory for worktrees
             username_self: Username allowed to trigger comment processing
+            team_usernames: List of team member usernames (logged at DEBUG, not WARNING)
         """
         self.ticket_client = ticket_client
         self.database = database
         self.runner = runner
         self.workspace_dir = workspace_dir
         self.username_self = username_self
+        self.team_usernames = team_usernames or []
         logger.debug("CommentProcessor initialized")
 
     def _get_worktree_path(self, repo: str, issue_number: int) -> str:
@@ -148,11 +151,22 @@ class CommentProcessor:
                 self.KILN_POST_LEGACY_MARKERS.values()
             )
 
-            # Log blocked comments from non-allowed users for audit trail
+            # Log filtered comments with appropriate severity:
+            # - Team member comments: DEBUG (silent in normal operation)
+            # - Unknown/blocked user comments: WARNING (audit trail)
+            team_authors: set[str] = set()
             blocked_authors: set[str] = set()
             for c in new_comments:
                 if c.author not in self.BOT_USERNAMES and c.author != self.username_self:
-                    blocked_authors.add(c.author)
+                    if c.author in self.team_usernames:
+                        team_authors.add(c.author)
+                    else:
+                        blocked_authors.add(c.author)
+            if team_authors:
+                logger.debug(
+                    f"Filtered out comments from team members: {team_authors}. "
+                    "Team member comments are observed silently."
+                )
             if blocked_authors:
                 logger.warning(
                     f"BLOCKED: Filtered out comments from non-allowed users: {blocked_authors}. "
