@@ -234,29 +234,29 @@ class TestCommentProcessorInitializeCommentTimestamp:
 
 @pytest.mark.unit
 class TestCommentProcessorAllowlist:
-    """Tests for CommentProcessor allowed_username filtering."""
+    """Tests for CommentProcessor username_self filtering."""
 
-    def test_init_with_allowed_username(self):
-        """Test constructor stores allowed_username."""
+    def test_init_with_username_self(self):
+        """Test constructor stores username_self."""
         processor = CommentProcessor(
-            Mock(), Mock(), Mock(), "/workspaces", allowed_username="user1"
+            Mock(), Mock(), Mock(), "/workspaces", username_self="user1"
         )
-        assert processor.allowed_username == "user1"
+        assert processor.username_self == "user1"
 
-    def test_init_without_allowed_username_defaults_none(self):
-        """Test constructor defaults to None allowed_username."""
+    def test_init_without_username_self_defaults_none(self):
+        """Test constructor defaults to None username_self."""
         processor = CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
-        assert processor.allowed_username is None
+        assert processor.username_self is None
 
-    def test_allowed_username_filters_comments(self):
+    def test_username_self_filters_comments(self):
         """Test that comments from non-allowed users are filtered out."""
         ticket_client = Mock()
         database = Mock()
         runner = Mock()
 
-        # Create processor with allowed_username
+        # Create processor with username_self
         processor = CommentProcessor(
-            ticket_client, database, runner, "/workspaces", allowed_username="allowed_user"
+            ticket_client, database, runner, "/workspaces", username_self="allowed_user"
         )
 
         # Mock database to return stored state with a timestamp

@@ -269,7 +269,7 @@ class Daemon:
             self.database,
             self.runner,
             config.workspace_dir,
-            allowed_username=config.allowed_username,
+            username_self=config.username_self,
         )
 
         # Setup signal handlers for graceful shutdown
@@ -623,7 +623,7 @@ class Daemon:
                 actor = self.ticket_client.get_label_actor(
                     item.repo, item.ticket_id, Labels.YOLO
                 )
-                if not check_actor_allowed(actor, self.config.allowed_username, key, "YOLO"):
+                if not check_actor_allowed(actor, self.config.username_self, key, "YOLO"):
                     continue
                 logger.info(
                     f"YOLO: Starting auto-progression for {key} from Backlog "
@@ -735,7 +735,7 @@ class Daemon:
         # Check actor authorization if supported by the client
         if self.ticket_client.supports_status_actor_check:
             actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
-            if not check_actor_allowed(actor, self.config.allowed_username, key):
+            if not check_actor_allowed(actor, self.config.username_self, key):
                 return False
             logger.info(f"Workflow trigger: {key} in '{item.status}' by allowed user '{actor}'")
         else:
@@ -819,7 +819,7 @@ class Daemon:
             return
 
         actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.YOLO)
-        if not check_actor_allowed(actor, self.config.allowed_username, key, "YOLO"):
+        if not check_actor_allowed(actor, self.config.username_self, key, "YOLO"):
             return
 
         logger.info(
@@ -1108,7 +1108,7 @@ class Daemon:
         key = f"{item.repo}#{item.ticket_id}"
 
         actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.RESET)
-        if not check_actor_allowed(actor, self.config.allowed_username, key, "RESET"):
+        if not check_actor_allowed(actor, self.config.username_self, key, "RESET"):
             # Only remove reset label when actor is known but not allowed (to prevent repeated warnings)
             # When actor is unknown, keep the label for security logging visibility
             if actor is not None:
@@ -1578,7 +1578,7 @@ class Daemon:
             workspace_path=abs_workspace_path,  # Prepare runs in workspace root
             project_url=item.board_url,
             issue_body=issue_body,
-            allowed_username=self.config.allowed_username,
+            username_self=self.config.username_self,
             parent_issue_number=parent_issue_number,
             parent_branch=parent_branch,
         )
@@ -1638,7 +1638,7 @@ class Daemon:
             issue_title=item.title,
             workspace_path=workspace_path,
             project_url=item.board_url,
-            allowed_username=self.config.allowed_username,
+            username_self=self.config.username_self,
         )
 
         # Run workflow

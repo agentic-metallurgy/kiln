@@ -41,7 +41,8 @@ class Config:
     database_path: str = ".kiln/kiln.db"
     workspace_dir: str = "workspaces"
     watched_statuses: list[str] = field(default_factory=lambda: ["Research", "Plan", "Implement"])
-    allowed_username: str = ""  # Required, no default
+    username_self: str = ""  # Required, no default
+    team_usernames: list[str] = field(default_factory=list)  # Optional team members
     max_concurrent_workflows: int = 3
     log_file: str = ".kiln/logs/kiln.log"
     log_size: int = 10 * 1024 * 1024  # 10MB default
@@ -203,9 +204,13 @@ def load_config_from_file(config_path: Path) -> Config:
         project_urls, github_token, github_enterprise_host, github_enterprise_token
     )
 
-    allowed_username = data.get("ALLOWED_USERNAME", "").strip()
-    if not allowed_username:
-        raise ValueError("ALLOWED_USERNAME is required in .kiln/config")
+    username_self = data.get("USERNAME_SELF", "").strip()
+    if not username_self:
+        raise ValueError("USERNAME_SELF is required in .kiln/config")
+
+    # Parse team usernames as comma-separated list (optional)
+    team_usernames_str = data.get("USERNAMES_TEAM", "")
+    team_usernames = [u.strip() for u in team_usernames_str.split(",") if u.strip()]
 
     # Parse optional fields with defaults
     poll_interval = int(data.get("POLL_INTERVAL", "30"))
@@ -259,7 +264,8 @@ def load_config_from_file(config_path: Path) -> Config:
         database_path=".kiln/kiln.db",
         workspace_dir="workspaces",
         watched_statuses=watched_statuses,
-        allowed_username=allowed_username,
+        username_self=username_self,
+        team_usernames=team_usernames,
         max_concurrent_workflows=max_concurrent_workflows,
         log_file=".kiln/logs/kiln.log",
         stage_models=stage_models,
@@ -357,10 +363,14 @@ def load_config_from_env() -> Config:
 
     max_concurrent_workflows = int(os.environ.get("MAX_CONCURRENT_WORKFLOWS", "3"))
 
-    # Parse ALLOWED_USERNAME (required)
-    allowed_username = os.environ.get("ALLOWED_USERNAME", "").strip()
-    if not allowed_username:
-        raise ValueError("ALLOWED_USERNAME environment variable is required")
+    # Parse USERNAME_SELF (required)
+    username_self = os.environ.get("USERNAME_SELF", "").strip()
+    if not username_self:
+        raise ValueError("USERNAME_SELF environment variable is required")
+
+    # Parse USERNAMES_TEAM as comma-separated list (optional)
+    team_usernames_str = os.environ.get("USERNAMES_TEAM", "")
+    team_usernames = [u.strip() for u in team_usernames_str.split(",") if u.strip()]
 
     log_file = os.environ.get("LOG_FILE", ".kiln/logs/kiln.log")
     log_size = int(os.environ.get("LOG_SIZE", 10 * 1024 * 1024))  # Default 10MB
@@ -392,7 +402,8 @@ def load_config_from_env() -> Config:
         database_path=database_path,
         workspace_dir=workspace_dir,
         watched_statuses=watched_statuses,
-        allowed_username=allowed_username,
+        username_self=username_self,
+        team_usernames=team_usernames,
         max_concurrent_workflows=max_concurrent_workflows,
         log_file=log_file,
         log_size=log_size,

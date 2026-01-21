@@ -67,26 +67,26 @@ class TestWorkflowContext:
         )
         assert ctx.issue_body == "This is the issue body content."
 
-    def test_workflow_context_allowed_username_optional(self):
-        """Test that allowed_username is optional and defaults to None."""
+    def test_workflow_context_username_self_optional(self):
+        """Test that username_self is optional and defaults to None."""
         ctx = WorkflowContext(
             repo="owner/repo",
             issue_number=42,
             issue_title="Test",
             workspace_path="/tmp/workspace",
         )
-        assert ctx.allowed_username is None
+        assert ctx.username_self is None
 
-    def test_workflow_context_allowed_username_can_be_set(self):
-        """Test that allowed_username can be set during creation."""
+    def test_workflow_context_username_self_can_be_set(self):
+        """Test that username_self can be set during creation."""
         ctx = WorkflowContext(
             repo="owner/repo",
             issue_number=42,
             issue_title="Test",
             workspace_path="/tmp/workspace",
-            allowed_username="user1",
+            username_self="user1",
         )
-        assert ctx.allowed_username == "user1"
+        assert ctx.username_self == "user1"
 
 
 @pytest.mark.unit

@@ -58,7 +58,7 @@ class CommentProcessor:
         database: Database,
         runner,  # WorkflowRunner - avoiding circular import
         workspace_dir: str,
-        allowed_username: str | None = None,
+        username_self: str | None = None,
     ) -> None:
         """Initialize the comment processor.
 
@@ -67,13 +67,13 @@ class CommentProcessor:
             database: Database for tracking processed comments
             runner: WorkflowRunner for executing Claude workflows
             workspace_dir: Base directory for worktrees
-            allowed_username: Username allowed to trigger comment processing
+            username_self: Username allowed to trigger comment processing
         """
         self.ticket_client = ticket_client
         self.database = database
         self.runner = runner
         self.workspace_dir = workspace_dir
-        self.allowed_username = allowed_username
+        self.username_self = username_self
         logger.debug("CommentProcessor initialized")
 
     def _get_worktree_path(self, repo: str, issue_number: int) -> str:
@@ -151,18 +151,18 @@ class CommentProcessor:
             # Log blocked comments from non-allowed users for audit trail
             blocked_authors: set[str] = set()
             for c in new_comments:
-                if c.author not in self.BOT_USERNAMES and c.author != self.allowed_username:
+                if c.author not in self.BOT_USERNAMES and c.author != self.username_self:
                     blocked_authors.add(c.author)
             if blocked_authors:
                 logger.warning(
                     f"BLOCKED: Filtered out comments from non-allowed users: {blocked_authors}. "
-                    f"Allowed username: {self.allowed_username}"
+                    f"Allowed username: {self.username_self}"
                 )
 
             user_comments = [
                 c
                 for c in new_comments
-                if c.author == self.allowed_username  # Must be from allowed username
+                if c.author == self.username_self  # Must be from allowed username
                 and c.author not in self.BOT_USERNAMES
                 and not self._is_kiln_post(c.body, all_markers)
                 and not self._is_kiln_response(c.body)
