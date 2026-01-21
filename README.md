@@ -221,3 +221,55 @@ Example: `github.corp.com/myorg/repo#123` becomes `<GHES>/<ORG>/repo#123`
 To disable masking (e.g., for debugging), set `GHES_LOGS_MASK=false` in `.kiln/config`.
 
 **Note**: This only applies to GHES configurations. GitHub.com hostnames are not masked.
+
+### 🔥 Run Logs
+
+Each workflow execution creates a dedicated log file for debugging and audit purposes. Logs are stored hierarchically by repository and issue:
+
+```
+.kiln/logs/{hostname}/{owner}/{repo}/{issue_number}/{workflow}-{timestamp}.log
+```
+
+Example:
+```
+.kiln/logs/github.com/acme-org/my-repo/42/research-20250121-1430.log
+```
+
+**Features:**
+- **Per-run isolation**: Each workflow run gets its own log file
+- **Session linking**: Companion `.session` files store Claude session IDs for linking to full conversation details
+- **Database tracking**: All run metadata (timestamp, outcome, duration) stored in SQLite for querying
+- **Reset-safe**: Run logs are preserved when using the `reset` label (debugging history is not deleted)
+
+#### `kiln logs` CLI Command
+
+View run history and logs for a specific issue:
+
+```bash
+# List all runs for an issue
+kiln logs owner/repo#42
+
+# View a specific log file by run ID
+kiln logs owner/repo#42 --view 5
+
+# Get Claude session info for a run
+kiln logs owner/repo#42 --session 5
+```
+
+**Output example:**
+```
+Run history for owner/repo#42:
+
+ID     Workflow     Started            Duration     Outcome
+----------------------------------------------------------------------
+1      research     2025-01-21 10:30   2m 45s       ✓ success
+2      plan         2025-01-21 10:35   4m 12s       ✓ success
+3      implement    2025-01-21 10:42   running...   ⏳ running
+
+Use 'kiln logs <issue> --view <id>' to view a specific log file.
+Use 'kiln logs <issue> --session <id>' to get Claude session info.
+```
+
+**Issue identifier formats:**
+- `owner/repo#42` — assumes github.com
+- `hostname/owner/repo#42` — for GitHub Enterprise Server
