@@ -208,7 +208,7 @@ For GitHub Enterprise Server users, Kiln automatically masks sensitive hostname 
 
 | Config | Default | Description |
 |--------|---------|-------------|
-| `MASK_GHES_LOGS` | `true` | Enable/disable log masking |
+| `GHES_LOGS_MASK` | `true` | Enable/disable log masking |
 
 When enabled (default), logs show:
 - `<GHES>` instead of your GHES hostname
@@ -216,6 +216,6 @@ When enabled (default), logs show:
 
 Example: `github.corp.com/myorg/repo#123` becomes `<GHES>/<ORG>/repo#123`
 
-To disable masking (e.g., for debugging), set `MASK_GHES_LOGS=false` in `.kiln/config`.
+To disable masking (e.g., for debugging), set `GHES_LOGS_MASK=false` in `.kiln/config`.
 
 **Note**: This only applies to GHES configurations. GitHub.com hostnames are not masked.

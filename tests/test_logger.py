@@ -351,7 +351,7 @@ class TestSetupLogging:
         log_file = tmp_path / "logs" / "test.log"
         setup_logging(
             log_file=str(log_file),
-            mask_ghes_logs=True,
+            ghes_logs_mask=True,
             ghes_host="github.corp.com",
             org_name="myorg",
         )
@@ -366,12 +366,12 @@ class TestSetupLogging:
             assert masking_filters[0].org_name == "myorg"
 
     def test_setup_logging_no_masking_filter_when_disabled(self, tmp_path, monkeypatch):
-        """Test that masking filter is not added when mask_ghes_logs is False."""
+        """Test that masking filter is not added when ghes_logs_mask is False."""
         monkeypatch.setenv("LOG_LEVEL", "INFO")
         log_file = tmp_path / "logs" / "test.log"
         setup_logging(
             log_file=str(log_file),
-            mask_ghes_logs=False,
+            ghes_logs_mask=False,
             ghes_host="github.corp.com",
             org_name="myorg",
         )
@@ -389,7 +389,7 @@ class TestSetupLogging:
         log_file = tmp_path / "logs" / "test.log"
         setup_logging(
             log_file=str(log_file),
-            mask_ghes_logs=True,
+            ghes_logs_mask=True,
             ghes_host="github.com",
             org_name="owner",
         )
@@ -637,7 +637,7 @@ class TestMaskingIntegration:
         # Setup logging with masking enabled
         setup_logging(
             log_file=str(log_file),
-            mask_ghes_logs=True,
+            ghes_logs_mask=True,
             ghes_host=ghes_host,
             org_name=org_name,
         )
@@ -672,7 +672,7 @@ class TestMaskingIntegration:
         assert "my-repo" in log_content, "Repo name should be preserved"
 
     def test_unmasked_output_when_disabled(self, tmp_path, monkeypatch):
-        """Test that logs are not masked when mask_ghes_logs is False."""
+        """Test that logs are not masked when ghes_logs_mask is False."""
         monkeypatch.setenv("LOG_LEVEL", "INFO")
 
         log_file = tmp_path / "logs" / "test.log"
@@ -682,7 +682,7 @@ class TestMaskingIntegration:
         # Setup logging with masking DISABLED
         setup_logging(
             log_file=str(log_file),
-            mask_ghes_logs=False,
+            ghes_logs_mask=False,
             ghes_host=ghes_host,
             org_name=org_name,
         )
@@ -719,7 +719,7 @@ class TestMaskingIntegration:
         # Setup logging with masking enabled but for github.com
         setup_logging(
             log_file=str(log_file),
-            mask_ghes_logs=True,
+            ghes_logs_mask=True,
             ghes_host=ghes_host,
             org_name=org_name,
         )
