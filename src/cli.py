@@ -3,11 +3,19 @@
 This module provides the main command-line interface for kiln.
 On first run, it creates a .kiln/ directory with a sample config.
 On subsequent runs, it loads the config and starts the daemon.
+
+Subcommands:
+    kiln           - Run the daemon (default behavior)
+    kiln logs      - View run history and logs for issues
 """
 
+from __future__ import annotations
+
 import argparse
+import re
 import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Version is set during build
@@ -369,6 +377,180 @@ def run_daemon(daemon_mode: bool = False) -> None:
         sys.exit(0)
 
 
+def parse_issue_arg(issue_arg: str) -> tuple[str, int]:
+    """Parse issue argument into repo and issue number.
+
+    Supports formats:
+        - owner/repo#42
+        - hostname/owner/repo#42
+
+    Args:
+        issue_arg: Issue identifier string
+
+    Returns:
+        Tuple of (repo, issue_number) where repo includes hostname
+
+    Raises:
+        ValueError: If the argument format is invalid
+    """
+    # Pattern: optional hostname, owner/repo#number
+    match = re.match(r"^(?:([^/]+)/)?([^/]+)/([^#]+)#(\d+)$", issue_arg)
+    if not match:
+        raise ValueError(
+            f"Invalid issue format: {issue_arg}\n"
+            "Expected format: owner/repo#42 or hostname/owner/repo#42"
+        )
+
+    hostname, owner, repo_name, issue_num = match.groups()
+    if hostname is None:
+        hostname = "github.com"
+
+    repo = f"{hostname}/{owner}/{repo_name}"
+    return repo, int(issue_num)
+
+
+def format_duration(start: datetime, end: datetime | None) -> str:
+    """Format duration between two timestamps."""
+    if end is None:
+        return "running..."
+    delta = end - start
+    total_seconds = int(delta.total_seconds())
+    if total_seconds < 60:
+        return f"{total_seconds}s"
+    elif total_seconds < 3600:
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        return f"{minutes}m {seconds}s"
+    else:
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        return f"{hours}h {minutes}m"
+
+
+def format_outcome(outcome: str | None) -> str:
+    """Format run outcome with checkmark/cross symbol."""
+    if outcome is None:
+        return "⏳ running"
+    elif outcome == "success":
+        return "✓ success"
+    elif outcome == "failed":
+        return "✗ failed"
+    elif outcome == "stalled":
+        return "⚠ stalled"
+    else:
+        return f"? {outcome}"
+
+
+def cmd_logs(args: argparse.Namespace) -> None:
+    """Handle the 'logs' subcommand."""
+    from src.database import Database
+
+    kiln_dir = get_kiln_dir()
+    db_path = kiln_dir / "kiln.db"
+
+    if not db_path.exists():
+        print("No database found. Run 'kiln' first to initialize.", file=sys.stderr)
+        sys.exit(1)
+
+    db = Database(str(db_path))
+
+    try:
+        repo, issue_number = parse_issue_arg(args.issue)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+    # Handle --view: show specific log file contents
+    if args.view is not None:
+        record = db.get_run_record(args.view)
+        if record is None:
+            print(f"Run ID {args.view} not found.", file=sys.stderr)
+            sys.exit(1)
+        if record.repo != repo or record.issue_number != issue_number:
+            print(
+                f"Run ID {args.view} does not belong to {args.issue}.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if record.log_path is None:
+            print(f"No log file for run ID {args.view}.", file=sys.stderr)
+            sys.exit(1)
+
+        log_file = Path(record.log_path)
+        if not log_file.exists():
+            print(f"Log file not found: {record.log_path}", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"=== Log for run {args.view}: {record.workflow} @ {record.started_at.strftime('%Y-%m-%d %H:%M')} ===\n")
+        print(log_file.read_text())
+        return
+
+    # Handle --session: show Claude session path
+    if args.session is not None:
+        record = db.get_run_record(args.session)
+        if record is None:
+            print(f"Run ID {args.session} not found.", file=sys.stderr)
+            sys.exit(1)
+        if record.repo != repo or record.issue_number != issue_number:
+            print(
+                f"Run ID {args.session} does not belong to {args.issue}.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if record.session_id is None:
+            print(f"No session ID for run ID {args.session}.", file=sys.stderr)
+            sys.exit(1)
+
+        # Session file is a companion .session file next to the log
+        if record.log_path:
+            session_file = Path(record.log_path).with_suffix(".session")
+            if session_file.exists():
+                print(f"Session file: {session_file}")
+            else:
+                print(f"Session ID: {record.session_id}")
+                # Also show the typical Claude projects path
+                print("\nClaude conversations are typically stored in:")
+                print(f"  ~/.claude/projects/*/sessions/{record.session_id}.jsonl")
+        else:
+            print(f"Session ID: {record.session_id}")
+        return
+
+    # Default: list run history (--list is implicit)
+    runs = db.get_run_history(repo, issue_number)
+
+    if not runs:
+        print(f"No run history found for {args.issue}.")
+        return
+
+    # Print header
+    print(f"\nRun history for {args.issue}:\n")
+    print(f"{'ID':<6} {'Workflow':<12} {'Started':<18} {'Duration':<12} {'Outcome'}")
+    print("-" * 70)
+
+    for run in runs:
+        started_str = run.started_at.strftime("%Y-%m-%d %H:%M")
+        duration = format_duration(run.started_at, run.completed_at)
+        outcome = format_outcome(run.outcome)
+        print(f"{run.id:<6} {run.workflow:<12} {started_str:<18} {duration:<12} {outcome}")
+
+    print()
+    print("Use 'kiln logs <issue> --view <id>' to view a specific log file.")
+    print("Use 'kiln logs <issue> --session <id>' to get Claude session info.")
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    """Handle the 'run' subcommand (default daemon behavior)."""
+    kiln_dir = get_kiln_dir()
+    config_path = kiln_dir / CONFIG_FILE
+
+    if not config_path.exists():
+        # First run: initialize
+        init_kiln()
+    else:
+        # Config exists: run
+        run_daemon(daemon_mode=args.daemon)
+
+
 def main() -> None:
     """Main entry point for the kiln CLI."""
     parser = argparse.ArgumentParser(
@@ -381,23 +563,80 @@ def main() -> None:
         action="version",
         version=f"kiln {__version__}",
     )
-    parser.add_argument(
+
+    # Create subparsers
+    subparsers = parser.add_subparsers(dest="command")
+
+    # 'run' subcommand (also the default behavior)
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Start the kiln daemon (default if no subcommand given)",
+    )
+    run_parser.add_argument(
         "--daemon",
         "-d",
         action="store_true",
         help="Run in daemon mode (log to file only, no stdout)",
     )
+
+    # 'logs' subcommand
+    logs_parser = subparsers.add_parser(
+        "logs",
+        help="View run history and logs for a specific issue",
+    )
+    logs_parser.add_argument(
+        "issue",
+        help="Issue identifier (e.g., owner/repo#42 or hostname/owner/repo#42)",
+    )
+    logs_parser.add_argument(
+        "--list",
+        "-l",
+        action="store_true",
+        default=True,
+        help="List run history (default behavior)",
+    )
+    logs_parser.add_argument(
+        "--view",
+        type=int,
+        metavar="RUN_ID",
+        help="View the log file for a specific run ID",
+    )
+    logs_parser.add_argument(
+        "--session",
+        type=int,
+        metavar="RUN_ID",
+        help="Show Claude session info for a specific run ID",
+    )
+
     args = parser.parse_args()
 
-    kiln_dir = get_kiln_dir()
-    config_path = kiln_dir / CONFIG_FILE
-
-    if not config_path.exists():
-        # First run: initialize
-        init_kiln()
+    # Handle commands
+    if args.command == "logs":
+        cmd_logs(args)
+    elif args.command == "run":
+        cmd_run(args)
     else:
-        # Config exists: run
-        run_daemon(daemon_mode=args.daemon)
+        # No subcommand given - default to 'run' behavior
+        # Re-parse with daemon flag support
+        parser_default = argparse.ArgumentParser(
+            prog="kiln",
+            description="GitHub project automation daemon with Claude-powered workflows",
+        )
+        parser_default.add_argument(
+            "--version",
+            "-v",
+            action="version",
+            version=f"kiln {__version__}",
+        )
+        parser_default.add_argument(
+            "--daemon",
+            "-d",
+            action="store_true",
+            help="Run in daemon mode (log to file only, no stdout)",
+        )
+        default_args = parser_default.parse_args()
+        default_args.command = "run"
+        cmd_run(default_args)
 
 
 if __name__ == "__main__":
