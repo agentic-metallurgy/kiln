@@ -168,19 +168,140 @@ class ColoredFormatter(logging.Formatter):
 class ContextAwareFormatter(ColoredFormatter):
     """Formatter that injects issue context from contextvars."""
 
+    def __init__(
+        self, fmt: str | None = None, masking_filter: "MaskingFilter | None" = None
+    ) -> None:
+        """Initialize the formatter.
+
+        Args:
+            fmt: Format string for log messages.
+            masking_filter: Optional MaskingFilter to apply to issue_context.
+        """
+        super().__init__(fmt)
+        self.masking_filter = masking_filter
+
     def format(self, record: logging.LogRecord) -> str:
         """Format the log record with issue context."""
-        record.issue_context = get_issue_context()
+        issue_context = get_issue_context()
+        if self.masking_filter:
+            issue_context = self.masking_filter._mask_value(issue_context)
+        record.issue_context = issue_context
         return super().format(record)
 
 
 class PlainContextAwareFormatter(logging.Formatter):
     """Plain formatter (no colors) that injects issue context from contextvars."""
 
+    def __init__(
+        self, fmt: str | None = None, masking_filter: "MaskingFilter | None" = None
+    ) -> None:
+        """Initialize the formatter.
+
+        Args:
+            fmt: Format string for log messages.
+            masking_filter: Optional MaskingFilter to apply to issue_context.
+        """
+        super().__init__(fmt)
+        self.masking_filter = masking_filter
+
     def format(self, record: logging.LogRecord) -> str:
         """Format the log record with issue context."""
-        record.issue_context = get_issue_context()
+        issue_context = get_issue_context()
+        if self.masking_filter:
+            issue_context = self.masking_filter._mask_value(issue_context)
+        record.issue_context = issue_context
         return super().format(record)
+
+
+class MaskingFilter(logging.Filter):
+    """Filter that masks GHES hostname and org name in log records.
+
+    When enabled, replaces GHES hostname with <GHES> and organization name
+    with <ORG> in all log output to prevent exposure of sensitive
+    infrastructure details.
+    """
+
+    def __init__(self, ghes_host: str | None, org_name: str | None) -> None:
+        """Initialize MaskingFilter.
+
+        Args:
+            ghes_host: GitHub Enterprise Server hostname to mask (e.g., "github.corp.com").
+                       If None or "github.com", masking is disabled.
+            org_name: Organization name to mask (e.g., "myorg").
+                      If None, only hostname is masked.
+        """
+        super().__init__()
+        self.ghes_host = ghes_host
+        self.org_name = org_name
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Apply masking to the log record.
+
+        Args:
+            record: The log record to process.
+
+        Returns:
+            True to allow all records through (masking is applied in-place).
+        """
+        # Skip masking for github.com or when no GHES host configured
+        if not self.ghes_host or self.ghes_host == "github.com":
+            return True
+
+        # Mask issue_context attribute if present
+        if hasattr(record, "issue_context"):
+            record.issue_context = self._mask_value(str(record.issue_context))
+
+        # Mask the message content
+        if record.msg:
+            record.msg = self._mask_value(str(record.msg))
+
+        # Mask any args that contain strings
+        if record.args:
+            if isinstance(record.args, dict):
+                record.args = {
+                    k: self._mask_value(str(v)) if isinstance(v, str) else v
+                    for k, v in record.args.items()
+                }
+            elif isinstance(record.args, tuple):
+                record.args = tuple(
+                    self._mask_value(str(arg)) if isinstance(arg, str) else arg
+                    for arg in record.args
+                )
+
+        return True
+
+    def _mask_value(self, value: str) -> str:
+        """Replace GHES hostname and org name with placeholders.
+
+        Args:
+            value: The string value to mask.
+
+        Returns:
+            The masked string with hostname replaced by <GHES> and org by <ORG>.
+        """
+        if self.ghes_host:
+            value = value.replace(self.ghes_host, "<GHES>")
+        if self.org_name:
+            # Handle /org/ pattern (repo paths)
+            value = value.replace(f"/{self.org_name}/", "/<ORG>/")
+            # Handle /orgs/org pattern (project URLs)
+            value = value.replace(f"/orgs/{self.org_name}", "/orgs/<ORG>")
+        return value
+
+
+def _extract_org_from_url(project_url: str) -> str | None:
+    """Extract organization name from a project URL.
+
+    Args:
+        project_url: GitHub project URL, e.g., "https://github.com/orgs/myorg/projects/1"
+
+    Returns:
+        The organization name if found, otherwise None.
+    """
+    import re
+
+    match = re.search(r"/orgs/([^/]+)/projects/", project_url)
+    return match.group(1) if match else None
 
 
 def setup_logging(
@@ -188,6 +309,9 @@ def setup_logging(
     log_size: int = 10 * 1024 * 1024,
     log_backups: int = 50,
     daemon_mode: bool = False,
+    mask_ghes_logs: bool = False,
+    ghes_host: str | None = None,
+    org_name: str | None = None,
 ) -> None:
     """
     Configure the root logger with a standard format and level.
@@ -201,6 +325,10 @@ def setup_logging(
         log_backups: Number of backup files to keep. Default: 50
         daemon_mode: If True, log to file only (no stdout/stderr).
                      If False, log to both stdout/stderr and file.
+        mask_ghes_logs: If True, mask GHES hostname and org name in logs.
+        ghes_host: GitHub Enterprise Server hostname to mask. If None or
+                   "github.com", masking is disabled regardless of mask_ghes_logs.
+        org_name: Organization name to mask. Extracted from project URLs.
 
     Format: "[%(asctime)s] %(levelname)s %(threadName)s %(name)s: %(message)s"
     Output: When daemon_mode=False: stdout for INFO/DEBUG, stderr for WARNING+, and file.
@@ -210,11 +338,16 @@ def setup_logging(
     log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
 
-    # Create context-aware colored formatter
+    # Create masking filter if enabled and GHES is configured
+    masking_filter = None
+    if mask_ghes_logs and ghes_host and ghes_host != "github.com":
+        masking_filter = MaskingFilter(ghes_host, org_name)
+
+    # Create context-aware colored formatter (with optional masking)
     log_format = (
         "[%(asctime)s] %(levelname)s %(issue_context)s %(threadName)s %(name)s: %(message)s"
     )
-    formatter = ContextAwareFormatter(log_format)
+    formatter = ContextAwareFormatter(log_format, masking_filter=masking_filter)
 
     # Configure root logger
     root_logger = logging.getLogger()
@@ -230,11 +363,15 @@ def setup_logging(
         stdout_handler.setLevel(logging.DEBUG)
         stdout_handler.addFilter(lambda record: record.levelno < logging.WARNING)
         stdout_handler.setFormatter(formatter)
+        if masking_filter:
+            stdout_handler.addFilter(masking_filter)
 
         # Create handler for WARNING and above - outputs to stderr
         stderr_handler = logging.StreamHandler(sys.stderr)
         stderr_handler.setLevel(logging.WARNING)
         stderr_handler.setFormatter(formatter)
+        if masking_filter:
+            stderr_handler.addFilter(masking_filter)
 
         # Add handlers to root logger
         root_logger.addHandler(stdout_handler)
@@ -243,8 +380,10 @@ def setup_logging(
     # Add file handler for persistent logging (always when log_file specified)
     if log_file:
         try:
-            # Plain context-aware formatter for file output (no ANSI colors)
-            plain_formatter = PlainContextAwareFormatter(log_format)
+            # Plain context-aware formatter for file output (no ANSI colors, with optional masking)
+            plain_formatter = PlainContextAwareFormatter(
+                log_format, masking_filter=masking_filter
+            )
 
             log_dir = os.path.dirname(log_file)
             if log_dir:
@@ -258,6 +397,8 @@ def setup_logging(
             )
             file_handler.setLevel(logging.DEBUG)
             file_handler.setFormatter(plain_formatter)
+            if masking_filter:
+                file_handler.addFilter(masking_filter)
             root_logger.addHandler(file_handler)
             print(f"[logger] File handler added: {log_file}", file=sys.stderr)
         except Exception as e:
