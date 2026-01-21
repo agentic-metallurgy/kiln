@@ -3,6 +3,8 @@
 This package provides GitHub client implementations for different GitHub versions:
 - GitHubTicketClient: For github.com (full feature support)
 - GitHubEnterprise314Client: For GHES 3.14 (limited features)
+- GitHubEnterprise315Client: For GHES 3.15 (same limitations as 3.14)
+- GitHubEnterprise319Client: For GHES 3.19 (full feature support)
 
 Use get_github_client() factory function to get the appropriate client based
 on the GITHUB_ENTERPRISE_VERSION configuration.
@@ -11,11 +13,13 @@ on the GITHUB_ENTERPRISE_VERSION configuration.
 from src.ticket_clients.base import GitHubClientBase
 from src.ticket_clients.github import GitHubTicketClient
 from src.ticket_clients.github_enterprise_3_14 import GitHubEnterprise314Client
+from src.ticket_clients.github_enterprise_3_15 import GitHubEnterprise315Client
 from src.ticket_clients.github_enterprise_3_19 import GitHubEnterprise319Client
 
 # Mapping of GHES versions to their client classes
 GHES_VERSION_CLIENTS: dict[str, type[GitHubClientBase]] = {
     "3.14": GitHubEnterprise314Client,
+    "3.15": GitHubEnterprise315Client,
     "3.19": GitHubEnterprise319Client,
 }
 
@@ -58,6 +62,7 @@ __all__ = [
     "GitHubClientBase",
     "GitHubTicketClient",
     "GitHubEnterprise314Client",
+    "GitHubEnterprise315Client",
     "GitHubEnterprise319Client",
     "get_github_client",
     "GHES_VERSION_CLIENTS",
