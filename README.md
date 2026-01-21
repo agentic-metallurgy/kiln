@@ -2,7 +2,7 @@
 
 A polling-based daemon that monitors GitHub Project Kanban boards and orchestrates Claude-powered workflows for software development automation. It enables a human-in-the-loop development process where engineers move issues through kanban columns (Research → Plan → Implement) and Claude handles the execution.
 
-## Installation
+## Installation and How-To
 
 See the [User Guide](docs/user-guide.md) for setup instructions.
 
