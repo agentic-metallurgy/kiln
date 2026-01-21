@@ -35,6 +35,34 @@ class ProjectMetadata:
 
 
 @dataclass
+class RunRecord:
+    """
+    Represents a single workflow run for an issue.
+
+    Attributes:
+        id: Auto-generated primary key
+        repo: Repository name (e.g., "github.com/owner/repo")
+        issue_number: GitHub issue number
+        workflow: Workflow name ("research", "plan", "implement")
+        started_at: Timestamp when the run started
+        completed_at: Timestamp when the run completed (None if still running)
+        outcome: Result of the run ("success", "failed", "stalled", None if running)
+        session_id: Claude session ID for linking to conversation
+        log_path: Path to the per-run log file
+    """
+
+    repo: str
+    issue_number: int
+    workflow: str
+    started_at: datetime
+    id: int | None = None
+    completed_at: datetime | None = None
+    outcome: str | None = None
+    session_id: str | None = None
+    log_path: str | None = None
+
+
+@dataclass
 class IssueState:
     """
     Represents the state of a GitHub issue in the project board.
@@ -171,6 +199,26 @@ class Database:
                     UPDATE project_metadata
                     SET repo = 'github.com/' || repo
                     WHERE repo IS NOT NULL AND repo NOT LIKE '%.%/%'
+                """)
+
+                # Create run_history table for tracking individual workflow runs
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS run_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        repo TEXT NOT NULL,
+                        issue_number INTEGER NOT NULL,
+                        workflow TEXT NOT NULL,
+                        started_at TIMESTAMP NOT NULL,
+                        completed_at TIMESTAMP,
+                        outcome TEXT,
+                        session_id TEXT,
+                        log_path TEXT
+                    )
+                """)
+                # Create index for efficient querying by repo and issue
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_run_history_repo_issue
+                    ON run_history (repo, issue_number)
                 """)
             self._initialized = True
 
@@ -387,6 +435,166 @@ class Database:
 
         kwargs = {f"{workflow.lower()}_session_id": session_id}
         self.update_issue_state(repo, issue_number, state.status, **kwargs)
+
+    def insert_run_record(self, record: RunRecord) -> int:
+        """
+        Insert a new run record and return its ID.
+
+        Args:
+            record: RunRecord object to insert (id field is ignored)
+
+        Returns:
+            The auto-generated ID of the inserted record
+        """
+        conn = self._get_conn()
+        with conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO run_history
+                (repo, issue_number, workflow, started_at, completed_at, outcome, session_id, log_path)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.repo,
+                    record.issue_number,
+                    record.workflow,
+                    record.started_at.isoformat(),
+                    record.completed_at.isoformat() if record.completed_at else None,
+                    record.outcome,
+                    record.session_id,
+                    record.log_path,
+                ),
+            )
+            return cursor.lastrowid
+
+    def update_run_record(
+        self,
+        run_id: int,
+        completed_at: datetime | None = None,
+        outcome: str | None = None,
+        session_id: str | None = None,
+        log_path: str | None = None,
+    ) -> None:
+        """
+        Update an existing run record with completion information.
+
+        Args:
+            run_id: The ID of the run record to update
+            completed_at: Timestamp when the run completed
+            outcome: Result of the run ("success", "failed", "stalled")
+            session_id: Claude session ID for linking to conversation
+            log_path: Path to the per-run log file
+        """
+        conn = self._get_conn()
+        with conn:
+            # Build dynamic UPDATE query for non-None fields
+            updates = []
+            params = []
+            if completed_at is not None:
+                updates.append("completed_at = ?")
+                params.append(completed_at.isoformat())
+            if outcome is not None:
+                updates.append("outcome = ?")
+                params.append(outcome)
+            if session_id is not None:
+                updates.append("session_id = ?")
+                params.append(session_id)
+            if log_path is not None:
+                updates.append("log_path = ?")
+                params.append(log_path)
+
+            if updates:
+                params.append(run_id)
+                conn.execute(
+                    f"UPDATE run_history SET {', '.join(updates)} WHERE id = ?",
+                    params,
+                )
+
+    def get_run_history(
+        self, repo: str, issue_number: int, limit: int = 50
+    ) -> list[RunRecord]:
+        """
+        Get run history for a specific issue.
+
+        Args:
+            repo: Repository name
+            issue_number: GitHub issue number
+            limit: Maximum number of records to return (default 50)
+
+        Returns:
+            List of RunRecord objects, ordered by started_at descending (newest first)
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, repo, issue_number, workflow, started_at, completed_at,
+                   outcome, session_id, log_path
+            FROM run_history
+            WHERE repo = ? AND issue_number = ?
+            ORDER BY started_at DESC
+            LIMIT ?
+            """,
+            (repo, issue_number, limit),
+        )
+
+        records = []
+        for row in cursor.fetchall():
+            records.append(
+                RunRecord(
+                    id=row["id"],
+                    repo=row["repo"],
+                    issue_number=row["issue_number"],
+                    workflow=row["workflow"],
+                    started_at=datetime.fromisoformat(row["started_at"]),
+                    completed_at=datetime.fromisoformat(row["completed_at"])
+                    if row["completed_at"]
+                    else None,
+                    outcome=row["outcome"],
+                    session_id=row["session_id"],
+                    log_path=row["log_path"],
+                )
+            )
+        return records
+
+    def get_run_record(self, run_id: int) -> RunRecord | None:
+        """
+        Get a single run record by its ID.
+
+        Args:
+            run_id: The ID of the run record
+
+        Returns:
+            RunRecord if found, None otherwise
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, repo, issue_number, workflow, started_at, completed_at,
+                   outcome, session_id, log_path
+            FROM run_history
+            WHERE id = ?
+            """,
+            (run_id,),
+        )
+
+        row = cursor.fetchone()
+        if row:
+            return RunRecord(
+                id=row["id"],
+                repo=row["repo"],
+                issue_number=row["issue_number"],
+                workflow=row["workflow"],
+                started_at=datetime.fromisoformat(row["started_at"]),
+                completed_at=datetime.fromisoformat(row["completed_at"])
+                if row["completed_at"]
+                else None,
+                outcome=row["outcome"],
+                session_id=row["session_id"],
+                log_path=row["log_path"],
+            )
+        return None
 
     def close(self) -> None:
         """
