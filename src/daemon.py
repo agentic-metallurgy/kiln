@@ -167,6 +167,9 @@ class WorkflowRunner:
 class Daemon:
     """Main orchestrator daemon that polls GitHub and triggers workflows."""
 
+    # Hibernation interval in seconds (5 minutes)
+    HIBERNATION_INTERVAL = 300
+
     # Map status names to workflow classes
     # Note: PrepareWorkflow runs automatically before other workflows if no worktree exists
     WORKFLOW_MAP = {
@@ -225,6 +228,7 @@ class Daemon:
         self._running = False
         self._shutdown_requested = False
         self._shutdown_event = threading.Event()  # For efficient interruptible sleeps
+        self._hibernating = False  # Hibernation mode for network failures
 
         # Track in-progress workflows to prevent duplicates
         # Maps "repo#issue_number" -> start timestamp
@@ -467,6 +471,32 @@ class Daemon:
         logger.info(f"Received {signal_name}, initiating graceful shutdown...")
         self._shutdown_requested = True
         self._shutdown_event.set()  # Wake up any waiting sleeps
+
+    def _enter_hibernation(self, reason: str) -> None:
+        """Enter hibernation mode due to network connectivity issues.
+
+        When hibernating, the daemon pauses polling and re-checks connectivity
+        every HIBERNATION_INTERVAL seconds until the connection is restored.
+
+        Args:
+            reason: Description of why hibernation was triggered (e.g., network error message)
+        """
+        if not self._hibernating:
+            self._hibernating = True
+            logger.warning(f"Entering hibernation mode: {reason}")
+            logger.warning(
+                f"Daemon will re-check connectivity every {self.HIBERNATION_INTERVAL} seconds"
+            )
+
+    def _exit_hibernation(self) -> None:
+        """Exit hibernation mode after connectivity is restored.
+
+        Logs the transition and resets the hibernation flag so normal
+        polling can resume.
+        """
+        if self._hibernating:
+            self._hibernating = False
+            logger.info("Exiting hibernation mode: connectivity restored")
 
     def run(self) -> None:
         """Start the polling loop.
