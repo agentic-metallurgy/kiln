@@ -11,11 +11,13 @@ on the GITHUB_ENTERPRISE_VERSION configuration.
 from src.ticket_clients.base import GitHubClientBase
 from src.ticket_clients.github import GitHubTicketClient
 from src.ticket_clients.github_enterprise_3_14 import GitHubEnterprise314Client
+from src.ticket_clients.github_enterprise_3_16 import GitHubEnterprise316Client
 from src.ticket_clients.github_enterprise_3_19 import GitHubEnterprise319Client
 
 # Mapping of GHES versions to their client classes
 GHES_VERSION_CLIENTS: dict[str, type[GitHubClientBase]] = {
     "3.14": GitHubEnterprise314Client,
+    "3.16": GitHubEnterprise316Client,
     "3.19": GitHubEnterprise319Client,
 }
 
@@ -58,6 +60,7 @@ __all__ = [
     "GitHubClientBase",
     "GitHubTicketClient",
     "GitHubEnterprise314Client",
+    "GitHubEnterprise316Client",
     "GitHubEnterprise319Client",
     "get_github_client",
     "GHES_VERSION_CLIENTS",
