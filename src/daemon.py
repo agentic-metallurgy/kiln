@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from tenacity import wait_exponential
@@ -225,6 +226,11 @@ class Daemon:
         self._running = False
         self._shutdown_requested = False
         self._shutdown_event = threading.Event()  # For efficient interruptible sleeps
+
+        # Hibernation state for network connectivity issues
+        self._hibernating = False
+        self._hibernation_start: datetime | None = None
+        self.HIBERNATION_INTERVAL = 300  # 5 minutes
 
         # Track in-progress workflows to prevent duplicates
         # Maps "repo#issue_number" -> start timestamp
@@ -474,6 +480,99 @@ class Daemon:
         self._shutdown_requested = True
         self._shutdown_event.set()  # Wake up any waiting sleeps
 
+    def _is_network_error(self, exception: Exception) -> bool:
+        """Check if exception indicates a network-level error.
+
+        Network errors include TLS/SSL issues, connection timeouts, and other
+        transient network failures that warrant entering hibernation mode.
+
+        Args:
+            exception: The exception to check
+
+        Returns:
+            True if this appears to be a network-level error
+        """
+        error_str = str(exception).lower()
+        network_indicators = [
+            "tls",
+            "ssl",
+            "handshake",
+            "timeout",
+            "connection refused",
+            "network unreachable",
+            "host unreachable",
+            "dns",
+            "socket",
+            "connection reset",
+            "broken pipe",
+            "eof",
+            "connection timed out",
+            "unable to connect",
+            "name resolution",
+        ]
+        return any(indicator in error_str for indicator in network_indicators)
+
+    def _enter_hibernation(self, reason: str) -> None:
+        """Enter hibernation mode due to network issues.
+
+        When in hibernation mode, the daemon uses a fixed 5-minute check interval
+        instead of exponential backoff. A PagerDuty alert is triggered if configured.
+
+        Args:
+            reason: Human-readable reason for entering hibernation
+        """
+        if self._hibernating:
+            return  # Already hibernating
+
+        self._hibernating = True
+        self._hibernation_start = datetime.now(UTC)
+        logger.warning(f"Entering hibernation mode: {reason}")
+
+        # Send PagerDuty alert if configured
+        if self.config.pagerduty_routing_key:
+            from src.pagerduty import trigger_alert
+
+            next_check = self._hibernation_start + timedelta(seconds=self.HIBERNATION_INTERVAL)
+            trigger_alert(
+                routing_key=self.config.pagerduty_routing_key,
+                dedup_key="kiln-hibernation",
+                summary="Kiln daemon entered hibernation mode",
+                reason=reason,
+                custom_details={
+                    "project_urls": self.config.project_urls,
+                    "hibernation_started": self._hibernation_start.isoformat(),
+                    "next_check": next_check.isoformat(),
+                },
+            )
+
+    def _exit_hibernation(self) -> None:
+        """Exit hibernation mode after connectivity is restored.
+
+        Calculates hibernation duration and resolves the PagerDuty alert if configured.
+        """
+        if not self._hibernating:
+            return  # Not hibernating
+
+        duration_seconds = 0
+        if self._hibernation_start:
+            duration = datetime.now(UTC) - self._hibernation_start
+            duration_seconds = int(duration.total_seconds())
+
+        self._hibernating = False
+        self._hibernation_start = None
+        logger.info(
+            f"Exiting hibernation mode - connectivity restored (duration: {duration_seconds}s)"
+        )
+
+        # Resolve PagerDuty alert if configured
+        if self.config.pagerduty_routing_key:
+            from src.pagerduty import resolve_alert
+
+            resolve_alert(
+                routing_key=self.config.pagerduty_routing_key,
+                dedup_key="kiln-hibernation",
+            )
+
     def run(self) -> None:
         """Start the polling loop.
 
@@ -501,22 +600,43 @@ class Daemon:
                 try:
                     self._poll()
                     consecutive_failures = 0  # Reset on success
-                except Exception as e:
-                    consecutive_failures += 1
-                    # Calculate backoff using tenacity's exponential formula:
-                    # multiplier * (exp_base ** (attempt - 1)) clamped to [min, max]
-                    # We add 1 to get 2^1, 2^2, 2^3... for failures 1, 2, 3...
-                    backoff_seconds = backoff_strategy(_BackoffState(consecutive_failures + 1))
 
-                    logger.error(f"Error during poll cycle: {e}", exc_info=True)
-                    logger.info(
-                        f"Poll failed ({consecutive_failures} consecutive). "
-                        f"Backing off for {backoff_seconds:.0f}s before retry..."
-                    )
-                    # Efficient interruptible sleep using Event.wait()
-                    if self._shutdown_event.wait(timeout=backoff_seconds):
-                        break  # Shutdown requested during backoff
-                    continue  # Skip the normal poll interval sleep
+                    # Exit hibernation on successful poll
+                    if self._hibernating:
+                        self._exit_hibernation()
+
+                except Exception as e:
+                    # Check if this is a network error that warrants hibernation
+                    if self._is_network_error(e):
+                        if not self._hibernating:
+                            self._enter_hibernation(str(e))
+
+                        # Fixed 5-minute hibernation check interval
+                        logger.info(
+                            f"Hibernation check in {self.HIBERNATION_INTERVAL // 60} minutes..."
+                        )
+                        if self._shutdown_event.wait(timeout=self.HIBERNATION_INTERVAL):
+                            break  # Shutdown requested during hibernation
+                        continue  # Skip the normal poll interval sleep
+                    else:
+                        # Non-network error: use existing exponential backoff
+                        consecutive_failures += 1
+                        # Calculate backoff using tenacity's exponential formula:
+                        # multiplier * (exp_base ** (attempt - 1)) clamped to [min, max]
+                        # We add 1 to get 2^1, 2^2, 2^3... for failures 1, 2, 3...
+                        backoff_seconds = backoff_strategy(
+                            _BackoffState(consecutive_failures + 1)
+                        )
+
+                        logger.error(f"Error during poll cycle: {e}", exc_info=True)
+                        logger.info(
+                            f"Poll failed ({consecutive_failures} consecutive). "
+                            f"Backing off for {backoff_seconds:.0f}s before retry..."
+                        )
+                        # Efficient interruptible sleep using Event.wait()
+                        if self._shutdown_event.wait(timeout=backoff_seconds):
+                            break  # Shutdown requested during backoff
+                        continue  # Skip the normal poll interval sleep
 
                 # Sleep between polls (interruptible via shutdown event)
                 if self._shutdown_event.wait(timeout=self.config.poll_interval):
