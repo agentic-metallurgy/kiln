@@ -252,7 +252,7 @@ def run_daemon(daemon_mode: bool = False) -> None:
     """
     from src.config import load_config
     from src.daemon import Daemon
-    from src.logger import get_logger, setup_logging
+    from src.logger import _extract_org_from_url, get_logger, setup_logging
     from src.setup import SetupError, check_required_tools, validate_project_columns
     from src.telemetry import get_git_version, init_telemetry
     from src.ticket_clients.github import GitHubTicketClient
@@ -308,12 +308,20 @@ def run_daemon(daemon_mode: bool = False) -> None:
                 print(f"      {result.message}")
         print()
 
+        # Extract org name from first project URL for log masking
+        org_name = None
+        if config.project_urls:
+            org_name = _extract_org_from_url(config.project_urls[0])
+
         # Always log to file; stdout/stderr only in non-daemon mode
         setup_logging(
             log_file=config.log_file,
             log_size=config.log_size,
             log_backups=config.log_backups,
             daemon_mode=daemon_mode,
+            mask_ghes_logs=config.mask_ghes_logs,
+            ghes_host=config.github_enterprise_host,
+            org_name=org_name,
         )
 
         logger = get_logger(__name__)
