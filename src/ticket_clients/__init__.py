@@ -5,6 +5,7 @@ This package provides GitHub client implementations for different GitHub version
 - GitHubEnterprise314Client: For GHES 3.14 (limited features)
 - GitHubEnterprise315Client: For GHES 3.15 (same limitations as 3.14)
 - GitHubEnterprise316Client: For GHES 3.16 (same limitations as 3.14)
+- GitHubEnterprise317Client: For GHES 3.17 (same limitations as 3.14)
 - GitHubEnterprise318Client: For GHES 3.18 (sub-issues support added)
 - GitHubEnterprise319Client: For GHES 3.19 (full feature support)
 
@@ -17,6 +18,7 @@ from src.ticket_clients.github import GitHubTicketClient
 from src.ticket_clients.github_enterprise_3_14 import GitHubEnterprise314Client
 from src.ticket_clients.github_enterprise_3_15 import GitHubEnterprise315Client
 from src.ticket_clients.github_enterprise_3_16 import GitHubEnterprise316Client
+from src.ticket_clients.github_enterprise_3_17 import GitHubEnterprise317Client
 from src.ticket_clients.github_enterprise_3_18 import GitHubEnterprise318Client
 from src.ticket_clients.github_enterprise_3_19 import GitHubEnterprise319Client
 
@@ -25,6 +27,7 @@ GHES_VERSION_CLIENTS: dict[str, type[GitHubClientBase]] = {
     "3.14": GitHubEnterprise314Client,
     "3.15": GitHubEnterprise315Client,
     "3.16": GitHubEnterprise316Client,
+    "3.17": GitHubEnterprise317Client,
     "3.18": GitHubEnterprise318Client,
     "3.19": GitHubEnterprise319Client,
 }
@@ -70,6 +73,7 @@ __all__ = [
     "GitHubEnterprise314Client",
     "GitHubEnterprise315Client",
     "GitHubEnterprise316Client",
+    "GitHubEnterprise317Client",
     "GitHubEnterprise318Client",
     "GitHubEnterprise319Client",
     "get_github_client",
