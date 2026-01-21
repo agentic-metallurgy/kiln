@@ -1,8 +1,25 @@
 """Authorization and access control for Kiln daemon operations."""
 
 import logging
+from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+
+class ActorCategory(Enum):
+    """Categorization of actors for authorization decisions.
+
+    Used to determine how to handle actions from different types of users:
+    - SELF: The configured username_self (full authorization)
+    - TEAM: A known team member (silent observation, no action)
+    - UNKNOWN: Actor could not be determined (security fail-safe)
+    - BLOCKED: A known user who is not authorized
+    """
+
+    SELF = "self"
+    TEAM = "team"
+    UNKNOWN = "unknown"
+    BLOCKED = "blocked"
 
 
 def check_actor_allowed(
