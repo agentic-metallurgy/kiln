@@ -95,3 +95,43 @@ def configure_git_credential_helper(hostname: str = "github.com") -> None:
     except subprocess.CalledProcessError as e:
         # Log but don't fail - user might have different setup
         logger.warning(f"Could not configure git credential helper for {hostname}: {e}")
+
+
+def get_hostnames_from_project_urls(project_urls: list[str]) -> set[str]:
+    """Extract unique hostnames from a list of GitHub project URLs.
+
+    Parses each URL to extract the hostname component. Falls back to "github.com"
+    for any URL that cannot be parsed successfully.
+
+    Args:
+        project_urls: List of GitHub project URLs
+            (e.g., ["https://github.com/orgs/test/projects/1",
+                    "https://ghes.company.com/orgs/test/projects/2"])
+
+    Returns:
+        Set of unique hostnames (e.g., {"github.com", "ghes.company.com"})
+
+    Example:
+        >>> get_hostnames_from_project_urls([
+        ...     "https://github.com/orgs/test/projects/1",
+        ...     "https://ghes.company.com/orgs/test/projects/2"
+        ... ])
+        {"github.com", "ghes.company.com"}
+    """
+    hostnames: set[str] = set()
+
+    for url in project_urls:
+        try:
+            parts = url.split("/")
+            if len(parts) >= 3 and parts[0] in ("http:", "https:") and parts[1] == "":
+                hostnames.add(parts[2])
+            else:
+                hostnames.add("github.com")
+        except (IndexError, ValueError, AttributeError):
+            hostnames.add("github.com")
+
+    # If no URLs provided, default to github.com
+    if not hostnames:
+        hostnames.add("github.com")
+
+    return hostnames
