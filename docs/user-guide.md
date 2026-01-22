@@ -77,9 +77,10 @@ Edit `.kiln/config`:
 # Required
 GITHUB_TOKEN=ghp_your_token_here
 PROJECT_URLS=https://github.com/orgs/your-org/projects/1
-ALLOWED_USERNAME=your-github-username
+USERNAME_SELF=your-github-username
 
 # Optional
+USERNAMES_TEAM=teammate1,teammate2
 POLL_INTERVAL=30
 MAX_CONCURRENT_WORKFLOWS=3
 LOG_LEVEL=INFO
