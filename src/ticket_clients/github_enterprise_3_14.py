@@ -307,6 +307,7 @@ class GitHubEnterprise314Client(GitHubClientBase):
                     body=pr.get("body", ""),
                     state=pr["state"],
                     merged=pr.get("merged", False),
+                    branch_name=pr.get("headRefName"),
                 )
             )
 

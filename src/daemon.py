@@ -35,7 +35,7 @@ from src.logger import (
     set_issue_context,
     setup_logging,
 )
-from src.security import check_actor_allowed
+from src.security import ActorCategory, check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients import get_github_client
 from src.workflows import (
@@ -170,6 +170,9 @@ class WorkflowRunner:
 class Daemon:
     """Main orchestrator daemon that polls GitHub and triggers workflows."""
 
+    # Hibernation interval in seconds (5 minutes)
+    HIBERNATION_INTERVAL = 300
+
     # Map status names to workflow classes
     # Note: PrepareWorkflow runs automatically before other workflows if no worktree exists
     WORKFLOW_MAP = {
@@ -228,11 +231,17 @@ class Daemon:
         self._running = False
         self._shutdown_requested = False
         self._shutdown_event = threading.Event()  # For efficient interruptible sleeps
+        self._hibernating = False  # Hibernation mode for network failures
 
         # Track in-progress workflows to prevent duplicates
         # Maps "repo#issue_number" -> start timestamp
         self._in_progress: dict[str, float] = {}
         self._in_progress_lock = threading.Lock()
+
+        # Track issues with running workflow labels for cleanup on shutdown
+        # Maps "repo#issue_number" -> running_label (e.g., "implementing")
+        self._running_labels: dict[str, str] = {}
+        self._running_labels_lock = threading.Lock()
 
         # Thread pool for parallel workflow execution
         self.executor = ThreadPoolExecutor(
@@ -272,7 +281,8 @@ class Daemon:
             self.database,
             self.runner,
             config.workspace_dir,
-            allowed_username=config.allowed_username,
+            username_self=config.username_self,
+            team_usernames=config.team_usernames,
         )
 
         # Setup signal handlers for graceful shutdown
@@ -471,20 +481,103 @@ class Daemon:
         self._shutdown_requested = True
         self._shutdown_event.set()  # Wake up any waiting sleeps
 
+    def _enter_hibernation(self, reason: str) -> None:
+        """Enter hibernation mode due to network connectivity issues.
+
+        When hibernating, the daemon pauses polling and re-checks connectivity
+        every HIBERNATION_INTERVAL seconds until the connection is restored.
+
+        Args:
+            reason: Description of why hibernation was triggered (e.g., network error message)
+        """
+        if not self._hibernating:
+            self._hibernating = True
+            logger.warning(f"Entering hibernation mode: {reason}")
+            logger.warning(
+                f"Daemon will re-check connectivity every {self.HIBERNATION_INTERVAL} seconds"
+            )
+
+    def _exit_hibernation(self) -> None:
+        """Exit hibernation mode after connectivity is restored.
+
+        Logs the transition and resets the hibernation flag so normal
+        polling can resume.
+        """
+        if self._hibernating:
+            self._hibernating = False
+            logger.info("Exiting hibernation mode: connectivity restored")
+
+    def _check_github_connectivity(self) -> bool:
+        """Check if GitHub API is reachable for all configured project hosts.
+
+        Performs a lightweight connectivity check by calling validate_connection()
+        on each unique hostname extracted from configured project URLs. This is
+        used at the top of the main polling loop to detect network issues before
+        attempting any operations.
+
+        Returns:
+            True if all configured GitHub hosts are reachable.
+            False if any host is unreachable due to network errors.
+
+        Note:
+            This method catches NetworkError exceptions from the ticket client
+            and returns False. Other exceptions (auth errors, etc.) are allowed
+            to propagate since they indicate configuration issues, not transient
+            network problems.
+        """
+        # Import here to avoid circular imports
+        from src.ticket_clients.base import NetworkError
+
+        # Extract unique hostnames from project URLs
+        hostnames: set[str] = set()
+        for url in self.config.project_urls:
+            hostname = self._get_hostname_from_url(url)
+            hostnames.add(hostname)
+
+        if not hostnames:
+            logger.warning("No hostnames found in project URLs, skipping connectivity check")
+            return True
+
+        # Check connectivity for each unique hostname
+        for hostname in sorted(hostnames):
+            try:
+                self.ticket_client.validate_connection(hostname)
+            except NetworkError as e:
+                logger.warning(f"GitHub API unreachable for {hostname}: {e}")
+                return False
+            except Exception as e:
+                # Auth errors and other config issues should be logged but not
+                # trigger hibernation - they require manual intervention
+                logger.error(f"Connectivity check failed for {hostname}: {e}")
+                # Return True to skip hibernation - this isn't a network issue
+                return True
+
+        return True
+
     def run(self) -> None:
-        """Start the polling loop.
+        """Start the polling loop with hibernation mode support.
 
         This method runs continuously, polling the GitHub project board
         at regular intervals until stopped or a shutdown signal is received.
 
-        Uses tenacity's wait_exponential for calculating backoff times on failures.
+        Before each poll cycle, a health check validates GitHub API connectivity.
+        If the health check fails, the daemon enters hibernation mode and re-checks
+        connectivity every HIBERNATION_INTERVAL seconds until restored.
+
+        Uses tenacity's wait_exponential for calculating backoff times on non-network
+        failures.
         """
+        # Import here to avoid circular imports
+        from src.ticket_clients.base import NetworkError
+
         # Configure exponential backoff using tenacity (2, 4, 8, 16... up to 300s)
         # We use tenacity's wait_exponential class to compute backoff durations
+        # This is only used for non-network errors; network errors use hibernation
         backoff_strategy = wait_exponential(multiplier=1, min=2, max=300)
 
         logger.debug("Starting daemon polling loop")
         logger.debug(f"Polling interval: {self.config.poll_interval} seconds")
+        logger.debug(f"Hibernation check interval: {self.HIBERNATION_INTERVAL} seconds")
         logger.debug(f"Watching statuses: {self.config.watched_statuses}")
 
         # Initialize project metadata cache on startup
@@ -495,9 +588,37 @@ class Daemon:
 
         try:
             while self._running and not self._shutdown_requested:
+                # HEALTH CHECK: Validate GitHub API connectivity before polling
+                if not self._check_github_connectivity():
+                    # GitHub API unreachable - enter hibernation mode
+                    if not self._hibernating:
+                        self._enter_hibernation("GitHub API unreachable")
+
+                    logger.info(
+                        f"Hibernating for {self.HIBERNATION_INTERVAL}s "
+                        f"(re-checking connectivity)..."
+                    )
+
+                    # Sleep for hibernation interval, then re-check connectivity
+                    if self._shutdown_event.wait(timeout=self.HIBERNATION_INTERVAL):
+                        break  # Shutdown requested during hibernation
+                    continue  # Loop back to health check
+
+                # Connectivity restored or was never lost
+                if self._hibernating:
+                    self._exit_hibernation()
+
+                # Reset consecutive failures after successful connectivity check
+                # (hibernation handles network issues separately)
+
+                # Health check passed - proceed with normal poll cycle
                 try:
                     self._poll()
                     consecutive_failures = 0  # Reset on success
+                except NetworkError as e:
+                    # Network error during poll - will trigger hibernation on next loop
+                    logger.warning(f"Network error during poll: {e}")
+                    continue  # Loop back to health check
                 except Exception as e:
                     consecutive_failures += 1
                     # Calculate backoff using tenacity's exponential formula:
@@ -529,6 +650,9 @@ class Daemon:
         logger.debug("Stopping daemon")
         self._running = False
 
+        # Clean up running workflow labels before executor shutdown
+        self._cleanup_running_labels()
+
         # Shutdown executor and wait for running workflows
         try:
             logger.debug("Shutting down thread pool executor...")
@@ -545,6 +669,42 @@ class Daemon:
             logger.error(f"Error closing database: {e}")
 
         logger.debug("Daemon stopped")
+
+    def _cleanup_running_labels(self) -> None:
+        """Remove running workflow labels from issues on graceful shutdown.
+
+        This prevents "implementing" (and other running labels) from being left
+        on issues when the daemon shuts down, which would otherwise block
+        future workflow runs until manually removed.
+
+        Errors during cleanup are logged but don't fail the shutdown.
+        """
+        with self._running_labels_lock:
+            if not self._running_labels:
+                logger.debug("No running workflow labels to clean up")
+                return
+
+            labels_to_clean = dict(self._running_labels)
+
+        logger.info(f"Cleaning up {len(labels_to_clean)} running workflow label(s)...")
+
+        for key, label in labels_to_clean.items():
+            try:
+                # Parse key back to repo and issue_number
+                # Format: "hostname/owner/repo#issue_number"
+                repo, issue_str = key.rsplit("#", 1)
+                issue_number = int(issue_str)
+
+                self.ticket_client.remove_label(repo, issue_number, label)
+                logger.info(f"Removed '{label}' label from {key} during shutdown")
+
+                # Remove from tracking
+                with self._running_labels_lock:
+                    self._running_labels.pop(key, None)
+
+            except Exception as e:
+                # Don't fail shutdown if label removal fails
+                logger.warning(f"Failed to remove '{label}' label from {key} during shutdown: {e}")
 
     def _poll(self) -> None:
         """Poll GitHub for project items and handle status changes.
@@ -626,7 +786,10 @@ class Daemon:
                 actor = self.ticket_client.get_label_actor(
                     item.repo, item.ticket_id, Labels.YOLO
                 )
-                if not check_actor_allowed(actor, self.config.allowed_username, key, "YOLO"):
+                actor_category = check_actor_allowed(
+                    actor, self.config.username_self, key, "YOLO", self.config.team_usernames
+                )
+                if actor_category != ActorCategory.SELF:
                     continue
                 logger.info(
                     f"YOLO: Starting auto-progression for {key} from Backlog "
@@ -738,7 +901,10 @@ class Daemon:
         # Check actor authorization if supported by the client
         if self.ticket_client.supports_status_actor_check:
             actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
-            if not check_actor_allowed(actor, self.config.allowed_username, key):
+            actor_category = check_actor_allowed(
+                actor, self.config.username_self, key, "", self.config.team_usernames
+            )
+            if actor_category != ActorCategory.SELF:
                 return False
             logger.info(f"Workflow trigger: {key} in '{item.status}' by allowed user '{actor}'")
         else:
@@ -822,7 +988,10 @@ class Daemon:
             return
 
         actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.YOLO)
-        if not check_actor_allowed(actor, self.config.allowed_username, key, "YOLO"):
+        actor_category = check_actor_allowed(
+            actor, self.config.username_self, key, "YOLO", self.config.team_usernames
+        )
+        if actor_category != ActorCategory.SELF:
             return
 
         logger.info(
@@ -1111,10 +1280,13 @@ class Daemon:
         key = f"{item.repo}#{item.ticket_id}"
 
         actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.RESET)
-        if not check_actor_allowed(actor, self.config.allowed_username, key, "RESET"):
+        actor_category = check_actor_allowed(
+            actor, self.config.username_self, key, "RESET", self.config.team_usernames
+        )
+        if actor_category != ActorCategory.SELF:
             # Only remove reset label when actor is known but not allowed (to prevent repeated warnings)
             # When actor is unknown, keep the label for security logging visibility
-            if actor is not None:
+            if actor_category == ActorCategory.BLOCKED or actor_category == ActorCategory.TEAM:
                 self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.RESET)
             return
 
@@ -1264,7 +1436,19 @@ class Daemon:
 
             # Close the PR first
             if self.ticket_client.close_pr(item.repo, pr.number):
-                logger.info(f"RESET: Closed PR #{pr.number} for {key}")
+                # Verify PR is actually closed (fresh state check)
+                pr_state = self.ticket_client.get_pr_state(item.repo, pr.number)
+                if pr_state == "CLOSED":
+                    logger.info(f"RESET: Verified PR #{pr.number} is closed for {key}")
+                elif pr_state is None:
+                    logger.warning(f"RESET: Could not verify PR #{pr.number} state for {key}")
+                else:
+                    logger.warning(
+                        f"RESET: PR #{pr.number} close returned success but state is {pr_state} "
+                        f"for {key}"
+                    )
+            else:
+                logger.warning(f"RESET: Failed to close PR #{pr.number} for {key}")
 
             # Delete the branch if we have the name
             if pr.branch_name and self.ticket_client.delete_branch(item.repo, pr.branch_name):
@@ -1375,6 +1559,9 @@ class Daemon:
             # Add running label before starting workflow (soft lock)
             if running_label:
                 self.ticket_client.add_label(item.repo, item.ticket_id, running_label)
+                # Track for cleanup on shutdown
+                with self._running_labels_lock:
+                    self._running_labels[key] = running_label
                 logger.debug(f"Added '{running_label}' label to {key}")
 
             # Create masking filter if configured
@@ -1430,6 +1617,9 @@ class Daemon:
             # Remove running label
             if running_label:
                 self.ticket_client.remove_label(item.repo, item.ticket_id, running_label)
+                # Remove from cleanup tracking
+                with self._running_labels_lock:
+                    self._running_labels.pop(key, None)
                 logger.debug(f"Removed '{running_label}' label from {key}")
 
             # Validate research block exists after Research workflow
@@ -1517,6 +1707,9 @@ class Daemon:
             if running_label:
                 try:
                     self.ticket_client.remove_label(item.repo, item.ticket_id, running_label)
+                    # Remove from cleanup tracking
+                    with self._running_labels_lock:
+                        self._running_labels.pop(key, None)
                     logger.debug(f"Removed '{running_label}' label from {key} after failure")
                 except Exception as label_err:
                     logger.warning(f"Could not remove running label after failure: {label_err}")
@@ -1644,7 +1837,7 @@ class Daemon:
             workspace_path=abs_workspace_path,  # Prepare runs in workspace root
             project_url=item.board_url,
             issue_body=issue_body,
-            allowed_username=self.config.allowed_username,
+            username_self=self.config.username_self,
             parent_issue_number=parent_issue_number,
             parent_branch=parent_branch,
         )
@@ -1707,7 +1900,7 @@ class Daemon:
             issue_title=item.title,
             workspace_path=workspace_path,
             project_url=item.board_url,
-            allowed_username=self.config.allowed_username,
+            username_self=self.config.username_self,
         )
 
         # Run workflow

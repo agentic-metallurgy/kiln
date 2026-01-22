@@ -27,7 +27,7 @@ class TestDaemonYoloLabelRemoval:
         config.project_urls = ["https://github.com/orgs/test/projects/1"]
         config.stage_models = {}
         config.github_enterprise_version = None
-        config.allowed_username = "test-user"
+        config.username_self = "test-user"
 
         with patch("src.ticket_clients.github.GitHubTicketClient"):
             daemon = Daemon(config)

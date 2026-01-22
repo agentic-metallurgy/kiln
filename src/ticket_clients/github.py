@@ -13,6 +13,7 @@ from typing import Any
 
 from src.interfaces import Comment, LinkedPullRequest, TicketItem
 from src.logger import get_logger, is_debug_mode
+from src.ticket_clients.base import NetworkError
 
 logger = get_logger(__name__)
 
@@ -1135,6 +1136,7 @@ class GitHubTicketClient:
                   body
                   state
                   merged
+                  headRefName
                 }
               }
             }
@@ -1171,6 +1173,7 @@ class GitHubTicketClient:
                         body=pr.get("body", ""),
                         state=pr["state"],
                         merged=pr.get("merged", False),
+                        branch_name=pr.get("headRefName"),
                     )
                 )
 
@@ -1554,6 +1557,102 @@ class GitHubTicketClient:
 
         return re.sub(pattern, replace_fn, body, flags=re.IGNORECASE)
 
+    def close_pr(self, repo: str, pr_number: int) -> bool:
+        """Close a pull request without merging.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: PR number to close
+
+        Returns:
+            True if PR was closed successfully, False otherwise
+        """
+        repo_ref = self._get_repo_ref(repo)
+        try:
+            self._run_gh_command(["pr", "close", str(pr_number), "--repo", repo_ref], repo=repo)
+            logger.info(f"Closed PR #{pr_number} in {repo}")
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Failed to close PR #{pr_number} in {repo}: {e.stderr}")
+            return False
+
+    def delete_branch(self, repo: str, branch_name: str) -> bool:
+        """Delete a remote branch.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            branch_name: Name of the branch to delete
+
+        Returns:
+            True if branch was deleted successfully, False otherwise
+        """
+        from urllib.parse import quote
+
+        _, owner, repo_name = self._parse_repo(repo)
+        hostname = self._get_hostname_for_repo(repo)
+        # URL-encode branch name to handle slashes (e.g., feature/my-feature)
+        encoded_branch = quote(branch_name, safe="")
+        endpoint = f"repos/{owner}/{repo_name}/git/refs/heads/{encoded_branch}"
+        try:
+            self._run_gh_command(["api", endpoint, "-X", "DELETE"], hostname=hostname)
+            logger.info(f"Deleted branch '{branch_name}' in {repo}")
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Failed to delete branch '{branch_name}' in {repo}: {e.stderr}")
+            return False
+
+    def get_pr_state(self, repo: str, pr_number: int) -> str | None:
+        """Get the current state of a pull request.
+
+        Fetches fresh state from the GitHub API for validation purposes.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            pr_number: PR number to check
+
+        Returns:
+            PR state string: "OPEN", "CLOSED", or "MERGED"
+            None on error (fail-safe - don't block workflow)
+        """
+        _, owner, repo_name = self._parse_repo(repo)
+
+        query = """
+        query($owner: String!, $repo: String!, $prNumber: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $prNumber) {
+              state
+              merged
+            }
+          }
+        }
+        """
+
+        try:
+            response = self._execute_graphql_query(
+                query,
+                {
+                    "owner": owner,
+                    "repo": repo_name,
+                    "prNumber": pr_number,
+                },
+                repo=repo,
+            )
+
+            pr_data = response.get("data", {}).get("repository", {}).get("pullRequest")
+            if not pr_data:
+                logger.warning(f"Could not find PR {repo}#{pr_number}")
+                return None
+
+            # GitHub API returns state as OPEN, CLOSED, or MERGED
+            # But we also check the merged field for clarity
+            if pr_data.get("merged"):
+                return "MERGED"
+            return pr_data.get("state")
+
+        except Exception as e:
+            logger.warning(f"Failed to get PR state for {repo}#{pr_number}: {e}")
+            return None
+
     # Internal helpers
 
     def _parse_board_url(self, board_url: str) -> tuple[str, str, str, int]:
@@ -1895,8 +1994,23 @@ class GitHubTicketClient:
         except subprocess.CalledProcessError as e:
             logger.error(f"Command failed with exit code {e.returncode}")
             logger.error(f"Error output: {e.stderr}")
-            # Check for authentication errors and provide user-friendly message
             error_output = (e.stderr or "").lower()
+
+            # Check for network/connectivity errors first
+            network_error_patterns = [
+                "tls handshake timeout",
+                "connection timeout",
+                "network error",
+                "connection refused",
+                "temporary failure",
+                "i/o timeout",
+                "dial tcp",  # Go network dial errors
+                "no such host",  # DNS resolution failures
+            ]
+            if any(pattern in error_output for pattern in network_error_patterns):
+                raise NetworkError(f"GitHub API network error: {e.stderr}") from e
+
+            # Check for authentication errors and provide user-friendly message
             if any(
                 indicator in error_output
                 for indicator in [
