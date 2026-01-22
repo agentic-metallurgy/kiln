@@ -61,6 +61,7 @@ class Config:
     claude_code_enable_telemetry: bool = False
     safety_allow_appended_tasks: int = 0  # 0 = infinite (no limit)
     ghes_logs_mask: bool = True  # Mask GHES hostname and org in logs
+    pagerduty_routing_key: str | None = None  # PagerDuty Events API v2 routing key
 
 
 def _validate_project_urls_host(
@@ -254,6 +255,11 @@ def load_config_from_file(config_path: Path) -> Config:
     # Log masking settings
     ghes_logs_mask = data.get("GHES_LOGS_MASK", "true").lower() == "true"
 
+    # PagerDuty settings
+    pagerduty_routing_key = data.get("PAGERDUTY_ROUTING_KEY")
+    if not pagerduty_routing_key:
+        pagerduty_routing_key = None
+
     return Config(
         github_token=github_token,
         github_enterprise_host=github_enterprise_host,
@@ -274,6 +280,7 @@ def load_config_from_file(config_path: Path) -> Config:
         claude_code_enable_telemetry=claude_code_enable_telemetry,
         safety_allow_appended_tasks=safety_allow_appended_tasks,
         ghes_logs_mask=ghes_logs_mask,
+        pagerduty_routing_key=pagerduty_routing_key,
     )
 
 
@@ -392,6 +399,11 @@ def load_config_from_env() -> Config:
             "process_comments": "sonnet",
         }
 
+    # PagerDuty settings
+    pagerduty_routing_key = os.environ.get("PAGERDUTY_ROUTING_KEY")
+    if not pagerduty_routing_key:
+        pagerduty_routing_key = None
+
     return Config(
         github_token=github_token,
         github_enterprise_host=github_enterprise_host,
@@ -414,6 +426,7 @@ def load_config_from_env() -> Config:
         claude_code_enable_telemetry=os.environ.get("CLAUDE_CODE_ENABLE_TELEMETRY", "0") == "1",
         safety_allow_appended_tasks=int(os.environ.get("SAFETY_ALLOW_APPENDED_TASKS", "0")),
         ghes_logs_mask=os.environ.get("GHES_LOGS_MASK", "true").lower() == "true",
+        pagerduty_routing_key=pagerduty_routing_key,
     )
 
 
