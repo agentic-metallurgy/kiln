@@ -484,6 +484,39 @@ class Daemon:
         self._shutdown_requested = True
         self._shutdown_event.set()  # Wake up any waiting sleeps
 
+    def _is_network_error(self, exception: Exception) -> bool:
+        """Check if exception indicates a network-level error.
+
+        This is a heuristic fallback for catching network errors that aren't
+        wrapped in NetworkError. It checks the exception message for common
+        network-related indicators.
+
+        Args:
+            exception: The exception to check
+
+        Returns:
+            True if this appears to be a network-level error
+        """
+        error_str = str(exception).lower()
+        network_indicators = [
+            "tls",
+            "ssl",
+            "handshake",
+            "timeout",
+            "connection refused",
+            "network unreachable",
+            "host unreachable",
+            "dns",
+            "socket",
+            "connection reset",
+            "broken pipe",
+            "eof",
+            "connection timed out",
+            "unable to connect",
+            "name resolution",
+        ]
+        return any(indicator in error_str for indicator in network_indicators)
+
     def _enter_hibernation(self, reason: str) -> None:
         """Enter hibernation mode due to network connectivity issues.
 
@@ -655,10 +688,17 @@ class Daemon:
                     self._poll()
                     consecutive_failures = 0  # Reset on success
                 except NetworkError as e:
-                    # Network error during poll - will trigger hibernation on next loop
+                    # Explicit network error - will trigger hibernation on next loop
                     logger.warning(f"Network error during poll: {e}")
                     continue  # Loop back to health check
                 except Exception as e:
+                    # Check if this looks like a network error via heuristic
+                    # (catches network errors not wrapped in NetworkError)
+                    if self._is_network_error(e):
+                        logger.warning(f"Detected network error during poll: {e}")
+                        continue  # Loop back to health check for hibernation
+
+                    # Non-network error: use exponential backoff
                     consecutive_failures += 1
                     # Calculate backoff using tenacity's exponential formula:
                     # multiplier * (exp_base ** (attempt - 1)) clamped to [min, max]
