@@ -510,9 +510,7 @@ class Database:
                     params,
                 )
 
-    def get_run_history(
-        self, repo: str, issue_number: int, limit: int = 50
-    ) -> list[RunRecord]:
+    def get_run_history(self, repo: str, issue_number: int, limit: int = 50) -> list[RunRecord]:
         """
         Get run history for a specific issue.
 

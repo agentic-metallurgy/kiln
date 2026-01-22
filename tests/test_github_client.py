@@ -1904,7 +1904,12 @@ class TestDeleteBranch:
         assert result is True
         mock_run.assert_called_once()
         call_args = mock_run.call_args[0][0]
-        assert call_args == ["api", "repos/owner/repo/git/refs/heads/feature-branch", "-X", "DELETE"]
+        assert call_args == [
+            "api",
+            "repos/owner/repo/git/refs/heads/feature-branch",
+            "-X",
+            "DELETE",
+        ]
 
     def test_delete_branch_returns_false_when_not_found(self, github_client):
         """Test that False is returned when branch doesn't exist."""
@@ -1931,7 +1936,12 @@ class TestDeleteBranch:
 
         call_args = mock_run.call_args[0][0]
         # Branch name with slash should be URL-encoded
-        assert call_args == ["api", "repos/owner/repo/git/refs/heads/feature%2Fmy-feature", "-X", "DELETE"]
+        assert call_args == [
+            "api",
+            "repos/owner/repo/git/refs/heads/feature%2Fmy-feature",
+            "-X",
+            "DELETE",
+        ]
 
     def test_delete_branch_uses_hostname_for_ghes(self, github_client):
         """Test that hostname is passed for GHES compatibility."""
@@ -2007,13 +2017,7 @@ class TestGetPrState:
 
     def test_get_pr_state_returns_none_when_pr_not_found(self, github_client):
         """Test that None is returned when PR doesn't exist."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "pullRequest": None
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"pullRequest": None}}}
         with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             result = github_client.get_pr_state("github.com/owner/repo", 999)
 
@@ -2821,9 +2825,7 @@ class TestNetworkErrorDetection:
 
         from src.ticket_clients.base import NetworkError
 
-        error = subprocess.CalledProcessError(
-            1, ["gh", "api"], stderr="connection refused"
-        )
+        error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="connection refused")
 
         with patch("subprocess.run", side_effect=error):
             with pytest.raises(NetworkError):
@@ -2835,9 +2837,7 @@ class TestNetworkErrorDetection:
 
         from src.ticket_clients.base import NetworkError
 
-        error = subprocess.CalledProcessError(
-            1, ["gh", "api"], stderr="read: i/o timeout"
-        )
+        error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="read: i/o timeout")
 
         with patch("subprocess.run", side_effect=error):
             with pytest.raises(NetworkError):
@@ -3325,17 +3325,7 @@ class TestGetTicketLabels:
 
     def test_get_ticket_labels_empty_labels(self, github_client):
         """Test handling issue with no labels."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": {
-                        "labels": {
-                            "nodes": []
-                        }
-                    }
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": {"labels": {"nodes": []}}}}}
 
         with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             labels = github_client.get_ticket_labels("github.com/owner/repo", 42)
@@ -3344,13 +3334,7 @@ class TestGetTicketLabels:
 
     def test_get_ticket_labels_nonexistent_issue(self, github_client):
         """Test handling nonexistent issue returns empty set."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": None
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": None}}}
 
         with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             labels = github_client.get_ticket_labels("github.com/owner/repo", 99999)
@@ -3391,15 +3375,7 @@ class TestGetTicketLabels:
 
     def test_get_ticket_labels_makes_correct_api_call(self, github_client):
         """Test that the correct GraphQL query is made."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": {
-                        "labels": {"nodes": []}
-                    }
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": {"labels": {"nodes": []}}}}}
 
         with patch.object(
             github_client, "_execute_graphql_query", return_value=mock_response
@@ -3450,57 +3426,29 @@ class TestGitHubEnterprise318Client:
 
     def test_get_parent_issue_with_parent(self, enterprise_318_client):
         """Test get_parent_issue returns parent issue number when present."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": {
-                        "parent": {
-                            "number": 42
-                        }
-                    }
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": {"parent": {"number": 42}}}}}
 
         with patch.object(
             enterprise_318_client, "_execute_graphql_query_with_headers", return_value=mock_response
         ):
-            result = enterprise_318_client.get_parent_issue(
-                "github.mycompany.com/owner/repo", 123
-            )
+            result = enterprise_318_client.get_parent_issue("github.mycompany.com/owner/repo", 123)
 
         assert result == 42
 
     def test_get_parent_issue_without_parent(self, enterprise_318_client):
         """Test get_parent_issue returns None when issue has no parent."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": {
-                        "parent": None
-                    }
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": {"parent": None}}}}
 
         with patch.object(
             enterprise_318_client, "_execute_graphql_query_with_headers", return_value=mock_response
         ):
-            result = enterprise_318_client.get_parent_issue(
-                "github.mycompany.com/owner/repo", 123
-            )
+            result = enterprise_318_client.get_parent_issue("github.mycompany.com/owner/repo", 123)
 
         assert result is None
 
     def test_get_parent_issue_nonexistent_issue(self, enterprise_318_client):
         """Test get_parent_issue returns None for nonexistent issue."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": None
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": None}}}
 
         with patch.object(
             enterprise_318_client, "_execute_graphql_query_with_headers", return_value=mock_response
@@ -3513,15 +3461,7 @@ class TestGitHubEnterprise318Client:
 
     def test_get_parent_issue_uses_sub_issues_header(self, enterprise_318_client):
         """Test get_parent_issue uses the GraphQL-Features: sub_issues header."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": {
-                        "parent": None
-                    }
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": {"parent": None}}}}
 
         with patch.object(
             enterprise_318_client, "_execute_graphql_query_with_headers", return_value=mock_response
@@ -3543,9 +3483,7 @@ class TestGitHubEnterprise318Client:
             "_execute_graphql_query_with_headers",
             side_effect=Exception("API error"),
         ):
-            result = enterprise_318_client.get_parent_issue(
-                "github.mycompany.com/owner/repo", 123
-            )
+            result = enterprise_318_client.get_parent_issue("github.mycompany.com/owner/repo", 123)
 
         assert result is None
 
@@ -3570,9 +3508,7 @@ class TestGitHubEnterprise318Client:
         with patch.object(
             enterprise_318_client, "_execute_graphql_query_with_headers", return_value=mock_response
         ):
-            result = enterprise_318_client.get_child_issues(
-                "github.mycompany.com/owner/repo", 42
-            )
+            result = enterprise_318_client.get_child_issues("github.mycompany.com/owner/repo", 42)
 
         assert len(result) == 3
         assert result[0] == {"number": 101, "state": "OPEN"}
@@ -3581,36 +3517,18 @@ class TestGitHubEnterprise318Client:
 
     def test_get_child_issues_without_children(self, enterprise_318_client):
         """Test get_child_issues returns empty list when no children."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": {
-                        "subIssues": {
-                            "nodes": []
-                        }
-                    }
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": {"subIssues": {"nodes": []}}}}}
 
         with patch.object(
             enterprise_318_client, "_execute_graphql_query_with_headers", return_value=mock_response
         ):
-            result = enterprise_318_client.get_child_issues(
-                "github.mycompany.com/owner/repo", 42
-            )
+            result = enterprise_318_client.get_child_issues("github.mycompany.com/owner/repo", 42)
 
         assert result == []
 
     def test_get_child_issues_nonexistent_issue(self, enterprise_318_client):
         """Test get_child_issues returns empty list for nonexistent issue."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": None
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": None}}}
 
         with patch.object(
             enterprise_318_client, "_execute_graphql_query_with_headers", return_value=mock_response
@@ -3623,17 +3541,7 @@ class TestGitHubEnterprise318Client:
 
     def test_get_child_issues_uses_sub_issues_header(self, enterprise_318_client):
         """Test get_child_issues uses the GraphQL-Features: sub_issues header."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": {
-                        "subIssues": {
-                            "nodes": []
-                        }
-                    }
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": {"subIssues": {"nodes": []}}}}}
 
         with patch.object(
             enterprise_318_client, "_execute_graphql_query_with_headers", return_value=mock_response
@@ -3655,9 +3563,7 @@ class TestGitHubEnterprise318Client:
             "_execute_graphql_query_with_headers",
             side_effect=Exception("API error"),
         ):
-            result = enterprise_318_client.get_child_issues(
-                "github.mycompany.com/owner/repo", 42
-            )
+            result = enterprise_318_client.get_child_issues("github.mycompany.com/owner/repo", 42)
 
         assert result == []
 
@@ -3682,9 +3588,7 @@ class TestGitHubEnterprise318Client:
         with patch.object(
             enterprise_318_client, "_execute_graphql_query_with_headers", return_value=mock_response
         ):
-            result = enterprise_318_client.get_child_issues(
-                "github.mycompany.com/owner/repo", 42
-            )
+            result = enterprise_318_client.get_child_issues("github.mycompany.com/owner/repo", 42)
 
         assert len(result) == 2
         assert result[0] == {"number": 101, "state": "OPEN"}

@@ -44,7 +44,9 @@ class GitHubEnterprise317Client(GitHubTicketClient):
         Returns:
             Always None (sub-issues not supported)
         """
-        logger.debug(f"Sub-issues not supported in GHES 3.17, returning None for {repo}#{ticket_id}")
+        logger.debug(
+            f"Sub-issues not supported in GHES 3.17, returning None for {repo}#{ticket_id}"
+        )
         return None
 
     def get_child_issues(self, repo: str, ticket_id: int) -> list[dict[str, int | str]]:

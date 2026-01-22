@@ -17,7 +17,6 @@ import pytest
 from src.daemon import Daemon
 from src.interfaces import Comment, TicketItem
 
-
 # ============================================================================
 # Daemon Comment Processing Tests
 # ============================================================================
@@ -1509,9 +1508,7 @@ class TestYoloLabelRemovalDuringWorkflow:
             daemon._process_item_workflow(item)
 
             # Verify auto-advance WAS called (Research -> Plan)
-            daemon.ticket_client.update_item_status.assert_called_once_with(
-                "PVI_123", "Plan"
-            )
+            daemon.ticket_client.update_item_status.assert_called_once_with("PVI_123", "Plan")
 
     def test_yolo_failure_handling_skipped_when_label_removed(self, daemon):
         """Test that YOLO failure handling is skipped when label is removed.
@@ -1549,16 +1546,12 @@ class TestYoloLabelRemovalDuringWorkflow:
 
                 # Verify yolo_failed was NOT added
                 add_label_calls = daemon.ticket_client.add_label.call_args_list
-                yolo_failed_calls = [
-                    c for c in add_label_calls if Labels.YOLO_FAILED in c[0]
-                ]
+                yolo_failed_calls = [c for c in add_label_calls if Labels.YOLO_FAILED in c[0]]
                 assert len(yolo_failed_calls) == 0
 
                 # Verify YOLO label was NOT removed (since it's already gone)
                 remove_label_calls = daemon.ticket_client.remove_label.call_args_list
-                yolo_remove_calls = [
-                    c for c in remove_label_calls if Labels.YOLO in c[0]
-                ]
+                yolo_remove_calls = [c for c in remove_label_calls if Labels.YOLO in c[0]]
                 # The only remove_label call should be for the running label, not YOLO
                 for call_args in yolo_remove_calls:
                     assert call_args[0][2] != Labels.YOLO

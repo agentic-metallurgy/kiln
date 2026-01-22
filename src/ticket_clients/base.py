@@ -493,9 +493,7 @@ class GitHubClientBase:
         }
         """
 
-        response = self._execute_graphql_query(
-            item_query, {"itemId": item_id}, hostname=hostname
-        )
+        response = self._execute_graphql_query(item_query, {"itemId": item_id}, hostname=hostname)
 
         try:
             node = response["data"]["node"]
@@ -546,9 +544,7 @@ class GitHubClientBase:
 
         logger.info(f"Successfully updated project item {item_id} to '{new_status}'")
 
-    def archive_item(
-        self, board_id: str, item_id: str, *, hostname: str = "github.com"
-    ) -> bool:
+    def archive_item(self, board_id: str, item_id: str, *, hostname: str = "github.com") -> bool:
         """Archive a project item.
 
         Args:

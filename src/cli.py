@@ -27,10 +27,10 @@ CONFIG_FILE = "config"
 # ANSI escape codes for startup message colors
 RESET = "\033[0m"
 STARTUP_COLORS = {
-    "glow": "\033[38;2;250;204;21m",   # #FACC15 - Phase 1 (brightest)
+    "glow": "\033[38;2;250;204;21m",  # #FACC15 - Phase 1 (brightest)
     "ember": "\033[38;2;245;158;11m",  # #F59E0B - Phase 2
-    "fire": "\033[38;2;249;115;22m",   # #F97316 - Phase 3
-    "heat": "\033[38;2;239;98;52m",    # #EF6234 - Phase 4+ (hottest)
+    "fire": "\033[38;2;249;115;22m",  # #F97316 - Phase 3
+    "heat": "\033[38;2;239;98;52m",  # #EF6234 - Phase 4+ (hottest)
 }
 
 
@@ -211,7 +211,7 @@ def install_claude_resources() -> None:
                 errors.append(f"Failed to copy {src} to {dest}: {e}")
 
     if errors:
-        error_msg = f"Failed to install kiln resources:\n" + "\n".join(errors)
+        error_msg = "Failed to install kiln resources:\n" + "\n".join(errors)
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
@@ -219,8 +219,6 @@ def install_claude_resources() -> None:
         logger.info(f"Installed {installed_count} kiln resource(s) to {claude_home}")
     else:
         logger.warning(f"No kiln resources installed - check {kiln_dir}")
-
-
 
 
 def print_banner() -> None:
@@ -495,7 +493,9 @@ def cmd_logs(args: argparse.Namespace) -> None:
             print(f"Log file not found: {record.log_path}", file=sys.stderr)
             sys.exit(1)
 
-        print(f"=== Log for run {args.view}: {record.workflow} @ {record.started_at.strftime('%Y-%m-%d %H:%M')} ===\n")
+        print(
+            f"=== Log for run {args.view}: {record.workflow} @ {record.started_at.strftime('%Y-%m-%d %H:%M')} ===\n"
+        )
         print(log_file.read_text())
         return
 

@@ -80,7 +80,7 @@ def run_claude(
         >>> print(result.response)
         "4"
     """
-    log_message(logger,"Running Claude CLI with prompt", prompt)
+    log_message(logger, "Running Claude CLI with prompt", prompt)
     logger.debug(f"Working directory: {cwd}")
     logger.debug(f"Timeout: {timeout}s total, {inactivity_timeout}s inactivity")
     if resume_session:
@@ -192,7 +192,7 @@ def run_claude(
                     # Check for result type with "result" field (final response)
                     if data.get("type") == "result" and "result" in data:
                         response_parts.append(data["result"])
-                        log_message(logger,"Extracted result", data["result"])
+                        log_message(logger, "Extracted result", data["result"])
 
                         # Extract metrics from result event
                         usage = data.get("usage", {})
@@ -229,7 +229,7 @@ def run_claude(
                             for item in message["content"]:
                                 if isinstance(item, dict) and item.get("type") == "text":
                                     response_parts.append(item["text"])
-                                    log_message(logger,"Extracted assistant text", item["text"])
+                                    log_message(logger, "Extracted assistant text", item["text"])
 
                     # Check for error messages
                     elif data.get("type") == "error":

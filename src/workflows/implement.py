@@ -118,7 +118,9 @@ class ImplementWorkflow:
 
         # Step 1: Ensure PR exists (with retry)
         pr_info = self._get_pr_for_issue(ctx.repo, ctx.issue_number)
-        logger.info(f"PR lookup for {key}: {'found PR #' + str(pr_info.get('number')) if pr_info else 'not found'}")
+        logger.info(
+            f"PR lookup for {key}: {'found PR #' + str(pr_info.get('number')) if pr_info else 'not found'}"
+        )
 
         if not pr_info:
             for attempt in range(1, 3):  # Try up to 2 times
@@ -146,7 +148,9 @@ class ImplementWorkflow:
         # Set initial max iterations estimate based on TASK count (each TASK = 1 iteration)
         pr_body = pr_info.get("body", "")
         initial_task_count = count_tasks(pr_body)
-        max_iterations_estimate = initial_task_count if initial_task_count > 0 else DEFAULT_MAX_ITERATIONS
+        max_iterations_estimate = (
+            initial_task_count if initial_task_count > 0 else DEFAULT_MAX_ITERATIONS
+        )
         logger.info(
             f"Detected {initial_task_count} TASKs for {key}, "
             f"initial estimate={max_iterations_estimate} iterations"
@@ -235,9 +239,7 @@ class ImplementWorkflow:
             )
 
             # Run implementation for one task
-            implement_prompt = (
-                f"/kiln-implement_github for issue {issue_url}.{reviewer_flags}{project_url_context}"
-            )
+            implement_prompt = f"/kiln-implement_github for issue {issue_url}.{reviewer_flags}{project_url_context}"
             self._run_prompt(implement_prompt, ctx, config, "implement")
 
         # Check final state and mark PR ready if all tasks complete
@@ -361,4 +363,3 @@ class ImplementWorkflow:
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse PR response: {e}")
             return None
-

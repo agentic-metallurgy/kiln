@@ -145,6 +145,7 @@ class TestConfigureGitCredentialHelper:
 
     def test_clear_does_not_fail_on_missing_config(self):
         """Test that clearing missing config doesn't fail startup."""
+
         def side_effect(args, **kwargs):
             # First call (clear) fails - no existing config
             if args[-1] == "":
@@ -383,7 +384,6 @@ class TestValidateProjectColumns:
         assert result.project_url == "https://github.com/orgs/test/projects/1"
         assert result.action == "ok"
         assert result.message == "Test message"
-
 
 
 @pytest.mark.unit

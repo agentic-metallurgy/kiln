@@ -238,9 +238,7 @@ class TestCommentProcessorAllowlist:
 
     def test_init_with_username_self(self):
         """Test constructor stores username_self."""
-        processor = CommentProcessor(
-            Mock(), Mock(), Mock(), "/workspaces", username_self="user1"
-        )
+        processor = CommentProcessor(Mock(), Mock(), Mock(), "/workspaces", username_self="user1")
         assert processor.username_self == "user1"
 
     def test_init_without_username_self_defaults_none(self):

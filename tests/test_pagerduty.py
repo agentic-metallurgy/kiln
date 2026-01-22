@@ -61,18 +61,14 @@ class TestInitPagerduty:
         with patch.object(pagerduty, "logger") as mock_logger:
             pagerduty.init_pagerduty("test-key")
 
-            mock_logger.info.assert_called_once_with(
-                "PagerDuty initialized for hibernation alerts"
-            )
+            mock_logger.info.assert_called_once_with("PagerDuty initialized for hibernation alerts")
 
     def test_init_logs_debug_when_no_key(self):
         """Test init_pagerduty() logs debug message when no routing key."""
         with patch.object(pagerduty, "logger") as mock_logger:
             pagerduty.init_pagerduty(None)
 
-            mock_logger.debug.assert_called_once_with(
-                "PagerDuty not configured (no routing key)"
-            )
+            mock_logger.debug.assert_called_once_with("PagerDuty not configured (no routing key)")
 
 
 @pytest.mark.unit
@@ -113,7 +109,10 @@ class TestTriggerHibernationAlert:
             assert payload["routing_key"] == "test-routing-key"
             assert payload["event_action"] == "trigger"
             assert payload["dedup_key"] == pagerduty.HIBERNATION_DEDUP_KEY
-            assert payload["payload"]["summary"] == "Kiln daemon entered hibernation: GitHub API unreachable"
+            assert (
+                payload["payload"]["summary"]
+                == "Kiln daemon entered hibernation: GitHub API unreachable"
+            )
             assert payload["payload"]["severity"] == "warning"
             assert payload["payload"]["source"] == "kiln-daemon"
             assert payload["payload"]["custom_details"]["reason"] == "GitHub API unreachable"
@@ -154,9 +153,7 @@ class TestTriggerHibernationAlert:
 
         with patch("src.pagerduty.requests.post") as mock_post:
             mock_response = MagicMock()
-            mock_response.raise_for_status.side_effect = requests.HTTPError(
-                "400 Bad Request"
-            )
+            mock_response.raise_for_status.side_effect = requests.HTTPError("400 Bad Request")
             mock_post.return_value = mock_response
 
             result = pagerduty.trigger_hibernation_alert(
@@ -197,9 +194,7 @@ class TestTriggerHibernationAlert:
             )
 
             mock_logger.warning.assert_called_once()
-            assert "Failed to trigger PagerDuty alert" in str(
-                mock_logger.warning.call_args
-            )
+            assert "Failed to trigger PagerDuty alert" in str(mock_logger.warning.call_args)
 
     def test_trigger_logs_info_on_success(self):
         """Test trigger_hibernation_alert() logs info on success."""
@@ -217,9 +212,7 @@ class TestTriggerHibernationAlert:
                 "test reason", ["https://github.com/orgs/test/projects/1"]
             )
 
-            mock_logger.info.assert_called_with(
-                "PagerDuty alert triggered for hibernation"
-            )
+            mock_logger.info.assert_called_with("PagerDuty alert triggered for hibernation")
 
     def test_trigger_with_multiple_project_urls(self):
         """Test trigger_hibernation_alert() with multiple project URLs."""
@@ -235,9 +228,7 @@ class TestTriggerHibernationAlert:
                 "https://github.com/orgs/test/projects/2",
                 "https://ghes.company.com/orgs/corp/projects/1",
             ]
-            result = pagerduty.trigger_hibernation_alert(
-                "GitHub API unreachable", project_urls
-            )
+            result = pagerduty.trigger_hibernation_alert("GitHub API unreachable", project_urls)
 
             assert result is True
             payload = mock_post.call_args[1]["json"]
@@ -308,9 +299,7 @@ class TestResolveHibernationAlert:
 
         with patch("src.pagerduty.requests.post") as mock_post:
             mock_response = MagicMock()
-            mock_response.raise_for_status.side_effect = requests.HTTPError(
-                "400 Bad Request"
-            )
+            mock_response.raise_for_status.side_effect = requests.HTTPError("400 Bad Request")
             mock_post.return_value = mock_response
 
             result = pagerduty.resolve_hibernation_alert()
@@ -345,9 +334,7 @@ class TestResolveHibernationAlert:
             pagerduty.resolve_hibernation_alert()
 
             mock_logger.warning.assert_called_once()
-            assert "Failed to resolve PagerDuty alert" in str(
-                mock_logger.warning.call_args
-            )
+            assert "Failed to resolve PagerDuty alert" in str(mock_logger.warning.call_args)
 
     def test_resolve_logs_info_on_success(self):
         """Test resolve_hibernation_alert() logs info on success."""
@@ -363,9 +350,7 @@ class TestResolveHibernationAlert:
 
             pagerduty.resolve_hibernation_alert()
 
-            mock_logger.info.assert_called_with(
-                "PagerDuty alert resolved for hibernation"
-            )
+            mock_logger.info.assert_called_with("PagerDuty alert resolved for hibernation")
 
 
 @pytest.mark.unit

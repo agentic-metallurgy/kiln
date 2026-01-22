@@ -381,9 +381,7 @@ def setup_logging(
     if log_file:
         try:
             # Plain context-aware formatter for file output (no ANSI colors, with optional masking)
-            plain_formatter = PlainContextAwareFormatter(
-                log_format, masking_filter=masking_filter
-            )
+            plain_formatter = PlainContextAwareFormatter(log_format, masking_filter=masking_filter)
 
             log_dir = os.path.dirname(log_file)
             if log_dir:

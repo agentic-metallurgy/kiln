@@ -78,9 +78,7 @@ def update_parent_pr_status(
         description = f"All {total_children} child issue(s) resolved"
         state = "success"
 
-    logger.info(
-        f"Updating parent PR #{pr_number} status: {state} - {description}"
-    )
+    logger.info(f"Updating parent PR #{pr_number} status: {state} - {description}")
 
     return ticket_client.set_commit_status(
         repo=repo,
