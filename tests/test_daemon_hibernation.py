@@ -1,9 +1,10 @@
-"""Unit tests for Daemon hibernation functionality.
+"""Unit tests for hibernation functionality.
 
 These tests verify the hibernation mode behavior:
-- Health check (_check_github_connectivity)
+- Health check (check_connectivity)
 - Hibernation entry/exit logic
 - Main loop hibernation behavior with mocked connectivity
+- Direct Hibernation class tests
 """
 
 from unittest.mock import MagicMock, patch
@@ -12,7 +13,20 @@ import pytest
 
 from src.daemon import Daemon
 from src.daemon_utils import get_hostname_from_url
+from src.hibernation import Hibernation
 from src.ticket_clients.base import NetworkError
+
+
+@pytest.fixture
+def hibernation():
+    """Fixture providing Hibernation with mocked dependencies."""
+    ticket_client = MagicMock()
+    project_urls = ["https://github.com/orgs/test/projects/1"]
+    return Hibernation(
+        ticket_client=ticket_client,
+        project_urls=project_urls,
+        hibernation_interval=300,
+    )
 
 
 @pytest.fixture
@@ -31,6 +45,7 @@ def daemon(temp_workspace_dir):
     with patch("src.ticket_clients.github.GitHubTicketClient"):
         daemon = Daemon(config)
         daemon.ticket_client = MagicMock()
+        daemon.hibernation.ticket_client = daemon.ticket_client
         daemon.comment_processor.ticket_client = daemon.ticket_client
         yield daemon
         daemon.stop()
@@ -54,15 +69,13 @@ class TestHibernationState:
 
     def test_enter_hibernation_logs_warning(self, daemon):
         """Test that _enter_hibernation logs a warning with the reason."""
-        with patch("src.daemon.logger") as mock_logger:
+        with patch("src.hibernation.logger") as mock_logger:
             daemon._enter_hibernation("GitHub API unreachable")
-            mock_logger.warning.assert_any_call(
-                "Entering hibernation mode: GitHub API unreachable"
-            )
+            mock_logger.warning.assert_any_call("Entering hibernation mode: GitHub API unreachable")
 
     def test_enter_hibernation_idempotent(self, daemon):
         """Test that calling _enter_hibernation twice doesn't log twice."""
-        with patch("src.daemon.logger") as mock_logger:
+        with patch("src.hibernation.logger") as mock_logger:
             daemon._enter_hibernation("first reason")
             daemon._enter_hibernation("second reason")
             # Should only log once (first call)
@@ -75,23 +88,21 @@ class TestHibernationState:
 
     def test_exit_hibernation_clears_flag(self, daemon):
         """Test that _exit_hibernation clears the flag."""
-        daemon._hibernating = True
+        daemon.hibernation._hibernating = True
         daemon._exit_hibernation()
         assert daemon._hibernating is False
 
     def test_exit_hibernation_logs_info(self, daemon):
         """Test that _exit_hibernation logs connectivity restored."""
-        daemon._hibernating = True
-        with patch("src.daemon.logger") as mock_logger:
+        daemon.hibernation._hibernating = True
+        with patch("src.hibernation.logger") as mock_logger:
             daemon._exit_hibernation()
-            mock_logger.info.assert_any_call(
-                "Exiting hibernation mode: connectivity restored"
-            )
+            mock_logger.info.assert_any_call("Exiting hibernation mode: connectivity restored")
 
     def test_exit_hibernation_idempotent(self, daemon):
         """Test that calling _exit_hibernation when not hibernating doesn't log."""
-        daemon._hibernating = False
-        with patch("src.daemon.logger") as mock_logger:
+        daemon.hibernation._hibernating = False
+        with patch("src.hibernation.logger") as mock_logger:
             daemon._exit_hibernation()
             # Should not log "Exiting hibernation" if not hibernating
             info_calls = [
@@ -113,23 +124,19 @@ class TestCheckGitHubConnectivity:
 
     def test_connectivity_network_error_returns_false(self, daemon):
         """Test that NetworkError returns False."""
-        daemon.ticket_client.validate_connection.side_effect = NetworkError(
-            "TLS handshake timeout"
-        )
+        daemon.ticket_client.validate_connection.side_effect = NetworkError("TLS handshake timeout")
         result = daemon._check_github_connectivity()
         assert result is False
 
     def test_connectivity_other_exception_returns_true(self, daemon):
         """Test that non-network exceptions return True (to skip hibernation)."""
-        daemon.ticket_client.validate_connection.side_effect = RuntimeError(
-            "Auth error"
-        )
+        daemon.ticket_client.validate_connection.side_effect = RuntimeError("Auth error")
         result = daemon._check_github_connectivity()
         assert result is True
 
     def test_connectivity_checks_all_hostnames(self, daemon):
         """Test that connectivity is checked for all unique hostnames."""
-        daemon.config.project_urls = [
+        daemon.hibernation.project_urls = [
             "https://github.com/orgs/test/projects/1",
             "https://github.com/orgs/other/projects/2",
             "https://ghes.company.com/orgs/corp/projects/1",
@@ -139,9 +146,7 @@ class TestCheckGitHubConnectivity:
         daemon._check_github_connectivity()
 
         # Should call validate_connection for each unique hostname
-        call_args = [
-            call[0][0] for call in daemon.ticket_client.validate_connection.call_args_list
-        ]
+        call_args = [call[0][0] for call in daemon.ticket_client.validate_connection.call_args_list]
         assert "github.com" in call_args
         assert "ghes.company.com" in call_args
         # github.com should only be called once even though 2 URLs use it
@@ -149,16 +154,14 @@ class TestCheckGitHubConnectivity:
 
     def test_connectivity_empty_project_urls_returns_true(self, daemon):
         """Test that empty project URLs returns True (no hosts to check)."""
-        daemon.config.project_urls = []
+        daemon.hibernation.project_urls = []
         result = daemon._check_github_connectivity()
         assert result is True
 
     def test_connectivity_logs_warning_on_network_error(self, daemon):
         """Test that NetworkError is logged as warning."""
-        daemon.ticket_client.validate_connection.side_effect = NetworkError(
-            "Connection refused"
-        )
-        with patch("src.daemon.logger") as mock_logger:
+        daemon.ticket_client.validate_connection.side_effect = NetworkError("Connection refused")
+        with patch("src.hibernation.logger") as mock_logger:
             daemon._check_github_connectivity()
             # Should log warning about unreachable host
             warning_calls = [
@@ -369,44 +372,44 @@ class TestHibernationPagerDutyIntegration:
 
     def test_pagerduty_trigger_called_when_entering_hibernation(self, daemon):
         """Test that PagerDuty trigger is called when daemon enters hibernation."""
-        with patch("src.daemon.trigger_hibernation_alert") as mock_trigger:
+        with patch("src.hibernation.trigger_hibernation_alert") as mock_trigger:
             daemon._enter_hibernation("GitHub API unreachable")
 
             mock_trigger.assert_called_once_with(
                 "GitHub API unreachable",
-                daemon.config.project_urls,
+                daemon.hibernation.project_urls,
             )
 
     def test_pagerduty_resolve_called_when_exiting_hibernation(self, daemon):
         """Test that PagerDuty resolve is called when daemon exits hibernation."""
-        daemon._hibernating = True
+        daemon.hibernation._hibernating = True
 
-        with patch("src.daemon.resolve_hibernation_alert") as mock_resolve:
+        with patch("src.hibernation.resolve_hibernation_alert") as mock_resolve:
             daemon._exit_hibernation()
 
             mock_resolve.assert_called_once()
 
     def test_pagerduty_trigger_not_called_when_already_hibernating(self, daemon):
         """Test that PagerDuty trigger is not called when already hibernating."""
-        daemon._hibernating = True
+        daemon.hibernation._hibernating = True
 
-        with patch("src.daemon.trigger_hibernation_alert") as mock_trigger:
+        with patch("src.hibernation.trigger_hibernation_alert") as mock_trigger:
             daemon._enter_hibernation("Another reason")
 
             mock_trigger.assert_not_called()
 
     def test_pagerduty_resolve_not_called_when_not_hibernating(self, daemon):
         """Test that PagerDuty resolve is not called when not hibernating."""
-        daemon._hibernating = False
+        daemon.hibernation._hibernating = False
 
-        with patch("src.daemon.resolve_hibernation_alert") as mock_resolve:
+        with patch("src.hibernation.resolve_hibernation_alert") as mock_resolve:
             daemon._exit_hibernation()
 
             mock_resolve.assert_not_called()
 
     def test_daemon_continues_when_pagerduty_trigger_fails(self, daemon):
         """Test that daemon continues normally when PagerDuty trigger fails."""
-        with patch("src.daemon.trigger_hibernation_alert") as mock_trigger:
+        with patch("src.hibernation.trigger_hibernation_alert") as mock_trigger:
             mock_trigger.return_value = False  # Simulate failure
 
             # Should not raise exception and should set hibernation flag
@@ -417,9 +420,9 @@ class TestHibernationPagerDutyIntegration:
 
     def test_daemon_continues_when_pagerduty_resolve_fails(self, daemon):
         """Test that daemon continues normally when PagerDuty resolve fails."""
-        daemon._hibernating = True
+        daemon.hibernation._hibernating = True
 
-        with patch("src.daemon.resolve_hibernation_alert") as mock_resolve:
+        with patch("src.hibernation.resolve_hibernation_alert") as mock_resolve:
             mock_resolve.return_value = False  # Simulate failure
 
             # Should not raise exception and should clear hibernation flag
@@ -430,13 +433,13 @@ class TestHibernationPagerDutyIntegration:
 
     def test_pagerduty_trigger_receives_project_urls(self, daemon):
         """Test that PagerDuty trigger receives correct project URLs."""
-        daemon.config.project_urls = [
+        daemon.hibernation.project_urls = [
             "https://github.com/orgs/test/projects/1",
             "https://github.com/orgs/test/projects/2",
             "https://ghes.company.com/orgs/corp/projects/3",
         ]
 
-        with patch("src.daemon.trigger_hibernation_alert") as mock_trigger:
+        with patch("src.hibernation.trigger_hibernation_alert") as mock_trigger:
             daemon._enter_hibernation("Network error")
 
             mock_trigger.assert_called_once_with(
@@ -467,8 +470,8 @@ class TestHibernationPagerDutyIntegration:
             patch.object(daemon, "_poll"),
             patch.object(daemon, "_initialize_project_metadata"),
             patch.object(daemon._shutdown_event, "wait", mock_wait),
-            patch("src.daemon.trigger_hibernation_alert") as mock_trigger,
-            patch("src.daemon.resolve_hibernation_alert") as mock_resolve,
+            patch("src.hibernation.trigger_hibernation_alert") as mock_trigger,
+            patch("src.hibernation.resolve_hibernation_alert") as mock_resolve,
         ):
             daemon.run()
 
@@ -494,11 +497,83 @@ class TestHibernationPagerDutyIntegration:
             patch.object(daemon, "_poll", side_effect=mock_poll),
             patch.object(daemon, "_initialize_project_metadata"),
             patch.object(daemon._shutdown_event, "wait", mock_wait),
-            patch("src.daemon.trigger_hibernation_alert") as mock_trigger,
-            patch("src.daemon.resolve_hibernation_alert") as mock_resolve,
+            patch("src.hibernation.trigger_hibernation_alert") as mock_trigger,
+            patch("src.hibernation.resolve_hibernation_alert") as mock_resolve,
         ):
             daemon.run()
 
             # Should not have called PagerDuty during normal operation
             mock_trigger.assert_not_called()
+            mock_resolve.assert_not_called()
+
+
+class TestHibernationClassDirect:
+    """Tests for the Hibernation class directly."""
+
+    def test_hibernation_initialization(self, hibernation):
+        """Test that Hibernation is initialized correctly."""
+        assert hibernation.is_hibernating is False
+        assert hibernation.hibernation_interval == 300
+        assert len(hibernation.project_urls) == 1
+
+    def test_hibernation_enter_sets_flag(self, hibernation):
+        """Test that enter_hibernation sets the flag."""
+        with patch("src.hibernation.trigger_hibernation_alert"):
+            hibernation.enter_hibernation("test reason")
+        assert hibernation.is_hibernating is True
+
+    def test_hibernation_exit_clears_flag(self, hibernation):
+        """Test that exit_hibernation clears the flag."""
+        hibernation._hibernating = True
+        with patch("src.hibernation.resolve_hibernation_alert"):
+            hibernation.exit_hibernation()
+        assert hibernation.is_hibernating is False
+
+    def test_hibernation_check_connectivity_success(self, hibernation):
+        """Test successful connectivity check."""
+        hibernation.ticket_client.validate_connection.return_value = True
+        result = hibernation.check_connectivity()
+        assert result is True
+
+    def test_hibernation_check_connectivity_network_error(self, hibernation):
+        """Test connectivity check with network error."""
+        hibernation.ticket_client.validate_connection.side_effect = NetworkError("timeout")
+        result = hibernation.check_connectivity()
+        assert result is False
+
+    def test_hibernation_check_connectivity_auth_error_returns_true(self, hibernation):
+        """Test connectivity check with auth error returns True (skip hibernation)."""
+        hibernation.ticket_client.validate_connection.side_effect = RuntimeError("Auth failed")
+        result = hibernation.check_connectivity()
+        assert result is True
+
+    def test_hibernation_pagerduty_trigger_on_enter(self, hibernation):
+        """Test PagerDuty is triggered when entering hibernation."""
+        with patch("src.hibernation.trigger_hibernation_alert") as mock_trigger:
+            hibernation.enter_hibernation("GitHub API unreachable")
+            mock_trigger.assert_called_once_with(
+                "GitHub API unreachable",
+                hibernation.project_urls,
+            )
+
+    def test_hibernation_pagerduty_resolve_on_exit(self, hibernation):
+        """Test PagerDuty is resolved when exiting hibernation."""
+        hibernation._hibernating = True
+        with patch("src.hibernation.resolve_hibernation_alert") as mock_resolve:
+            hibernation.exit_hibernation()
+            mock_resolve.assert_called_once()
+
+    def test_hibernation_enter_idempotent(self, hibernation):
+        """Test entering hibernation when already hibernating is idempotent."""
+        with patch("src.hibernation.trigger_hibernation_alert") as mock_trigger:
+            hibernation.enter_hibernation("first")
+            hibernation.enter_hibernation("second")
+            # Should only trigger once
+            mock_trigger.assert_called_once()
+
+    def test_hibernation_exit_idempotent(self, hibernation):
+        """Test exiting hibernation when not hibernating is idempotent."""
+        with patch("src.hibernation.resolve_hibernation_alert") as mock_resolve:
+            hibernation.exit_hibernation()
+            # Should not resolve since not hibernating
             mock_resolve.assert_not_called()

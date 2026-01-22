@@ -24,6 +24,7 @@ from src.comment_processor import CommentProcessor
 from src.config import Config, load_config
 from src.daemon_utils import get_hostname_from_url, get_worktree_path
 from src.database import Database, ProjectMetadata, RunRecord
+from src.hibernation import Hibernation
 from src.interfaces import TicketItem
 from src.labels import REQUIRED_LABELS, Labels
 from src.logger import (
@@ -36,7 +37,7 @@ from src.logger import (
     set_issue_context,
     setup_logging,
 )
-from src.pagerduty import init_pagerduty, resolve_hibernation_alert, trigger_hibernation_alert
+from src.pagerduty import init_pagerduty
 from src.security import ActorCategory, check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients import get_github_client
@@ -214,6 +215,7 @@ class Daemon:
         "Plan": "Implement",
         # Implement → Validate is handled by existing WORKFLOW_CONFIG.next_status
     }
+
     def __init__(self, config: Config, version: str | None = None) -> None:
         """Initialize the daemon with configuration.
 
@@ -233,7 +235,6 @@ class Daemon:
         self._running = False
         self._shutdown_requested = False
         self._shutdown_event = threading.Event()  # For efficient interruptible sleeps
-        self._hibernating = False  # Hibernation mode for network failures
 
         # Track in-progress workflows to prevent duplicates
         # Maps "repo#issue_number" -> start timestamp
@@ -272,6 +273,13 @@ class Daemon:
 
         # Log feature availability for the selected client
         self._log_client_features()
+
+        # Initialize hibernation manager
+        self.hibernation = Hibernation(
+            ticket_client=self.ticket_client,
+            project_urls=config.project_urls,
+            hibernation_interval=self.HIBERNATION_INTERVAL,
+        )
 
         self.workspace_manager = WorkspaceManager(config.workspace_dir)
         logger.debug(f"Workspace manager initialized with dir: {config.workspace_dir}")
@@ -324,13 +332,12 @@ class Daemon:
             )
 
         # Log any specific notes about linked PR detection
-        if hasattr(client, 'check_merged_changes_for_issue'):
+        if hasattr(client, "check_merged_changes_for_issue"):
             # GHES 3.14 uses alternative implementation
             logger.info(
                 f"  - Merged PR detection: Using timelineItems + CLOSED_EVENT "
                 f"(closedByPullRequestsReferences unavailable in {client.client_description})"
             )
-
 
     def _validate_github_connections(self) -> None:
         """Validate GitHub connections for all configured project URLs.
@@ -467,82 +474,22 @@ class Daemon:
         self._shutdown_requested = True
         self._shutdown_event.set()  # Wake up any waiting sleeps
 
+    @property
+    def _hibernating(self) -> bool:
+        """Delegate hibernation state to Hibernation manager."""
+        return self.hibernation.is_hibernating
+
     def _enter_hibernation(self, reason: str) -> None:
-        """Enter hibernation mode due to network connectivity issues.
-
-        When hibernating, the daemon pauses polling and re-checks connectivity
-        every HIBERNATION_INTERVAL seconds until the connection is restored.
-
-        Args:
-            reason: Description of why hibernation was triggered (e.g., network error message)
-        """
-        if not self._hibernating:
-            self._hibernating = True
-            logger.warning(f"Entering hibernation mode: {reason}")
-            logger.warning(
-                f"Daemon will re-check connectivity every {self.HIBERNATION_INTERVAL} seconds"
-            )
-            # Trigger PagerDuty alert if configured
-            trigger_hibernation_alert(reason, self.config.project_urls)
+        """Enter hibernation mode. Delegates to Hibernation manager."""
+        self.hibernation.enter_hibernation(reason)
 
     def _exit_hibernation(self) -> None:
-        """Exit hibernation mode after connectivity is restored.
-
-        Logs the transition and resets the hibernation flag so normal
-        polling can resume.
-        """
-        if self._hibernating:
-            self._hibernating = False
-            logger.info("Exiting hibernation mode: connectivity restored")
-            # Resolve PagerDuty alert if configured
-            resolve_hibernation_alert()
+        """Exit hibernation mode. Delegates to Hibernation manager."""
+        self.hibernation.exit_hibernation()
 
     def _check_github_connectivity(self) -> bool:
-        """Check if GitHub API is reachable for all configured project hosts.
-
-        Performs a lightweight connectivity check by calling validate_connection()
-        on each unique hostname extracted from configured project URLs. This is
-        used at the top of the main polling loop to detect network issues before
-        attempting any operations.
-
-        Returns:
-            True if all configured GitHub hosts are reachable.
-            False if any host is unreachable due to network errors.
-
-        Note:
-            This method catches NetworkError exceptions from the ticket client
-            and returns False. Other exceptions (auth errors, etc.) are allowed
-            to propagate since they indicate configuration issues, not transient
-            network problems.
-        """
-        # Import here to avoid circular imports
-        from src.ticket_clients.base import NetworkError
-
-        # Extract unique hostnames from project URLs
-        hostnames: set[str] = set()
-        for url in self.config.project_urls:
-            hostname = get_hostname_from_url(url)
-            hostnames.add(hostname)
-
-        if not hostnames:
-            logger.warning("No hostnames found in project URLs, skipping connectivity check")
-            return True
-
-        # Check connectivity for each unique hostname
-        for hostname in sorted(hostnames):
-            try:
-                self.ticket_client.validate_connection(hostname)
-            except NetworkError as e:
-                logger.warning(f"GitHub API unreachable for {hostname}: {e}")
-                return False
-            except Exception as e:
-                # Auth errors and other config issues should be logged but not
-                # trigger hibernation - they require manual intervention
-                logger.error(f"Connectivity check failed for {hostname}: {e}")
-                # Return True to skip hibernation - this isn't a network issue
-                return True
-
-        return True
+        """Check GitHub connectivity. Delegates to Hibernation manager."""
+        return self.hibernation.check_connectivity()
 
     def run(self) -> None:
         """Start the polling loop with hibernation mode support.
@@ -770,12 +717,12 @@ class Daemon:
 
                 # Fresh check: verify yolo label is still present (may have been removed since poll started)
                 if not self._has_yolo_label(item.repo, item.ticket_id):
-                    logger.debug(f"YOLO: Skipping Backlog→Research for {key} - yolo label was removed")
+                    logger.debug(
+                        f"YOLO: Skipping Backlog→Research for {key} - yolo label was removed"
+                    )
                     continue
 
-                actor = self.ticket_client.get_label_actor(
-                    item.repo, item.ticket_id, Labels.YOLO
-                )
+                actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.YOLO)
                 actor_category = check_actor_allowed(
                     actor, self.config.username_self, key, "YOLO", self.config.team_usernames
                 )
@@ -1557,7 +1504,11 @@ class Daemon:
             # Create masking filter if configured
             masking_filter: MaskingFilter | None = None
             if self.config.ghes_logs_mask and self.config.github_enterprise_host:
-                org_name = _extract_org_from_url(self.config.project_urls[0]) if self.config.project_urls else None
+                org_name = (
+                    _extract_org_from_url(self.config.project_urls[0])
+                    if self.config.project_urls
+                    else None
+                )
                 masking_filter = MaskingFilter(self.config.github_enterprise_host, org_name)
 
             # Create RunRecord at workflow start
@@ -1617,9 +1568,7 @@ class Daemon:
                 body = self.ticket_client.get_ticket_body(item.repo, item.ticket_id)
                 if body is None or "<!-- kiln:research -->" not in body:
                     self.ticket_client.add_label(item.repo, item.ticket_id, Labels.RESEARCH_FAILED)
-                    logger.warning(
-                        f"Research completed but no research block found for {key}"
-                    )
+                    logger.warning(f"Research completed but no research block found for {key}")
                     # Update run record to reflect stalled state
                     if run_id:
                         self.database.update_run_record(run_id, outcome="stalled")
@@ -1641,8 +1590,12 @@ class Daemon:
                     total_tasks, completed_tasks = count_checkboxes(pr_body)
                     if total_tasks > 0 and completed_tasks == total_tasks:
                         hostname = get_hostname_from_url(item.board_url)
-                        self.ticket_client.update_item_status(item.item_id, next_status, hostname=hostname)
-                        logger.info(f"All {total_tasks} tasks complete, moved {key} to '{next_status}'")
+                        self.ticket_client.update_item_status(
+                            item.item_id, next_status, hostname=hostname
+                        )
+                        logger.info(
+                            f"All {total_tasks} tasks complete, moved {key} to '{next_status}'"
+                        )
                         next_status = None  # Prevent duplicate move below
 
             if next_status:
@@ -1658,8 +1611,12 @@ class Daemon:
                     # Fresh check - yolo may have been removed while workflow was running
                     if self._has_yolo_label(item.repo, item.ticket_id):
                         hostname = get_hostname_from_url(item.board_url)
-                        self.ticket_client.update_item_status(item.item_id, yolo_next, hostname=hostname)
-                        logger.info(f"YOLO: Auto-advanced {key} from '{item.status}' to '{yolo_next}'")
+                        self.ticket_client.update_item_status(
+                            item.item_id, yolo_next, hostname=hostname
+                        )
+                        logger.info(
+                            f"YOLO: Auto-advanced {key} from '{item.status}' to '{yolo_next}'"
+                        )
                     else:
                         logger.info(
                             f"YOLO: Cancelled auto-advance for {key}, label removed during workflow"
@@ -1712,7 +1669,9 @@ class Daemon:
                     if Labels.YOLO in fresh_labels:
                         self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.YOLO)
                         self.ticket_client.add_label(item.repo, item.ticket_id, Labels.YOLO_FAILED)
-                        logger.warning(f"YOLO: Workflow failed for {key}, cancelled auto-progression")
+                        logger.warning(
+                            f"YOLO: Workflow failed for {key}, cancelled auto-progression"
+                        )
                     else:
                         # YOLO label was removed during workflow, skip failure handling
                         logger.info(
@@ -1743,9 +1702,7 @@ class Daemon:
         except Exception as e:
             logger.error(f"Workflow failed: {e}", exc_info=True)
 
-    def _get_parent_pr_info(
-        self, repo: str, ticket_id: int
-    ) -> tuple[int | None, str | None]:
+    def _get_parent_pr_info(self, repo: str, ticket_id: int) -> tuple[int | None, str | None]:
         """Get parent issue number and its open PR branch name.
 
         Combines get_parent_issue and get_pr_for_issue to find the parent's
@@ -1774,9 +1731,7 @@ class Daemon:
             return parent_issue_number, None
 
         parent_branch = str(parent_pr.get("branch_name")) if parent_pr.get("branch_name") else None
-        logger.info(
-            f"Found parent PR #{parent_pr.get('number')} with branch '{parent_branch}'"
-        )
+        logger.info(f"Found parent PR #{parent_pr.get('number')} with branch '{parent_branch}'")
         return parent_issue_number, parent_branch
 
     def _auto_prepare_worktree(self, item: TicketItem) -> None:
@@ -1799,9 +1754,7 @@ class Daemon:
         issue_body = self.ticket_client.get_ticket_body(item.repo, item.ticket_id)
 
         # Check for parent issue with open PR
-        parent_issue_number, parent_branch = self._get_parent_pr_info(
-            item.repo, item.ticket_id
-        )
+        parent_issue_number, parent_branch = self._get_parent_pr_info(item.repo, item.ticket_id)
 
         workflow = PrepareWorkflow()
         # Use absolute path so Claude knows exactly where to create things
@@ -1900,9 +1853,13 @@ class Daemon:
 
             return session_id
         except ImplementationIncompleteError as e:
-            logger.warning(f"Implementation incomplete for {workflow_name}: {e} (reason: {e.reason})")
+            logger.warning(
+                f"Implementation incomplete for {workflow_name}: {e} (reason: {e.reason})"
+            )
             if workflow_name == "Implement":
-                self.ticket_client.add_label(item.repo, item.ticket_id, Labels.IMPLEMENTATION_FAILED)
+                self.ticket_client.add_label(
+                    item.repo, item.ticket_id, Labels.IMPLEMENTATION_FAILED
+                )
                 logger.info(
                     f"Added '{Labels.IMPLEMENTATION_FAILED}' label to "
                     f"{item.repo}#{item.ticket_id} (reason: {e.reason})"
@@ -1912,10 +1869,11 @@ class Daemon:
             logger.error(f"Workflow '{workflow_name}' failed: {e}", exc_info=True)
             # Add failure label for Implement workflow
             if workflow_name == "Implement":
-                self.ticket_client.add_label(item.repo, item.ticket_id, Labels.IMPLEMENTATION_FAILED)
+                self.ticket_client.add_label(
+                    item.repo, item.ticket_id, Labels.IMPLEMENTATION_FAILED
+                )
                 logger.info(
-                    f"Added '{Labels.IMPLEMENTATION_FAILED}' label to "
-                    f"{item.repo}#{item.ticket_id}"
+                    f"Added '{Labels.IMPLEMENTATION_FAILED}' label to {item.repo}#{item.ticket_id}"
                 )
             raise
 
