@@ -25,6 +25,7 @@ from src.config import Config, load_config
 from src.daemon_utils import get_hostname_from_url, get_worktree_path
 from src.database import Database, ProjectMetadata, RunRecord
 from src.hibernation import Hibernation
+from src.yolo_controller import YoloController
 from src.interfaces import TicketItem
 from src.labels import REQUIRED_LABELS, Labels
 from src.logger import (
@@ -279,6 +280,14 @@ class Daemon:
             ticket_client=self.ticket_client,
             project_urls=config.project_urls,
             hibernation_interval=self.HIBERNATION_INTERVAL,
+        )
+
+        # Initialize YOLO controller
+        self.yolo_controller = YoloController(
+            ticket_client=self.ticket_client,
+            username_self=config.username_self,
+            team_usernames=config.team_usernames,
+            workflow_config=self.WORKFLOW_CONFIG,
         )
 
         self.workspace_manager = WorkspaceManager(config.workspace_dir)
@@ -858,107 +867,16 @@ class Daemon:
         return True
 
     def _should_yolo_advance(self, item: TicketItem) -> bool:
-        """Check if an item should advance via YOLO (has yolo label but can't run workflow).
-
-        This handles the case where yolo is added after a workflow stage completes.
-        For example, if yolo is added when an issue has research_ready label in Research status,
-        it should advance to Plan.
-
-        Args:
-            item: TicketItem from GitHub (with cached labels)
-
-        Returns:
-            True if item should be advanced to next YOLO status
-        """
-        # Fast path: if not in cached labels, definitely not present
-        if Labels.YOLO not in item.labels:
-            return False
-
-        # Skip closed issues
-        if item.state == "CLOSED":
-            return False
-
-        # Must have a YOLO progression target
-        if item.status not in self.YOLO_PROGRESSION:
-            return False
-
-        # Skip Backlog - handled separately in _poll() with immediate status change
-        if item.status == "Backlog":
-            return False
-
-        # Must have the complete label for the current status (indicates stage is done)
-        config = self.WORKFLOW_CONFIG.get(item.status)
-        if not config:
-            return False
-
-        complete_label = config["complete_label"]
-        if not (complete_label and complete_label in item.labels):
-            return False
-
-        # Fresh check: verify yolo label is still present (may have been removed since poll started)
-        if not self._has_yolo_label(item.repo, item.ticket_id):
-            key = f"{item.repo}#{item.ticket_id}"
-            logger.debug(f"YOLO: Skipping advancement for {key} - yolo label was removed")
-            return False
-
-        return True
+        """Check if an item should advance via YOLO. Delegates to YoloController."""
+        return self.yolo_controller.should_yolo_advance(item)
 
     def _yolo_advance(self, item: TicketItem) -> None:
-        """Advance an item to the next YOLO status.
-
-        Validates that the yolo label was added by an allowed user before advancing.
-        Also verifies the label is still present (fresh check) in case it was removed
-        after _should_yolo_advance() returned True but before this method runs.
-
-        Args:
-            item: TicketItem to advance
-        """
-        key = f"{item.repo}#{item.ticket_id}"
-        yolo_next = self.YOLO_PROGRESSION.get(item.status)
-
-        if not yolo_next:
-            return
-
-        # Fresh check: verify yolo label is still present before advancing
-        if not self._has_yolo_label(item.repo, item.ticket_id):
-            logger.info(f"YOLO: Skipping advancement for {key} - yolo label was removed")
-            return
-
-        actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.YOLO)
-        actor_category = check_actor_allowed(
-            actor, self.config.username_self, key, "YOLO", self.config.team_usernames
-        )
-        if actor_category != ActorCategory.SELF:
-            return
-
-        logger.info(
-            f"YOLO: Advancing {key} from '{item.status}' to '{yolo_next}' "
-            f"(stage complete, label added by allowed user '{actor}')"
-        )
-        hostname = get_hostname_from_url(item.board_url)
-        self.ticket_client.update_item_status(item.item_id, yolo_next, hostname=hostname)
+        """Advance an item to the next YOLO status. Delegates to YoloController."""
+        self.yolo_controller.yolo_advance(item)
 
     def _has_yolo_label(self, repo: str, issue_number: int) -> bool:
-        """Check if issue currently has yolo label (fresh from GitHub).
-
-        This fetches fresh label data from GitHub to handle the case where
-        a user removes the yolo label mid-workflow. Using cached item.labels
-        would miss this change.
-
-        Args:
-            repo: Repository in 'hostname/owner/repo' format
-            issue_number: Issue number
-
-        Returns:
-            True if yolo label is currently present, False otherwise.
-            Returns False on any error (fail-safe: don't advance if uncertain).
-        """
-        try:
-            current_labels = self.ticket_client.get_issue_labels(repo, issue_number)
-            return Labels.YOLO in current_labels
-        except Exception as e:
-            logger.warning(f"Could not fetch current labels for {repo}#{issue_number}: {e}")
-            return False  # Fail safe - don't advance if we can't verify
+        """Check if issue currently has yolo label. Delegates to YoloController."""
+        return self.yolo_controller.has_yolo_label(repo, issue_number)
 
     def _get_pr_for_issue(self, repo: str, issue_number: int) -> dict | None:
         """Get the open PR that closes a specific issue.
