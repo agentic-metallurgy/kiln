@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from tenacity import wait_exponential
@@ -229,6 +230,11 @@ class Daemon:
         self._shutdown_requested = False
         self._shutdown_event = threading.Event()  # For efficient interruptible sleeps
         self._hibernating = False  # Hibernation mode for network failures
+
+        # Hibernation state for network connectivity issues
+        self._hibernating = False
+        self._hibernation_start: datetime | None = None
+        self.HIBERNATION_INTERVAL = 300  # 5 minutes
 
         # Track in-progress workflows to prevent duplicates
         # Maps "repo#issue_number" -> start timestamp
@@ -478,31 +484,100 @@ class Daemon:
         self._shutdown_requested = True
         self._shutdown_event.set()  # Wake up any waiting sleeps
 
+    def _is_network_error(self, exception: Exception) -> bool:
+        """Check if exception indicates a network-level error.
+
+        This is a heuristic fallback for catching network errors that aren't
+        wrapped in NetworkError. It checks the exception message for common
+        network-related indicators.
+
+        Args:
+            exception: The exception to check
+
+        Returns:
+            True if this appears to be a network-level error
+        """
+        error_str = str(exception).lower()
+        network_indicators = [
+            "tls",
+            "ssl",
+            "handshake",
+            "timeout",
+            "connection refused",
+            "network unreachable",
+            "host unreachable",
+            "dns",
+            "socket",
+            "connection reset",
+            "broken pipe",
+            "eof",
+            "connection timed out",
+            "unable to connect",
+            "name resolution",
+        ]
+        return any(indicator in error_str for indicator in network_indicators)
+
     def _enter_hibernation(self, reason: str) -> None:
         """Enter hibernation mode due to network connectivity issues.
 
         When hibernating, the daemon pauses polling and re-checks connectivity
         every HIBERNATION_INTERVAL seconds until the connection is restored.
+        A PagerDuty alert is triggered if configured.
 
         Args:
             reason: Description of why hibernation was triggered (e.g., network error message)
         """
         if not self._hibernating:
             self._hibernating = True
+            self._hibernation_start = datetime.now(UTC)
             logger.warning(f"Entering hibernation mode: {reason}")
             logger.warning(
                 f"Daemon will re-check connectivity every {self.HIBERNATION_INTERVAL} seconds"
             )
 
+            # Send PagerDuty alert if configured
+            if self.config.pagerduty_routing_key:
+                from src.pagerduty import trigger_alert
+
+                next_check = self._hibernation_start + timedelta(seconds=self.HIBERNATION_INTERVAL)
+                trigger_alert(
+                    routing_key=self.config.pagerduty_routing_key,
+                    dedup_key="kiln-hibernation",
+                    summary="Kiln daemon entered hibernation mode",
+                    reason=reason,
+                    custom_details={
+                        "project_urls": self.config.project_urls,
+                        "hibernation_started": self._hibernation_start.isoformat(),
+                        "next_check": next_check.isoformat(),
+                    },
+                )
+
     def _exit_hibernation(self) -> None:
         """Exit hibernation mode after connectivity is restored.
 
-        Logs the transition and resets the hibernation flag so normal
-        polling can resume.
+        Logs the transition, calculates hibernation duration, resets the hibernation
+        flag, and resolves the PagerDuty alert if configured.
         """
         if self._hibernating:
+            duration_seconds = 0
+            if self._hibernation_start:
+                duration = datetime.now(UTC) - self._hibernation_start
+                duration_seconds = int(duration.total_seconds())
+
             self._hibernating = False
-            logger.info("Exiting hibernation mode: connectivity restored")
+            self._hibernation_start = None
+            logger.info(
+                f"Exiting hibernation mode - connectivity restored (duration: {duration_seconds}s)"
+            )
+
+            # Resolve PagerDuty alert if configured
+            if self.config.pagerduty_routing_key:
+                from src.pagerduty import resolve_alert
+
+                resolve_alert(
+                    routing_key=self.config.pagerduty_routing_key,
+                    dedup_key="kiln-hibernation",
+                )
 
     def _check_github_connectivity(self) -> bool:
         """Check if GitHub API is reachable for all configured project hosts.
@@ -613,10 +688,17 @@ class Daemon:
                     self._poll()
                     consecutive_failures = 0  # Reset on success
                 except NetworkError as e:
-                    # Network error during poll - will trigger hibernation on next loop
+                    # Explicit network error - will trigger hibernation on next loop
                     logger.warning(f"Network error during poll: {e}")
                     continue  # Loop back to health check
                 except Exception as e:
+                    # Check if this looks like a network error via heuristic
+                    # (catches network errors not wrapped in NetworkError)
+                    if self._is_network_error(e):
+                        logger.warning(f"Detected network error during poll: {e}")
+                        continue  # Loop back to health check for hibernation
+
+                    # Non-network error: use exponential backoff
                     consecutive_failures += 1
                     # Calculate backoff using tenacity's exponential formula:
                     # multiplier * (exp_base ** (attempt - 1)) clamped to [min, max]

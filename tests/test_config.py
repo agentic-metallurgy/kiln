@@ -1222,6 +1222,115 @@ class TestTeamUsernamesConfiguration:
 
 
 @pytest.mark.unit
+class TestPagerDutyConfiguration:
+    """Tests for PagerDuty configuration (PAGERDUTY_ROUTING_KEY)."""
+
+    def test_pagerduty_routing_key_default_empty_env(self, monkeypatch):
+        """Test pagerduty_routing_key defaults to empty string when not set."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.delenv("PAGERDUTY_ROUTING_KEY", raising=False)
+
+        config = load_config_from_env()
+
+        assert config.pagerduty_routing_key == ""
+
+    def test_pagerduty_routing_key_parsed_from_env(self, monkeypatch):
+        """Test PAGERDUTY_ROUTING_KEY is parsed from environment variable."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("PAGERDUTY_ROUTING_KEY", "abc123routing456key")
+
+        config = load_config_from_env()
+
+        assert config.pagerduty_routing_key == "abc123routing456key"
+
+    def test_pagerduty_routing_key_empty_string_env(self, monkeypatch):
+        """Test PAGERDUTY_ROUTING_KEY with empty string from env."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("PAGERDUTY_ROUTING_KEY", "")
+
+        config = load_config_from_env()
+
+        assert config.pagerduty_routing_key == ""
+
+    def _write_config(self, tmp_path, content):
+        """Helper to write a config file."""
+        config_file = tmp_path / "config"
+        config_file.write_text(content)
+        return config_file
+
+    def test_pagerduty_routing_key_default_empty_file(self, tmp_path, monkeypatch):
+        """Test pagerduty_routing_key defaults to empty string when not in file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.pagerduty_routing_key == ""
+
+    def test_pagerduty_routing_key_parsed_from_file(self, tmp_path, monkeypatch):
+        """Test PAGERDUTY_ROUTING_KEY is parsed from config file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser\n"
+            "PAGERDUTY_ROUTING_KEY=xyz789routing123key",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.pagerduty_routing_key == "xyz789routing123key"
+
+    def test_pagerduty_routing_key_empty_string_file(self, tmp_path, monkeypatch):
+        """Test PAGERDUTY_ROUTING_KEY with empty value in config file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser\n"
+            "PAGERDUTY_ROUTING_KEY=",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.pagerduty_routing_key == ""
+
+    def test_config_dataclass_has_pagerduty_routing_key(self):
+        """Test Config dataclass includes pagerduty_routing_key field."""
+        config = Config(
+            github_token="test_token",
+            project_urls=["https://github.com/orgs/test/projects/1"],
+        )
+
+        # Should have default empty string
+        assert hasattr(config, "pagerduty_routing_key")
+        assert config.pagerduty_routing_key == ""
+
+    def test_config_dataclass_accepts_pagerduty_routing_key(self):
+        """Test Config dataclass accepts pagerduty_routing_key in constructor."""
+        config = Config(
+            github_token="test_token",
+            project_urls=["https://github.com/orgs/test/projects/1"],
+            pagerduty_routing_key="custom_routing_key",
+        )
+
+        assert config.pagerduty_routing_key == "custom_routing_key"
+
+
+@pytest.mark.unit
 class TestBackwardIncompatibility:
     """Tests ensuring ALLOWED_USERNAME is no longer supported (clean break)."""
 

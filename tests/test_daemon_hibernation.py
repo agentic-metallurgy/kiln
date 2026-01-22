@@ -79,12 +79,13 @@ class TestHibernationState:
         assert daemon._hibernating is False
 
     def test_exit_hibernation_logs_info(self, daemon):
-        """Test that _exit_hibernation logs connectivity restored."""
+        """Test that _exit_hibernation logs connectivity restored with duration."""
         daemon._hibernating = True
+        daemon._hibernation_start = None  # No start time means 0s duration
         with patch("src.daemon.logger") as mock_logger:
             daemon._exit_hibernation()
             mock_logger.info.assert_any_call(
-                "Exiting hibernation mode: connectivity restored"
+                "Exiting hibernation mode - connectivity restored (duration: 0s)"
             )
 
     def test_exit_hibernation_idempotent(self, daemon):
