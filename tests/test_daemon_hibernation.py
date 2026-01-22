@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.daemon import Daemon
+from src.daemon_utils import get_hostname_from_url
 from src.ticket_clients.base import NetworkError
 
 
@@ -339,28 +340,28 @@ class TestMainLoopHibernation:
 
 
 class TestGetHostnameFromUrl:
-    """Tests for _get_hostname_from_url helper method."""
+    """Tests for get_hostname_from_url utility function."""
 
-    def test_github_com_url(self, daemon):
+    def test_github_com_url(self):
         """Test parsing github.com URL."""
         url = "https://github.com/orgs/test/projects/1"
-        assert daemon._get_hostname_from_url(url) == "github.com"
+        assert get_hostname_from_url(url) == "github.com"
 
-    def test_ghes_url(self, daemon):
+    def test_ghes_url(self):
         """Test parsing GHES URL."""
         url = "https://github.mycompany.com/orgs/corp/projects/5"
-        assert daemon._get_hostname_from_url(url) == "github.mycompany.com"
+        assert get_hostname_from_url(url) == "github.mycompany.com"
 
-    def test_http_url(self, daemon):
+    def test_http_url(self):
         """Test parsing HTTP URL (should work even though not recommended)."""
         url = "http://github.local/orgs/test/projects/1"
-        assert daemon._get_hostname_from_url(url) == "github.local"
+        assert get_hostname_from_url(url) == "github.local"
 
-    def test_invalid_url_returns_default(self, daemon):
+    def test_invalid_url_returns_default(self):
         """Test that invalid URLs return default github.com."""
-        assert daemon._get_hostname_from_url("invalid") == "github.com"
-        assert daemon._get_hostname_from_url("") == "github.com"
-        assert daemon._get_hostname_from_url("not-a-url") == "github.com"
+        assert get_hostname_from_url("invalid") == "github.com"
+        assert get_hostname_from_url("") == "github.com"
+        assert get_hostname_from_url("not-a-url") == "github.com"
 
 
 class TestHibernationPagerDutyIntegration:

@@ -22,6 +22,7 @@ from tenacity import wait_exponential
 from src.claude_runner import run_claude
 from src.comment_processor import CommentProcessor
 from src.config import Config, load_config
+from src.daemon_utils import get_hostname_from_url, get_worktree_path
 from src.database import Database, ProjectMetadata, RunRecord
 from src.interfaces import TicketItem
 from src.labels import REQUIRED_LABELS, Labels
@@ -330,22 +331,6 @@ class Daemon:
                 f"(closedByPullRequestsReferences unavailable in {client.client_description})"
             )
 
-    def _get_hostname_from_url(self, url: str) -> str:
-        """Extract hostname from a GitHub URL.
-
-        Args:
-            url: GitHub URL (e.g., https://github.com/orgs/myorg/projects/1)
-
-        Returns:
-            Hostname (e.g., "github.com"), defaults to "github.com" if parsing fails
-        """
-        try:
-            parts = url.split("/")
-            if len(parts) >= 3 and parts[0] in ("http:", "https:") and parts[1] == "":
-                return parts[2]
-        except (IndexError, ValueError):
-            pass
-        return "github.com"
 
     def _validate_github_connections(self) -> None:
         """Validate GitHub connections for all configured project URLs.
@@ -536,7 +521,7 @@ class Daemon:
         # Extract unique hostnames from project URLs
         hostnames: set[str] = set()
         for url in self.config.project_urls:
-            hostname = self._get_hostname_from_url(url)
+            hostname = get_hostname_from_url(url)
             hostnames.add(hostname)
 
         if not hostnames:
@@ -800,7 +785,7 @@ class Daemon:
                     f"YOLO: Starting auto-progression for {key} from Backlog "
                     f"(label added by allowed user '{actor}')"
                 )
-                hostname = self._get_hostname_from_url(item.board_url)
+                hostname = get_hostname_from_url(item.board_url)
                 self.ticket_client.update_item_status(item.item_id, "Research", hostname=hostname)
 
             # Handle reset label: clear kiln content and move issue to Backlog
@@ -1003,7 +988,7 @@ class Daemon:
             f"YOLO: Advancing {key} from '{item.status}' to '{yolo_next}' "
             f"(stage complete, label added by allowed user '{actor}')"
         )
-        hostname = self._get_hostname_from_url(item.board_url)
+        hostname = get_hostname_from_url(item.board_url)
         self.ticket_client.update_item_status(item.item_id, yolo_next, hostname=hostname)
 
     def _has_yolo_label(self, repo: str, issue_number: int) -> bool:
@@ -1117,7 +1102,7 @@ class Daemon:
 
         # Clean up worktree if it exists
         repo_name = item.repo.split("/")[-1]
-        worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
+        worktree_path = get_worktree_path(self.config.workspace_dir, item.repo, item.ticket_id)
         if Path(worktree_path).exists():
             try:
                 self.workspace_manager.cleanup_workspace(repo_name, item.ticket_id)
@@ -1160,7 +1145,7 @@ class Daemon:
         # Archive the project item
         reason = item.state_reason or "manual close"
         logger.info(f"Auto-archiving issue (reason: {reason})")
-        hostname = self._get_hostname_from_url(item.board_url)
+        hostname = get_hostname_from_url(item.board_url)
         if self.ticket_client.archive_item(metadata.project_id, item.item_id, hostname=hostname):
             logger.info("Archived from project board")
 
@@ -1187,7 +1172,7 @@ class Daemon:
 
         # Clean up worktree if it exists
         repo_name = item.repo.split("/")[-1]
-        worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
+        worktree_path = get_worktree_path(self.config.workspace_dir, item.repo, item.ticket_id)
         if Path(worktree_path).exists():
             try:
                 self.workspace_manager.cleanup_workspace(repo_name, item.ticket_id)
@@ -1229,7 +1214,7 @@ class Daemon:
         # Move to Done
         logger.info(f"Moving {item.repo}#{item.ticket_id} to Done (PR merged, issue closed)")
         try:
-            hostname = self._get_hostname_from_url(item.board_url)
+            hostname = get_hostname_from_url(item.board_url)
             self.ticket_client.update_item_status(item.item_id, "Done", hostname=hostname)
             logger.info(f"Moved {item.repo}#{item.ticket_id} to Done")
         except Exception as e:
@@ -1255,7 +1240,7 @@ class Daemon:
         # Set to Backlog
         logger.info(f"Setting {item.repo}#{item.ticket_id} to Backlog (no status)")
         try:
-            hostname = self._get_hostname_from_url(item.board_url)
+            hostname = get_hostname_from_url(item.board_url)
             self.ticket_client.update_item_status(item.item_id, "Backlog", hostname=hostname)
             logger.info(f"Set {item.repo}#{item.ticket_id} to Backlog")
         except Exception as e:
@@ -1305,7 +1290,7 @@ class Daemon:
 
         # Clean up worktree if it exists (prevents rebase failures on subsequent Research runs)
         repo_name = item.repo.split("/")[-1]
-        worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
+        worktree_path = get_worktree_path(self.config.workspace_dir, item.repo, item.ticket_id)
         if Path(worktree_path).exists():
             try:
                 self.workspace_manager.cleanup_workspace(repo_name, item.ticket_id)
@@ -1332,7 +1317,7 @@ class Daemon:
 
         # Move issue to Backlog
         try:
-            hostname = self._get_hostname_from_url(item.board_url)
+            hostname = get_hostname_from_url(item.board_url)
             self.ticket_client.update_item_status(item.item_id, "Backlog", hostname=hostname)
             logger.info(f"RESET: Moved {key} to Backlog")
         except Exception as e:
@@ -1550,7 +1535,7 @@ class Daemon:
             )
 
             # Auto-prepare: Create worktree if it doesn't exist (for any workflow)
-            worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
+            worktree_path = get_worktree_path(self.config.workspace_dir, item.repo, item.ticket_id)
             if not Path(worktree_path).exists():
                 logger.info("Auto-preparing worktree")
                 # Add preparing label during worktree creation
@@ -1655,13 +1640,13 @@ class Daemon:
                     pr_body = pr_info.get("body", "")
                     total_tasks, completed_tasks = count_checkboxes(pr_body)
                     if total_tasks > 0 and completed_tasks == total_tasks:
-                        hostname = self._get_hostname_from_url(item.board_url)
+                        hostname = get_hostname_from_url(item.board_url)
                         self.ticket_client.update_item_status(item.item_id, next_status, hostname=hostname)
                         logger.info(f"All {total_tasks} tasks complete, moved {key} to '{next_status}'")
                         next_status = None  # Prevent duplicate move below
 
             if next_status:
-                hostname = self._get_hostname_from_url(item.board_url)
+                hostname = get_hostname_from_url(item.board_url)
                 self.ticket_client.update_item_status(item.item_id, next_status, hostname=hostname)
                 logger.info(f"Moved {key} to '{next_status}' status")
 
@@ -1672,7 +1657,7 @@ class Daemon:
                 if yolo_next:
                     # Fresh check - yolo may have been removed while workflow was running
                     if self._has_yolo_label(item.repo, item.ticket_id):
-                        hostname = self._get_hostname_from_url(item.board_url)
+                        hostname = get_hostname_from_url(item.board_url)
                         self.ticket_client.update_item_status(item.item_id, yolo_next, hostname=hostname)
                         logger.info(f"YOLO: Auto-advanced {key} from '{item.status}' to '{yolo_next}'")
                     else:
@@ -1757,20 +1742,6 @@ class Daemon:
             logger.info("Completed workflow")
         except Exception as e:
             logger.error(f"Workflow failed: {e}", exc_info=True)
-
-    def _get_worktree_path(self, repo: str, issue_number: int) -> str:
-        """Get the worktree path for a repo and issue.
-
-        Args:
-            repo: Repository in 'owner/repo' format
-            issue_number: Issue number
-
-        Returns:
-            Path to the worktree directory
-        """
-        # Extract just the repo name from 'owner/repo'
-        repo_name = repo.split("/")[-1] if "/" in repo else repo
-        return f"{self.config.workspace_dir}/{repo_name}-issue-{issue_number}"
 
     def _get_parent_pr_info(
         self, repo: str, ticket_id: int
@@ -1879,7 +1850,7 @@ class Daemon:
         workflow = workflow_class()
 
         # Determine workspace path based on workflow
-        workspace_path = self._get_worktree_path(item.repo, item.ticket_id)
+        workspace_path = get_worktree_path(self.config.workspace_dir, item.repo, item.ticket_id)
 
         # Rebase on first Research run (no research_ready label yet) - use cached labels
         if workflow_name == "Research":
