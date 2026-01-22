@@ -35,6 +35,7 @@ from src.logger import (
     set_issue_context,
     setup_logging,
 )
+from src.pagerduty import init_pagerduty, resolve_hibernation_alert, trigger_hibernation_alert
 from src.security import ActorCategory, check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients import get_github_client
@@ -496,6 +497,8 @@ class Daemon:
             logger.warning(
                 f"Daemon will re-check connectivity every {self.HIBERNATION_INTERVAL} seconds"
             )
+            # Trigger PagerDuty alert if configured
+            trigger_hibernation_alert(reason, self.config.project_urls)
 
     def _exit_hibernation(self) -> None:
         """Exit hibernation mode after connectivity is restored.
@@ -506,6 +509,8 @@ class Daemon:
         if self._hibernating:
             self._hibernating = False
             logger.info("Exiting hibernation mode: connectivity restored")
+            # Resolve PagerDuty alert if configured
+            resolve_hibernation_alert()
 
     def _check_github_connectivity(self) -> bool:
         """Check if GitHub API is reachable for all configured project hosts.
@@ -1982,6 +1987,10 @@ def main() -> None:
                 config.otel_service_name,
                 service_version=git_version,
             )
+
+        # Initialize PagerDuty if configured
+        if config.pagerduty_routing_key:
+            init_pagerduty(config.pagerduty_routing_key)
 
         # Create and run daemon with locked version
         daemon = Daemon(config, version=git_version)
