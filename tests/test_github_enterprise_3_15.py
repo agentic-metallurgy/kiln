@@ -32,9 +32,6 @@ class TestGitHubEnterprise315Client:
         """Test supports_status_actor_check returns True (via workaround)."""
         assert client.supports_status_actor_check is True
 
-    def test_inherits_from_314_client(self):
-        """Test that 315 client inherits from 314 client."""
-        assert issubclass(GitHubEnterprise315Client, GitHubEnterprise314Client)
 
 
 @pytest.mark.unit

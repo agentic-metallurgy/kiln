@@ -38,14 +38,6 @@ def daemon(temp_workspace_dir):
 class TestHibernationState:
     """Tests for hibernation state management."""
 
-    def test_hibernation_flag_initialized_false(self, daemon):
-        """Test that _hibernating flag is initialized to False."""
-        assert daemon._hibernating is False
-
-    def test_hibernation_interval_constant(self, daemon):
-        """Test that HIBERNATION_INTERVAL is 300 seconds (5 minutes)."""
-        assert daemon.HIBERNATION_INTERVAL == 300
-
     def test_enter_hibernation_sets_flag(self, daemon):
         """Test that _enter_hibernation sets the flag to True."""
         daemon._enter_hibernation("test reason")

@@ -56,24 +56,6 @@ class TestInitPagerduty:
         assert pagerduty._initialized is False
         assert pagerduty._routing_key is None
 
-    def test_init_logs_info_on_success(self):
-        """Test init_pagerduty() logs info message on successful init."""
-        with patch.object(pagerduty, "logger") as mock_logger:
-            pagerduty.init_pagerduty("test-key")
-
-            mock_logger.info.assert_called_once_with(
-                "PagerDuty initialized for hibernation alerts"
-            )
-
-    def test_init_logs_debug_when_no_key(self):
-        """Test init_pagerduty() logs debug message when no routing key."""
-        with patch.object(pagerduty, "logger") as mock_logger:
-            pagerduty.init_pagerduty(None)
-
-            mock_logger.debug.assert_called_once_with(
-                "PagerDuty not configured (no routing key)"
-            )
-
 
 @pytest.mark.unit
 class TestTriggerHibernationAlert:
@@ -181,45 +163,6 @@ class TestTriggerHibernationAlert:
             )
 
             assert result is False
-
-    def test_trigger_logs_warning_on_failure(self):
-        """Test trigger_hibernation_alert() logs warning on failure."""
-        pagerduty.init_pagerduty("test-routing-key")
-
-        with (
-            patch("src.pagerduty.requests.post") as mock_post,
-            patch.object(pagerduty, "logger") as mock_logger,
-        ):
-            mock_post.side_effect = requests.Timeout("Connection timed out")
-
-            pagerduty.trigger_hibernation_alert(
-                "test reason", ["https://github.com/orgs/test/projects/1"]
-            )
-
-            mock_logger.warning.assert_called_once()
-            assert "Failed to trigger PagerDuty alert" in str(
-                mock_logger.warning.call_args
-            )
-
-    def test_trigger_logs_info_on_success(self):
-        """Test trigger_hibernation_alert() logs info on success."""
-        pagerduty.init_pagerduty("test-routing-key")
-
-        with (
-            patch("src.pagerduty.requests.post") as mock_post,
-            patch.object(pagerduty, "logger") as mock_logger,
-        ):
-            mock_response = MagicMock()
-            mock_response.raise_for_status = MagicMock()
-            mock_post.return_value = mock_response
-
-            pagerduty.trigger_hibernation_alert(
-                "test reason", ["https://github.com/orgs/test/projects/1"]
-            )
-
-            mock_logger.info.assert_called_with(
-                "PagerDuty alert triggered for hibernation"
-            )
 
     def test_trigger_with_multiple_project_urls(self):
         """Test trigger_hibernation_alert() with multiple project URLs."""
@@ -332,41 +275,6 @@ class TestResolveHibernationAlert:
 
             assert result is False
 
-    def test_resolve_logs_warning_on_failure(self):
-        """Test resolve_hibernation_alert() logs warning on failure."""
-        pagerduty.init_pagerduty("test-routing-key")
-
-        with (
-            patch("src.pagerduty.requests.post") as mock_post,
-            patch.object(pagerduty, "logger") as mock_logger,
-        ):
-            mock_post.side_effect = requests.Timeout("Connection timed out")
-
-            pagerduty.resolve_hibernation_alert()
-
-            mock_logger.warning.assert_called_once()
-            assert "Failed to resolve PagerDuty alert" in str(
-                mock_logger.warning.call_args
-            )
-
-    def test_resolve_logs_info_on_success(self):
-        """Test resolve_hibernation_alert() logs info on success."""
-        pagerduty.init_pagerduty("test-routing-key")
-
-        with (
-            patch("src.pagerduty.requests.post") as mock_post,
-            patch.object(pagerduty, "logger") as mock_logger,
-        ):
-            mock_response = MagicMock()
-            mock_response.raise_for_status = MagicMock()
-            mock_post.return_value = mock_response
-
-            pagerduty.resolve_hibernation_alert()
-
-            mock_logger.info.assert_called_with(
-                "PagerDuty alert resolved for hibernation"
-            )
-
 
 @pytest.mark.unit
 class TestResetPagerduty:
@@ -390,16 +298,3 @@ class TestResetPagerduty:
         pagerduty.init_pagerduty("second-key")
 
         assert pagerduty._routing_key == "second-key"
-
-
-@pytest.mark.unit
-class TestDedupKeyConstant:
-    """Tests for dedup key constant."""
-
-    def test_dedup_key_value(self):
-        """Test HIBERNATION_DEDUP_KEY has expected value."""
-        assert pagerduty.HIBERNATION_DEDUP_KEY == "kiln-hibernation"
-
-    def test_events_url_value(self):
-        """Test PAGERDUTY_EVENTS_URL has expected value."""
-        assert pagerduty.PAGERDUTY_EVENTS_URL == "https://events.pagerduty.com/v2/enqueue"

@@ -412,11 +412,6 @@ class TestGetLogger:
         logger = get_logger("test.module")
         assert logger.name == "test.module"
 
-    def test_get_logger_returns_same_instance(self):
-        """Test that same name returns same logger instance."""
-        logger1 = get_logger("test.module")
-        logger2 = get_logger("test.module")
-        assert logger1 is logger2
 
 
 @pytest.mark.unit

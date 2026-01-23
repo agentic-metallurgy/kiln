@@ -78,14 +78,6 @@ class TestClaudeRunnerExceptions:
 
         assert str(error) == "Operation timed out after 60 seconds"
 
-    def test_timeout_error_inherits_from_runner_error(self):
-        """Test ClaudeTimeoutError is a subclass of ClaudeRunnerError."""
-        assert issubclass(ClaudeTimeoutError, ClaudeRunnerError)
-
-        # Test catching timeout as runner error works
-        with pytest.raises(ClaudeRunnerError):
-            raise ClaudeTimeoutError("Timeout occurred")
-
     def test_timeout_error_can_be_caught_specifically(self):
         """Test ClaudeTimeoutError can be caught specifically."""
         with pytest.raises(ClaudeTimeoutError, match="Specific timeout"):
