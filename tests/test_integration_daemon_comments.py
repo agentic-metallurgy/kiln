@@ -1410,16 +1410,24 @@ class TestYoloLabelRemovalDuringWorkflow:
     @pytest.fixture
     def daemon(self, temp_workspace_dir):
         """Create a daemon instance for testing."""
+        import os
+
         config = MagicMock()
         config.poll_interval = 60
         config.watched_statuses = ["Research", "Plan", "Implement"]
         config.max_concurrent_workflows = 2
         config.database_path = f"{temp_workspace_dir}/test.db"
         config.workspace_dir = temp_workspace_dir
-        config.project_urls = []
+        config.project_urls = ["https://github.com/orgs/test/projects/1"]
         config.stage_models = {}
         config.github_enterprise_version = None
+        config.ghes_logs_mask = False
+        config.github_enterprise_host = None
+        config.log_file = f"{temp_workspace_dir}/.kiln/logs/kiln.log"
         config.username_self = "test-user"
+
+        # Create required directories
+        os.makedirs(f"{temp_workspace_dir}/.kiln/logs", exist_ok=True)
 
         with patch("src.ticket_clients.github.GitHubTicketClient"):
             daemon = Daemon(config)
