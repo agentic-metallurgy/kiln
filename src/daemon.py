@@ -556,7 +556,7 @@ class Daemon:
         # Check connectivity for each unique hostname
         for hostname in sorted(hostnames):
             try:
-                self.ticket_client.validate_connection(hostname)
+                self.ticket_client.validate_connection(hostname, quiet=True)
             except NetworkError as e:
                 logger.warning(f"GitHub API unreachable for {hostname}: {e}")
                 return False
