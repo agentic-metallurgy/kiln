@@ -772,8 +772,8 @@ class TestRunLoggingIntegration:
             board_url="https://github.com/orgs/test/projects/1",
         )
 
-        # Create worktree to avoid auto-prepare
-        worktree_path = tmp_path / "workspaces" / "github.com_owner_repo-issue-42"
+        # Create worktree to avoid auto-prepare (path format: {repo_name}-issue-{issue_number})
+        worktree_path = tmp_path / "workspaces" / "repo-issue-42"
         worktree_path.mkdir(parents=True)
 
         # Mock the workflow runner to succeed
@@ -805,8 +805,8 @@ class TestRunLoggingIntegration:
             board_url="https://github.com/orgs/test/projects/1",
         )
 
-        # Create worktree
-        worktree_path = tmp_path / "workspaces" / "github.com_owner_repo-issue-42"
+        # Create worktree (path format: {repo_name}-issue-{issue_number})
+        worktree_path = tmp_path / "workspaces" / "repo-issue-42"
         worktree_path.mkdir(parents=True)
 
         # Mock the workflow runner to fail
@@ -837,7 +837,7 @@ class TestRunLoggingIntegration:
         )
 
         # Create worktree
-        worktree_path = tmp_path / "workspaces" / "github.com_owner_repo-issue-42"
+        worktree_path = tmp_path / "workspaces" / "repo-issue-42"
         worktree_path.mkdir(parents=True)
 
         # Mock the workflow runner to succeed
@@ -869,7 +869,7 @@ class TestRunLoggingIntegration:
         )
 
         # Create worktree
-        worktree_path = tmp_path / "workspaces" / "github.com_owner_repo-issue-42"
+        worktree_path = tmp_path / "workspaces" / "repo-issue-42"
         worktree_path.mkdir(parents=True)
 
         # Mock the workflow runner to succeed with session ID
@@ -903,7 +903,7 @@ class TestRunLoggingIntegration:
         )
 
         # Create worktree
-        worktree_path = tmp_path / "workspaces" / "github.com_owner_repo-issue-42"
+        worktree_path = tmp_path / "workspaces" / "repo-issue-42"
         worktree_path.mkdir(parents=True)
 
         # Run workflow 3 times
