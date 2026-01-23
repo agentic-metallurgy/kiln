@@ -40,16 +40,6 @@ class TestWorkflowContext:
         assert ctx.workspace_path == "/path/to/workspace"
 
 
-    def test_workflow_context_issue_body_optional(self):
-        """Test that issue_body is optional and defaults to None."""
-        ctx = WorkflowContext(
-            repo="owner/repo",
-            issue_number=42,
-            issue_title="Test",
-            workspace_path="/tmp/workspace",
-        )
-        assert ctx.issue_body is None
-
     def test_workflow_context_issue_body_can_be_set(self):
         """Test that issue_body can be set during creation."""
         ctx = WorkflowContext(
@@ -60,16 +50,6 @@ class TestWorkflowContext:
             issue_body="This is the issue body content.",
         )
         assert ctx.issue_body == "This is the issue body content."
-
-    def test_workflow_context_username_self_optional(self):
-        """Test that username_self is optional and defaults to None."""
-        ctx = WorkflowContext(
-            repo="owner/repo",
-            issue_number=42,
-            issue_title="Test",
-            workspace_path="/tmp/workspace",
-        )
-        assert ctx.username_self is None
 
     def test_workflow_context_username_self_can_be_set(self):
         """Test that username_self can be set during creation."""

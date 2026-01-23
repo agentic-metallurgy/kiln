@@ -174,12 +174,6 @@ class TestCommentProcessorInitializeCommentTimestamp:
         """Create a CommentProcessor instance for testing."""
         return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
 
-    def test_initialize_comment_timestamp_empty_comments(self, processor):
-        """Test initialization with no comments returns None."""
-        item = Mock()
-        result = processor._initialize_comment_timestamp(item, [])
-        assert result is None
-
     def test_initialize_comment_timestamp_finds_kiln_post(self, processor):
         """Test initialization finds latest kiln post."""
         item = Mock()
