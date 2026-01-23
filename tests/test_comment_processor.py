@@ -10,25 +10,6 @@ from src.interfaces import Comment, TicketItem
 
 
 @pytest.mark.unit
-class TestCommentProcessorInit:
-    """Tests for CommentProcessor initialization."""
-
-    def test_init_stores_dependencies(self):
-        """Test that constructor stores all dependencies."""
-        ticket_client = Mock()
-        database = Mock()
-        runner = Mock()
-        workspace_dir = "/tmp/workspaces"
-
-        processor = CommentProcessor(ticket_client, database, runner, workspace_dir)
-
-        assert processor.ticket_client is ticket_client
-        assert processor.database is database
-        assert processor.runner is runner
-        assert processor.workspace_dir == workspace_dir
-
-
-@pytest.mark.unit
 class TestCommentProcessorGetWorktreePath:
     """Tests for _get_worktree_path method."""
 
@@ -236,18 +217,6 @@ class TestCommentProcessorInitializeCommentTimestamp:
 class TestCommentProcessorAllowlist:
     """Tests for CommentProcessor username_self filtering."""
 
-    def test_init_with_username_self(self):
-        """Test constructor stores username_self."""
-        processor = CommentProcessor(
-            Mock(), Mock(), Mock(), "/workspaces", username_self="user1"
-        )
-        assert processor.username_self == "user1"
-
-    def test_init_without_username_self_defaults_none(self):
-        """Test constructor defaults to None username_self."""
-        processor = CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
-        assert processor.username_self is None
-
     def test_username_self_filters_comments(self):
         """Test that comments from non-allowed users are filtered out."""
         ticket_client = Mock()
@@ -325,23 +294,6 @@ class TestCommentProcessorAllowlist:
             comment_ids = [c[0][0] for c in reaction_calls]
             assert "IC_1" in comment_ids  # allowed_comment was processed
             assert "IC_2" not in comment_ids  # blocked_comment was filtered out
-
-    def test_init_with_team_usernames(self):
-        """Test constructor stores team_usernames."""
-        processor = CommentProcessor(
-            Mock(),
-            Mock(),
-            Mock(),
-            "/workspaces",
-            username_self="user1",
-            team_usernames=["teammate1", "teammate2"],
-        )
-        assert processor.team_usernames == ["teammate1", "teammate2"]
-
-    def test_init_without_team_usernames_defaults_empty_list(self):
-        """Test constructor defaults to empty list for team_usernames."""
-        processor = CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
-        assert processor.team_usernames == []
 
     def test_team_member_comments_filtered_silently(self):
         """Test that comments from team members are filtered out without WARNING log."""

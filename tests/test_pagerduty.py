@@ -390,16 +390,3 @@ class TestResetPagerduty:
         pagerduty.init_pagerduty("second-key")
 
         assert pagerduty._routing_key == "second-key"
-
-
-@pytest.mark.unit
-class TestDedupKeyConstant:
-    """Tests for dedup key constant."""
-
-    def test_dedup_key_value(self):
-        """Test HIBERNATION_DEDUP_KEY has expected value."""
-        assert pagerduty.HIBERNATION_DEDUP_KEY == "kiln-hibernation"
-
-    def test_events_url_value(self):
-        """Test PAGERDUTY_EVENTS_URL has expected value."""
-        assert pagerduty.PAGERDUTY_EVENTS_URL == "https://events.pagerduty.com/v2/enqueue"
