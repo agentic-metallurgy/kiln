@@ -70,7 +70,7 @@ class WorkspaceManager:
 
     def _run_git_command(
         self, args: list[str], cwd: Path | None = None, check: bool = True
-    ) -> subprocess.CompletedProcess:
+    ) -> subprocess.CompletedProcess[str]:
         """
         Run a git command with proper error handling.
 

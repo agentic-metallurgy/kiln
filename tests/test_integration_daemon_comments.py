@@ -1418,6 +1418,8 @@ class TestYoloLabelRemovalDuringWorkflow:
         config.workspace_dir = temp_workspace_dir
         config.project_urls = []
         config.stage_models = {}
+        config.github_enterprise_version = None
+        config.username_self = "test-user"
 
         with patch("src.ticket_clients.github.GitHubTicketClient"):
             daemon = Daemon(config)

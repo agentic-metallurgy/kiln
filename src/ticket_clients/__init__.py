@@ -22,8 +22,13 @@ from src.ticket_clients.github_enterprise_3_17 import GitHubEnterprise317Client
 from src.ticket_clients.github_enterprise_3_18 import GitHubEnterprise318Client
 from src.ticket_clients.github_enterprise_3_19 import GitHubEnterprise319Client
 
+# Type alias for all GitHub client types
+# Some GHES versions extend GitHubClientBase (limited features)
+# while others extend GitHubTicketClient (full features like 3.17, 3.19)
+GitHubClient = GitHubClientBase | GitHubTicketClient
+
 # Mapping of GHES versions to their client classes
-GHES_VERSION_CLIENTS: dict[str, type[GitHubClientBase]] = {
+GHES_VERSION_CLIENTS: dict[str, type[GitHubClient]] = {
     "3.14": GitHubEnterprise314Client,
     "3.15": GitHubEnterprise315Client,
     "3.16": GitHubEnterprise316Client,
@@ -36,7 +41,7 @@ GHES_VERSION_CLIENTS: dict[str, type[GitHubClientBase]] = {
 def get_github_client(
     tokens: dict[str, str] | None = None,
     enterprise_version: str | None = None,
-) -> GitHubClientBase:
+) -> GitHubClient:
     """Factory function to get the appropriate GitHub client.
 
     Args:

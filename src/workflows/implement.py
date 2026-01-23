@@ -3,7 +3,7 @@
 import json
 import re
 import subprocess
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from src.claude_runner import run_claude
 from src.logger import get_logger, log_message
@@ -304,7 +304,7 @@ class ImplementWorkflow:
 
         logger.info(f"Prompt completed: {stage_name}")
 
-    def _get_pr_for_issue(self, repo: str, issue_number: int) -> dict | None:
+    def _get_pr_for_issue(self, repo: str, issue_number: int) -> dict[str, Any] | None:
         """Get the open PR that closes a specific issue.
 
         Args:
@@ -333,8 +333,8 @@ class ImplementWorkflow:
                 "number,body",
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            output = result.stdout.strip()
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            output = proc.stdout.strip()
 
             if not output or output == "[]":
                 return None
@@ -351,7 +351,8 @@ class ImplementWorkflow:
                 body = pr.get("body", "") or ""
                 if link_pattern.search(body):
                     logger.debug(f"Found PR #{pr['number']} linking to issue #{issue_number}")
-                    return pr
+                    result: dict[str, Any] = pr
+                    return result
 
             return None
 

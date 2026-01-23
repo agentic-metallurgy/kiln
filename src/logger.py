@@ -533,7 +533,12 @@ class RunLogger:
         logging.getLogger().addHandler(self._handler)
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
         """Remove the per-run file handler and clean up.
 
         Args:

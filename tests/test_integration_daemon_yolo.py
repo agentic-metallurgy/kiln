@@ -37,16 +37,16 @@ class TestDaemonYoloLabelRemoval:
 
     def test_has_yolo_label_returns_true_when_present(self, daemon):
         """Test _has_yolo_label returns True when yolo label is present."""
-        daemon.ticket_client.get_issue_labels.return_value = {"yolo", "bug", "enhancement"}
+        daemon.ticket_client.get_ticket_labels.return_value = {"yolo", "bug", "enhancement"}
 
         result = daemon._has_yolo_label("github.com/owner/repo", 42)
 
         assert result is True
-        daemon.ticket_client.get_issue_labels.assert_called_once_with("github.com/owner/repo", 42)
+        daemon.ticket_client.get_ticket_labels.assert_called_once_with("github.com/owner/repo", 42)
 
     def test_has_yolo_label_returns_false_when_absent(self, daemon):
         """Test _has_yolo_label returns False when yolo label is not present."""
-        daemon.ticket_client.get_issue_labels.return_value = {"bug", "enhancement"}
+        daemon.ticket_client.get_ticket_labels.return_value = {"bug", "enhancement"}
 
         result = daemon._has_yolo_label("github.com/owner/repo", 42)
 
@@ -54,7 +54,7 @@ class TestDaemonYoloLabelRemoval:
 
     def test_has_yolo_label_returns_false_on_api_error(self, daemon):
         """Test _has_yolo_label returns False (fail-safe) on API errors."""
-        daemon.ticket_client.get_issue_labels.side_effect = Exception("API error")
+        daemon.ticket_client.get_ticket_labels.side_effect = Exception("API error")
 
         result = daemon._has_yolo_label("github.com/owner/repo", 42)
 
@@ -73,12 +73,12 @@ class TestDaemonYoloLabelRemoval:
         )
 
         # Fresh check shows yolo was removed
-        daemon.ticket_client.get_issue_labels.return_value = {"research_ready"}
+        daemon.ticket_client.get_ticket_labels.return_value = {"research_ready"}
 
         result = daemon._should_yolo_advance(item)
 
         assert result is False
-        daemon.ticket_client.get_issue_labels.assert_called_once()
+        daemon.ticket_client.get_ticket_labels.assert_called_once()
 
     def test_should_yolo_advance_returns_true_when_label_still_present(self, daemon):
         """Test _should_yolo_advance returns True when yolo label is still present."""
@@ -93,7 +93,7 @@ class TestDaemonYoloLabelRemoval:
         )
 
         # Fresh check shows yolo is still present
-        daemon.ticket_client.get_issue_labels.return_value = {"yolo", "research_ready"}
+        daemon.ticket_client.get_ticket_labels.return_value = {"yolo", "research_ready"}
 
         result = daemon._should_yolo_advance(item)
 
@@ -112,7 +112,7 @@ class TestDaemonYoloLabelRemoval:
         )
 
         # Fresh check shows yolo was removed
-        daemon.ticket_client.get_issue_labels.return_value = {"research_ready"}
+        daemon.ticket_client.get_ticket_labels.return_value = {"research_ready"}
 
         daemon._yolo_advance(item)
 
@@ -132,7 +132,7 @@ class TestDaemonYoloLabelRemoval:
         )
 
         # Fresh check shows yolo is still present
-        daemon.ticket_client.get_issue_labels.return_value = {"yolo", "research_ready"}
+        daemon.ticket_client.get_ticket_labels.return_value = {"yolo", "research_ready"}
         daemon.ticket_client.get_label_actor.return_value = "test-user"
 
         daemon._yolo_advance(item)

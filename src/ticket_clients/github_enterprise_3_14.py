@@ -169,7 +169,7 @@ class GitHubEnterprise314Client(GitHubClientBase):
                         if field_info.get("name") == "Status":
                             creator = field_value.get("creator")
                             if creator:
-                                login = creator.get("login")
+                                login: str | None = creator.get("login")
                                 logger.debug(f"Found status actor for {repo}#{ticket_id}: {login}")
                                 return login
 

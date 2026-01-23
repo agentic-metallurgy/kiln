@@ -5,6 +5,7 @@ GraphQL/REST logic that works across github.com and GitHub Enterprise Server.
 """
 
 import json
+import os
 import re
 import subprocess
 from datetime import datetime
@@ -344,7 +345,7 @@ class GitHubClientBase:
         logger.debug(f"Retrieved {len(items)} board items")
         return items
 
-    def get_board_metadata(self, board_url: str) -> dict:
+    def get_board_metadata(self, board_url: str) -> dict[str, Any]:
         """Get GitHub project metadata including status field and options.
 
         Args:
@@ -412,7 +413,7 @@ class GitHubClientBase:
     def update_status_field_options(
         self,
         field_id: str,
-        options: list[dict],
+        options: list[dict[str, Any]],
         hostname: str = "github.com",
     ) -> None:
         """Update the Status field options for a GitHub project.
@@ -623,13 +624,14 @@ class GitHubClientBase:
             if issue_data is None:
                 return None
 
-            return issue_data.get("body")
+            body: str | None = issue_data.get("body")
+            return body
 
         except Exception as e:
             logger.error(f"Failed to get issue body for {repo}#{ticket_id}: {e}")
             return None
 
-    def get_issue_labels(self, repo: str, ticket_id: int) -> set[str]:
+    def get_ticket_labels(self, repo: str, ticket_id: int) -> set[str]:
         """Get current labels for an issue via GraphQL.
 
         Args:
@@ -1069,7 +1071,8 @@ class GitHubClientBase:
 
             for node in reversed(nodes):
                 if node and node.get("actor"):
-                    return node["actor"].get("login")
+                    login: str | None = node["actor"].get("login")
+                    return login
 
             return None
 
@@ -1135,7 +1138,8 @@ class GitHubClientBase:
                 if node and node.get("label", {}).get("name") == label_name:
                     actor = node.get("actor")
                     if actor:
-                        return actor.get("login")
+                        login: str | None = actor.get("login")
+                        return login
 
             return None
 
@@ -1247,7 +1251,7 @@ class GitHubClientBase:
                 logger.debug(f"No PR data found for {repo}#{pr_number}")
                 return None
 
-            sha = pr_data.get("headRefOid")
+            sha: str | None = pr_data.get("headRefOid")
             logger.debug(f"PR {repo}#{pr_number} HEAD SHA: {sha}")
             return sha
 
@@ -1481,7 +1485,8 @@ class GitHubClientBase:
             # But we also check the merged field for clarity
             if pr_data.get("merged"):
                 return "MERGED"
-            return pr_data.get("state")
+            state: str | None = pr_data.get("state")
+            return state
 
         except Exception as e:
             logger.warning(f"Failed to get PR state for {repo}#{pr_number}: {e}")
@@ -1577,7 +1582,8 @@ class GitHubClientBase:
                 error_messages = [e.get("message", str(e)) for e in response["errors"]]
                 raise ValueError(f"GraphQL errors: {', '.join(error_messages)}")
 
-            return response
+            result: dict[str, Any] = response
+            return result
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {e}")
@@ -1628,7 +1634,8 @@ class GitHubClientBase:
                 error_messages = [e.get("message", str(e)) for e in response["errors"]]
                 raise ValueError(f"GraphQL errors: {', '.join(error_messages)}")
 
-            return response
+            result: dict[str, Any] = response
+            return result
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {e}")
@@ -1684,7 +1691,7 @@ class GitHubClientBase:
                 text=True,
                 check=True,
                 input=input_data,
-                env={**subprocess.os.environ, **env},
+                env={**os.environ, **env},
             )
 
             logger.debug(f"Command succeeded, output length: {len(result.stdout)} bytes")

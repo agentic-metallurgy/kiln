@@ -6,7 +6,7 @@ must implement (GitHub, Jira, Linear, etc.).
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 
 @dataclass
@@ -97,7 +97,7 @@ class TicketClient(Protocol):
         """Get all items from a board/project."""
         ...
 
-    def get_board_metadata(self, board_url: str) -> dict:
+    def get_board_metadata(self, board_url: str) -> dict[str, Any]:
         """Get board metadata (status options, field IDs, etc.)."""
         ...
 

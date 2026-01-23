@@ -119,7 +119,7 @@ class Database:
         if not hasattr(self._local, "conn") or self._local.conn is None:
             self._local.conn = sqlite3.connect(self.db_path)
             self._local.conn.row_factory = sqlite3.Row
-        return self._local.conn
+        return self._local.conn  # type: ignore[no-any-return]
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -433,8 +433,13 @@ class Database:
         if not state:
             return
 
-        kwargs = {f"{workflow.lower()}_session_id": session_id}
-        self.update_issue_state(repo, issue_number, state.status, **kwargs)
+        field_name = f"{workflow.lower()}_session_id"
+        if field_name == "research_session_id":
+            self.update_issue_state(repo, issue_number, state.status, research_session_id=session_id)
+        elif field_name == "plan_session_id":
+            self.update_issue_state(repo, issue_number, state.status, plan_session_id=session_id)
+        elif field_name == "implement_session_id":
+            self.update_issue_state(repo, issue_number, state.status, implement_session_id=session_id)
 
     def insert_run_record(self, record: RunRecord) -> int:
         """
@@ -465,7 +470,10 @@ class Database:
                     record.log_path,
                 ),
             )
-            return cursor.lastrowid
+            lastrowid = cursor.lastrowid
+            if lastrowid is None:
+                raise RuntimeError("Failed to get lastrowid after INSERT")
+            return lastrowid
 
     def update_run_record(
         self,
@@ -504,7 +512,7 @@ class Database:
                 params.append(log_path)
 
             if updates:
-                params.append(run_id)
+                params.append(str(run_id))
                 conn.execute(
                     f"UPDATE run_history SET {', '.join(updates)} WHERE id = ?",
                     params,
@@ -611,6 +619,11 @@ class Database:
         """Context manager entry point."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
         """Context manager exit point - ensures connection is closed."""
         self.close()

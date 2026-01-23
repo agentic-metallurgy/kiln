@@ -94,7 +94,7 @@ class GitHubEnterprise318Client(GitHubEnterprise314Client):
                 logger.debug(f"Issue {repo}#{ticket_id} has no parent")
                 return None
 
-            parent_number = parent.get("number")
+            parent_number: int | None = parent.get("number")
             logger.info(f"Issue {repo}#{ticket_id} has parent issue #{parent_number}")
             return parent_number
 

@@ -11,12 +11,16 @@ import html
 import json
 import subprocess
 import textwrap
+from typing import TYPE_CHECKING
 
 from src.database import Database
 from src.interfaces import Comment, TicketClient, TicketItem
 from src.labels import Labels
 from src.logger import clear_issue_context, get_logger, set_issue_context
 from src.workflows import ProcessCommentsWorkflow, WorkflowContext
+
+if TYPE_CHECKING:
+    from src.daemon import WorkflowRunner
 
 logger = get_logger(__name__)
 
@@ -56,7 +60,7 @@ class CommentProcessor:
         self,
         ticket_client: TicketClient,
         database: Database,
-        runner,  # WorkflowRunner - avoiding circular import
+        runner: "WorkflowRunner",
         workspace_dir: str,
         username_self: str | None = None,
         team_usernames: list[str] | None = None,
@@ -425,13 +429,13 @@ Processed feedback for **{target_type}**. No textual changes detected (may have 
         # repo is in hostname/owner/repo format
         try:
             issue_url = f"https://{repo}/issues/{issue_number}"
-            result = subprocess.run(
+            proc = subprocess.run(
                 ["gh", "issue", "view", issue_url, "--json", "body"],
                 capture_output=True,
                 text=True,
                 check=True,
             )
-            body = json.loads(result.stdout).get("body", "")
+            body: str = json.loads(proc.stdout).get("body", "") or ""
         except Exception:
             return ""
 
@@ -443,9 +447,9 @@ Processed feedback for **{target_type}**. No textual changes detected (may have 
                     # Find the --- separator before the marker
                     sep_idx = body.rfind("---", 0, idx)
                     if sep_idx != -1:
-                        return body[:sep_idx].strip()
-                    return body[:idx].strip()
-            return body.strip()
+                        return str(body[:sep_idx].strip())
+                    return str(body[:idx].strip())
+            return str(body.strip())
 
         # For research/plan, extract the section between markers
         start_marker = self.KILN_POST_MARKERS.get(target_type)
@@ -463,11 +467,11 @@ Processed feedback for **{target_type}**. No textual changes detected (may have 
             end_idx = body.find(self.KILN_POST_END_MARKER, start_idx)
 
         if end_idx == -1:
-            return body[start_idx + len(start_marker) :].strip()
+            return str(body[start_idx + len(start_marker) :].strip())
 
-        return body[start_idx + len(start_marker) : end_idx].strip()
+        return str(body[start_idx + len(start_marker) : end_idx].strip())
 
-    def _initialize_comment_timestamp(self, _item: TicketItem, comments: list) -> str | None:
+    def _initialize_comment_timestamp(self, _item: TicketItem, comments: list[Comment]) -> str | None:
         """Initialize the comment timestamp pointer using cached comments.
 
         Returns timestamp for use with the REST API's `since` parameter.

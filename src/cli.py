@@ -37,13 +37,13 @@ STARTUP_COLORS = {
 def get_sample_config() -> str:
     """Load sample config from bundled .env.example."""
     # PyInstaller sets sys._MEIPASS when running from bundle, else use repo root
-    base_path = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else Path(__file__).parent.parent  # type: ignore[attr-defined]
+    base_path = Path(getattr(sys, "_MEIPASS", None) or Path(__file__).parent.parent)
     return (base_path / ".env.example").read_text()
 
 
 def get_readme() -> str:
     """Load README from bundled README.md."""
-    base_path = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else Path(__file__).parent.parent  # type: ignore[attr-defined]
+    base_path = Path(getattr(sys, "_MEIPASS", None) or Path(__file__).parent.parent)
     return (base_path / "README.md").read_text()
 
 
@@ -101,7 +101,7 @@ def extract_claude_resources() -> Path:
     kiln_dir = get_kiln_dir()
 
     # Source .claude from bundle or repo root
-    base_path = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else Path(__file__).parent.parent  # type: ignore[attr-defined]
+    base_path = Path(getattr(sys, "_MEIPASS", None) or Path(__file__).parent.parent)
 
     source_claude = base_path / ".claude"
 

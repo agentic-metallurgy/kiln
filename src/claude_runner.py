@@ -135,6 +135,7 @@ def run_claude(
 
         # Send the prompt to stdin and close it
         logger.debug("Sending prompt to Claude via stdin")
+        assert process.stdin is not None, "stdin should be available"
         process.stdin.write(prompt)
         process.stdin.close()
 
@@ -146,6 +147,7 @@ def run_claude(
 
         # Read stdout line by line
         logger.debug("Reading streaming JSON output")
+        assert process.stdout is not None, "stdout should be available"
         while True:
             current_time = time.time()
 

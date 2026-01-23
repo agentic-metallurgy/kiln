@@ -13,9 +13,10 @@ import subprocess
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
+from typing import Any, TypedDict
 
 from tenacity import wait_exponential
 
@@ -168,6 +169,15 @@ class WorkflowRunner:
             return session_id
 
 
+class _WorkflowConfigEntry(TypedDict):
+    """Type for WORKFLOW_CONFIG entries."""
+
+    workflow: type[Workflow]
+    running_label: str
+    complete_label: str | None
+    next_status: str | None
+
+
 class Daemon:
     """Main orchestrator daemon that polls GitHub and triggers workflows."""
 
@@ -176,7 +186,7 @@ class Daemon:
 
     # Map status names to workflow classes
     # Note: PrepareWorkflow runs automatically before other workflows if no worktree exists
-    WORKFLOW_MAP = {
+    WORKFLOW_MAP: dict[str, type[Workflow]] = {
         "Research": ResearchWorkflow,
         "Plan": PlanWorkflow,
         "Implement": ImplementWorkflow,
@@ -184,7 +194,7 @@ class Daemon:
 
     # Workflow configuration with labels for state tracking
     # Labels act as "soft locks" to prevent duplicate runs and track completion
-    WORKFLOW_CONFIG = {
+    WORKFLOW_CONFIG: dict[str, _WorkflowConfigEntry] = {
         "Research": {
             "workflow": ResearchWorkflow,
             "running_label": Labels.RESEARCHING,
@@ -470,7 +480,7 @@ class Daemon:
             else:
                 logger.info(f"Label '{label_name}' already exists")
 
-    def _signal_handler(self, signum, _frame) -> None:
+    def _signal_handler(self, signum: int, _frame: object) -> None:
         """Handle shutdown signals gracefully.
 
         Args:
@@ -629,7 +639,7 @@ class Daemon:
                     # Calculate backoff using tenacity's exponential formula:
                     # multiplier * (exp_base ** (attempt - 1)) clamped to [min, max]
                     # We add 1 to get 2^1, 2^2, 2^3... for failures 1, 2, 3...
-                    backoff_seconds = backoff_strategy(_BackoffState(consecutive_failures + 1))
+                    backoff_seconds = backoff_strategy(_BackoffState(consecutive_failures + 1))  # type: ignore[arg-type]
 
                     logger.error(f"Error during poll cycle: {e}", exc_info=True)
                     logger.info(
@@ -825,7 +835,7 @@ class Daemon:
             logger.debug(f"Submitting {len(items_to_process)} items for parallel processing")
 
             # Submit workflows to thread pool
-            futures = {}
+            futures: dict[Future[None], TicketItem] = {}
             for item in items_to_process:
                 future = self.executor.submit(self._process_item_workflow, item)
                 futures[future] = item
@@ -833,7 +843,8 @@ class Daemon:
             # Log submission - workflows will run asynchronously
             # Results are logged in _on_workflow_complete via add_done_callback
             for future, item in futures.items():
-                future.add_done_callback(lambda f, i=item: self._on_workflow_complete(f, i))
+                callback = lambda f: self._on_workflow_complete(f, item)  # noqa: E731
+                future.add_done_callback(callback)
 
             logger.debug("Poll cycle completed")
 
@@ -1022,13 +1033,13 @@ class Daemon:
             Returns False on any error (fail-safe: don't advance if uncertain).
         """
         try:
-            current_labels = self.ticket_client.get_issue_labels(repo, issue_number)
+            current_labels = self.ticket_client.get_ticket_labels(repo, issue_number)
             return Labels.YOLO in current_labels
         except Exception as e:
             logger.warning(f"Could not fetch current labels for {repo}#{issue_number}: {e}")
             return False  # Fail safe - don't advance if we can't verify
 
-    def _get_pr_for_issue(self, repo: str, issue_number: int) -> dict | None:
+    def _get_pr_for_issue(self, repo: str, issue_number: int) -> dict[str, Any] | None:
         """Get the open PR that closes a specific issue.
 
         Args:
@@ -1070,7 +1081,8 @@ class Daemon:
                 check=True,
             )
             if result.stdout.strip():
-                return json_module.loads(result.stdout)
+                data: dict[str, Any] = json_module.loads(result.stdout)
+                return data
         except Exception as e:
             logger.warning(f"Failed to get PR for issue #{issue_number}: {e}")
         return None
@@ -1745,7 +1757,7 @@ class Daemon:
             # Clear logging context
             clear_issue_context()
 
-    def _on_workflow_complete(self, future, _item: TicketItem) -> None:
+    def _on_workflow_complete(self, future: "Future[None]", _item: TicketItem) -> None:
         """Callback when a workflow completes (success or failure).
 
         Args:
@@ -1873,7 +1885,7 @@ class Daemon:
         workflow_class = self.WORKFLOW_MAP.get(workflow_name)
         if not workflow_class:
             logger.error(f"No workflow class found for '{workflow_name}'")
-            return
+            return None
 
         # Create workflow instance
         workflow = workflow_class()
