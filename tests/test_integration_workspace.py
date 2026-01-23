@@ -8,6 +8,7 @@ import pytest
 from src.workspace import WorkspaceError, WorkspaceManager
 
 
+@pytest.mark.integration
 class TestWorkspaceManagerIntegration:
     """Integration tests for WorkspaceManager."""
 
@@ -152,6 +153,7 @@ class TestWorkspaceManagerIntegration:
         assert ["rebase", "--abort"] in git_commands
 
 
+@pytest.mark.integration
 class TestWorkspaceSecurityValidation:
     """Security tests for path traversal prevention."""
 
