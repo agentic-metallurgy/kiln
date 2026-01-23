@@ -1449,7 +1449,7 @@ class TestYoloLabelRemovalDuringWorkflow:
         )
 
         # Mock successful workflow completion
-        daemon._run_workflow = MagicMock()
+        daemon._run_workflow = MagicMock(return_value=None)
 
         # Mock worktree path exists
         with patch("pathlib.Path.exists", return_value=True):
@@ -1496,7 +1496,7 @@ class TestYoloLabelRemovalDuringWorkflow:
         )
 
         # Mock successful workflow completion
-        daemon._run_workflow = MagicMock()
+        daemon._run_workflow = MagicMock(return_value=None)
 
         # Mock worktree path exists
         with patch("pathlib.Path.exists", return_value=True):
@@ -1515,7 +1515,7 @@ class TestYoloLabelRemovalDuringWorkflow:
 
             # Verify auto-advance WAS called (Research -> Plan)
             daemon.ticket_client.update_item_status.assert_called_once_with(
-                "PVI_123", "Plan"
+                "PVI_123", "Plan", hostname="github.com"
             )
 
     def test_yolo_failure_handling_skipped_when_label_removed(self, daemon):
