@@ -1456,8 +1456,8 @@ class TestYoloLabelRemovalDuringWorkflow:
             labels={Labels.YOLO},  # YOLO present at poll time
         )
 
-        # Mock successful workflow completion
-        daemon._run_workflow = MagicMock()
+        # Mock successful workflow completion (return a session ID string)
+        daemon._run_workflow = MagicMock(return_value="session-123")
 
         # Mock worktree path exists
         with patch("pathlib.Path.exists", return_value=True):
@@ -1503,8 +1503,8 @@ class TestYoloLabelRemovalDuringWorkflow:
             labels={Labels.YOLO},  # YOLO present at poll time
         )
 
-        # Mock successful workflow completion
-        daemon._run_workflow = MagicMock()
+        # Mock successful workflow completion (return a session ID string)
+        daemon._run_workflow = MagicMock(return_value="session-123")
 
         # Mock worktree path exists
         with patch("pathlib.Path.exists", return_value=True):
