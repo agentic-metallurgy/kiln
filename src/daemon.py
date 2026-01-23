@@ -394,18 +394,21 @@ class Daemon:
                 # Get repo from project items
                 items = self.ticket_client.get_board_items(project_url)
                 if not items:
-                    logger.warning(f"No items found in {project_url}, skipping metadata cache")
-                    continue
+                    logger.info(
+                        f"No items found in {project_url} yet, "
+                        "labels will be ensured on first poll"
+                    )
+                    repo = None
+                else:
+                    # Ensure required labels exist in ALL repos that have items in this project
+                    unique_repos = {item.repo for item in items}
+                    for repo in unique_repos:
+                        if repo not in self._repos_with_labels:
+                            self._ensure_required_labels(repo)
+                            self._repos_with_labels.add(repo)
 
-                # Ensure required labels exist in ALL repos that have items in this project
-                unique_repos = {item.repo for item in items}
-                for repo in unique_repos:
-                    if repo not in self._repos_with_labels:
-                        self._ensure_required_labels(repo)
-                        self._repos_with_labels.add(repo)
-
-                # Use first repo for ProjectMetadata (only used for caching reference)
-                repo = items[0].repo
+                    # Use first repo for ProjectMetadata (only used for caching reference)
+                    repo = items[0].repo
 
                 # Build and store metadata
                 metadata = ProjectMetadata(
