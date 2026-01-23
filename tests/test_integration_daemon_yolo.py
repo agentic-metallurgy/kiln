@@ -11,7 +11,7 @@ from src.daemon import Daemon
 from src.interfaces import TicketItem
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 class TestDaemonYoloLabelRemoval:
     """Tests for YOLO label removal stopping automatic progression."""
 
