@@ -298,6 +298,7 @@ Plan data.
 # ============================================================================
 
 
+@pytest.mark.integration
 class TestDaemonClosePrsAndDeleteBranches:
     """Tests for Daemon._close_prs_and_delete_branches() method."""
 
