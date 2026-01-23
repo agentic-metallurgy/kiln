@@ -35,6 +35,7 @@ def daemon(temp_workspace_dir):
         daemon.stop()
 
 
+@pytest.mark.integration
 class TestHibernationState:
     """Tests for hibernation state management."""
 
@@ -93,6 +94,7 @@ class TestHibernationState:
             assert len(info_calls) == 0
 
 
+@pytest.mark.integration
 class TestCheckGitHubConnectivity:
     """Tests for _check_github_connectivity method."""
 
@@ -171,6 +173,7 @@ class TestCheckGitHubConnectivity:
         assert call_kwargs.get("quiet") is True
 
 
+@pytest.mark.integration
 class TestMainLoopHibernation:
     """Tests for main loop hibernation behavior."""
 
@@ -341,6 +344,7 @@ class TestMainLoopHibernation:
         assert hibernation_waits[:2] == [300, 300]
 
 
+@pytest.mark.integration
 class TestGetHostnameFromUrl:
     """Tests for _get_hostname_from_url helper method."""
 
@@ -366,6 +370,7 @@ class TestGetHostnameFromUrl:
         assert daemon._get_hostname_from_url("not-a-url") == "github.com"
 
 
+@pytest.mark.integration
 class TestHibernationPagerDutyIntegration:
     """Tests for PagerDuty integration with hibernation state changes."""
 
