@@ -640,6 +640,14 @@ class Daemon:
 
             logger.debug(f"Total items from all projects: {len(all_items)}")
 
+            # Ensure required labels exist in all repos before processing
+            unique_repos = {item.repo for item in all_items}
+            for repo in unique_repos:
+                if repo not in self._repos_with_labels:
+                    logger.info(f"Ensuring required labels for new repo: {repo}")
+                    self._ensure_required_labels(repo)
+                    self._repos_with_labels.add(repo)
+
             # Check for Done items needing cleanup
             for item in all_items:
                 if item.status == "Done":
