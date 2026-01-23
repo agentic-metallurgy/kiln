@@ -1523,7 +1523,7 @@ class TestYoloLabelRemovalDuringWorkflow:
 
             # Verify auto-advance WAS called (Research -> Plan)
             daemon.ticket_client.update_item_status.assert_called_once_with(
-                "PVI_123", "Plan"
+                "PVI_123", "Plan", hostname="github.com"
             )
 
     def test_yolo_failure_handling_skipped_when_label_removed(self, daemon):
