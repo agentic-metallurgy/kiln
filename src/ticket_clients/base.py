@@ -104,7 +104,7 @@ class GitHubClientBase:
         """Human-readable description of this client for logging."""
         return "GitHub"
 
-    def validate_connection(self, hostname: str = "github.com") -> bool:
+    def validate_connection(self, hostname: str = "github.com", *, quiet: bool = False) -> bool:
         """Validate that the client can authenticate with GitHub.
 
         Makes a simple API call to verify credentials work before entering
@@ -113,6 +113,8 @@ class GitHubClientBase:
 
         Args:
             hostname: GitHub hostname to validate (default: github.com)
+            quiet: If True, log success at DEBUG level instead of INFO.
+                   Use for periodic health checks to reduce log noise.
 
         Returns:
             True if authentication succeeds
@@ -136,7 +138,10 @@ class GitHubClientBase:
             viewer = response.get("data", {}).get("viewer")
             login = viewer.get("login") if viewer else None
             if login:
-                logger.info(f"GitHub authentication successful for {hostname} as '{login}'")
+                if quiet:
+                    logger.debug(f"GitHub authentication successful for {hostname} as '{login}'")
+                else:
+                    logger.info(f"GitHub authentication successful for {hostname} as '{login}'")
                 return True
             else:
                 raise RuntimeError(
