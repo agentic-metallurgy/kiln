@@ -2,9 +2,12 @@
 
 import logging
 
+import pytest
+
 from src.security import ActorCategory, check_actor_allowed
 
 
+@pytest.mark.unit
 class TestCheckActorAllowed:
     """Tests for check_actor_allowed function."""
 
