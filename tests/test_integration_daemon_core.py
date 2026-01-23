@@ -11,6 +11,7 @@ import pytest
 from src.daemon import Daemon
 
 
+@pytest.mark.integration
 class TestDaemonBackoff:
     """Tests for daemon exponential backoff behavior using tenacity."""
 
