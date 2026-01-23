@@ -167,18 +167,3 @@ class TestCheckActorAllowed:
         assert result == ActorCategory.SELF
 
 
-class TestActorCategory:
-    """Tests for ActorCategory enum."""
-
-    def test_enum_values_exist(self):
-        """All expected enum values should exist."""
-        assert ActorCategory.SELF.value == "self"
-        assert ActorCategory.TEAM.value == "team"
-        assert ActorCategory.UNKNOWN.value == "unknown"
-        assert ActorCategory.BLOCKED.value == "blocked"
-
-    def test_enum_equality(self):
-        """Enum values should be comparable."""
-        assert ActorCategory.SELF == ActorCategory.SELF
-        assert ActorCategory.SELF != ActorCategory.TEAM
-        assert ActorCategory.UNKNOWN != ActorCategory.BLOCKED

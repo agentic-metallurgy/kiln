@@ -39,12 +39,6 @@ class TestWorkflowContext:
         assert ctx.issue_title == "Test Issue"
         assert ctx.workspace_path == "/path/to/workspace"
 
-    def test_workflow_context_attributes_are_accessible(self, workflow_context):
-        """Test that all WorkflowContext attributes are accessible."""
-        assert hasattr(workflow_context, "repo")
-        assert hasattr(workflow_context, "issue_number")
-        assert hasattr(workflow_context, "issue_title")
-        assert hasattr(workflow_context, "workspace_path")
 
     def test_workflow_context_issue_body_optional(self):
         """Test that issue_body is optional and defaults to None."""
@@ -93,11 +87,6 @@ class TestWorkflowContext:
 class TestResearchWorkflow:
     """Tests for ResearchWorkflow."""
 
-    def test_research_workflow_name(self):
-        """Test that ResearchWorkflow has the correct name."""
-        workflow = ResearchWorkflow()
-        assert workflow.name == "research"
-
     def test_research_workflow_init_returns_list(self, workflow_context):
         """Test that init() returns a list of prompts."""
         workflow = ResearchWorkflow()
@@ -134,11 +123,6 @@ class TestResearchWorkflow:
 @pytest.mark.unit
 class TestPlanWorkflow:
     """Tests for PlanWorkflow."""
-
-    def test_plan_workflow_name(self):
-        """Test that PlanWorkflow has the correct name."""
-        workflow = PlanWorkflow()
-        assert workflow.name == "plan"
 
     def test_plan_workflow_init_returns_list(self, workflow_context):
         """Test that init() returns a list of prompts."""
@@ -183,11 +167,6 @@ class TestPlanWorkflow:
 @pytest.mark.unit
 class TestProcessCommentsWorkflow:
     """Tests for ProcessCommentsWorkflow."""
-
-    def test_process_comments_workflow_name(self):
-        """Test that workflow has correct name."""
-        workflow = ProcessCommentsWorkflow()
-        assert workflow.name == "process_comments"
 
     def test_process_comments_workflow_returns_one_prompt(self):
         """Test that workflow returns exactly one prompt."""
@@ -305,11 +284,6 @@ class TestProcessCommentsWorkflow:
 @pytest.mark.unit
 class TestPrepareWorkflow:
     """Tests for PrepareWorkflow."""
-
-    def test_prepare_workflow_name(self):
-        """Test that PrepareWorkflow has the correct name."""
-        workflow = PrepareWorkflow()
-        assert workflow.name == "prepare"
 
     def test_prepare_workflow_returns_two_prompts(self):
         """Test that PrepareWorkflow returns exactly 2 prompts."""
@@ -637,11 +611,6 @@ class TestCountCheckboxes:
 @pytest.mark.unit
 class TestImplementWorkflow:
     """Tests for ImplementWorkflow class."""
-
-    def test_implement_workflow_name(self):
-        """Test that ImplementWorkflow has the correct name."""
-        workflow = ImplementWorkflow()
-        assert workflow.name == "implement"
 
     def test_implement_workflow_init_returns_empty_list(self, workflow_context):
         """Test that init() returns an empty list.

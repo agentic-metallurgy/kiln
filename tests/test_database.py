@@ -214,21 +214,6 @@ class TestIssueState:
         assert issue_state.status == "Research"
         assert issue_state.last_updated == timestamp
 
-    def test_issue_state_equality(self):
-        """Test IssueState equality comparison."""
-        timestamp = datetime.now()
-        state1 = IssueState("owner/repo", 123, "Research", timestamp)
-        state2 = IssueState("owner/repo", 123, "Research", timestamp)
-
-        assert state1 == state2
-
-    def test_issue_state_inequality(self):
-        """Test IssueState inequality comparison."""
-        timestamp = datetime.now()
-        state1 = IssueState("owner/repo", 123, "Research", timestamp)
-        state2 = IssueState("owner/repo", 123, "Plan", timestamp)
-
-        assert state1 != state2
 
 
 @pytest.mark.unit

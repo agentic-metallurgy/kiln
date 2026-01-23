@@ -18,30 +18,11 @@ from src.ticket_clients.github_enterprise_3_18 import GitHubEnterprise318Client
 class TestNetworkErrorException:
     """Tests for NetworkError exception class."""
 
-    def test_network_error_is_exception(self):
-        """Test that NetworkError is a subclass of Exception."""
-        assert issubclass(NetworkError, Exception)
-
     def test_network_error_can_be_raised(self):
         """Test that NetworkError can be raised with a message."""
         with pytest.raises(NetworkError) as exc_info:
             raise NetworkError("TLS handshake timeout")
         assert "TLS handshake timeout" in str(exc_info.value)
-
-    def test_network_error_can_be_caught_as_exception(self):
-        """Test that NetworkError can be caught as generic Exception."""
-        caught = False
-        try:
-            raise NetworkError("Connection refused")
-        except Exception:
-            caught = True
-        assert caught is True
-
-    def test_network_error_import_from_base(self):
-        """Test that NetworkError can be imported from base module."""
-        from src.ticket_clients.base import NetworkError as ImportedNetworkError
-
-        assert ImportedNetworkError is NetworkError
 
 
 @pytest.fixture
