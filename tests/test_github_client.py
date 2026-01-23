@@ -1294,6 +1294,42 @@ class TestValidateConnection:
             assert "viewer" in query
             assert "login" in query
 
+    def test_validate_connection_quiet_logs_debug(self, github_client, caplog):
+        """Test that quiet=True logs at DEBUG level instead of INFO."""
+        import logging
+
+        mock_response = {"data": {"viewer": {"login": "test-user"}}}
+
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            with caplog.at_level(logging.DEBUG):
+                github_client.validate_connection("github.com", quiet=True)
+
+        # Verify the success message was logged
+        assert "GitHub authentication successful" in caplog.text
+        # Verify it was logged at DEBUG level, not INFO
+        auth_records = [
+            r for r in caplog.records if "authentication successful" in r.message
+        ]
+        assert len(auth_records) == 1
+        assert auth_records[0].levelno == logging.DEBUG
+
+    def test_validate_connection_default_logs_info(self, github_client, caplog):
+        """Test that default (quiet=False) logs at INFO level."""
+        import logging
+
+        mock_response = {"data": {"viewer": {"login": "test-user"}}}
+
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
+            with caplog.at_level(logging.DEBUG):
+                github_client.validate_connection("github.com")
+
+        # Verify the success message was logged at INFO level
+        auth_records = [
+            r for r in caplog.records if "authentication successful" in r.message
+        ]
+        assert len(auth_records) == 1
+        assert auth_records[0].levelno == logging.INFO
+
 
 @pytest.mark.unit
 class TestGetTokenScopes:

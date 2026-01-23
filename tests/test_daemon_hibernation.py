@@ -167,6 +167,17 @@ class TestCheckGitHubConnectivity:
             ]
             assert len(warning_calls) >= 1
 
+    def test_connectivity_calls_validate_connection_with_quiet_true(self, daemon):
+        """Test that _check_github_connectivity passes quiet=True to validate_connection."""
+        daemon.ticket_client.validate_connection.return_value = True
+
+        daemon._check_github_connectivity()
+
+        # Verify validate_connection was called with quiet=True
+        daemon.ticket_client.validate_connection.assert_called_once()
+        call_kwargs = daemon.ticket_client.validate_connection.call_args[1]
+        assert call_kwargs.get("quiet") is True
+
 
 class TestMainLoopHibernation:
     """Tests for main loop hibernation behavior."""
