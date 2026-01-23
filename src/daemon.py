@@ -270,6 +270,9 @@ class Daemon:
         # In-memory cache of project metadata (populated on startup)
         self._project_metadata: dict[str, ProjectMetadata] = {}
 
+        # Track repos that have had required labels ensured
+        self._repos_with_labels: set[str] = set()
+
         # Initialize state manager (must be after workspace_manager, ticket_client, and _project_metadata)
         # Note: project_metadata dict is passed by reference, so it will be populated during _initialize_project_metadata()
         self.state_manager = StateManager(
@@ -383,9 +386,6 @@ class Daemon:
         """
         logger.info("Initializing project metadata cache...")
 
-        # Track repos we've already ensured labels for (avoid duplicates)
-        repos_with_labels: set[str] = set()
-
         for project_url in self.config.project_urls:
             try:
                 # Fetch project metadata (project ID, status field, options)
@@ -400,9 +400,9 @@ class Daemon:
                 # Ensure required labels exist in ALL repos that have items in this project
                 unique_repos = {item.repo for item in items}
                 for repo in unique_repos:
-                    if repo not in repos_with_labels:
+                    if repo not in self._repos_with_labels:
                         self._ensure_required_labels(repo)
-                        repos_with_labels.add(repo)
+                        self._repos_with_labels.add(repo)
 
                 # Use first repo for ProjectMetadata (only used for caching reference)
                 repo = items[0].repo
