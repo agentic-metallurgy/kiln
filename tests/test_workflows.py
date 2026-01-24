@@ -1445,3 +1445,106 @@ Some other content here.
         assert mock_run.call_count == 1
         # PR should NOT be marked ready (incomplete due to safety exit)
         mock_ready.assert_not_called()
+
+    def test_execute_passes_base_flag_when_parent_branch_set(self, workflow_context):
+        """Test that execute() passes --base flag to /prepare_implementation_github when parent_branch is set."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        # Mock config
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"prepare_implementation": "sonnet", "implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 0
+
+        # Create context with parent_branch set
+        ctx_with_parent = WorkflowContext(
+            repo="github.com/owner/test-repo",
+            issue_number=42,
+            issue_title="Test Issue",
+            workspace_path="/tmp/workspaces/test",
+            parent_branch="feature/parent-branch",
+        )
+
+        # First call: no PR found
+        # Second call: PR found after prepare_implementation_github
+        pr_responses = [
+            None,  # Initial check - no PR
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test\n- [x] Done",
+            },  # After prepare
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test\n- [x] Done",
+            },  # In loop (check state)
+        ]
+        call_count = {"value": 0}
+
+        def mock_get_pr_create(*_args, **_kwargs):
+            result = pr_responses[min(call_count["value"], len(pr_responses) - 1)]
+            call_count["value"] += 1
+            return result
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr_create),
+            patch.object(workflow, "_run_prompt") as mock_run,
+        ):
+            workflow.execute(ctx_with_parent, mock_config)
+
+        # Verify prepare_implementation was called with --base flag
+        prepare_calls = [c for c in mock_run.call_args_list if "/kiln-prepare_implementation_github" in c[0][0]]
+        assert len(prepare_calls) == 1
+        prepare_prompt = prepare_calls[0][0][0]
+        assert "--base feature/parent-branch" in prepare_prompt
+
+    def test_execute_no_base_flag_when_parent_branch_not_set(self, workflow_context):
+        """Test that execute() does NOT pass --base flag when parent_branch is not set."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        # Mock config
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"prepare_implementation": "sonnet", "implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 0
+
+        # workflow_context fixture does NOT have parent_branch set
+
+        # First call: no PR found
+        # Second call: PR found after prepare_implementation_github
+        pr_responses = [
+            None,  # Initial check - no PR
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test\n- [x] Done",
+            },  # After prepare
+            {
+                "number": 42,
+                "body": "Closes #42\n\n## TASK 1: Test\n- [x] Done",
+            },  # In loop (check state)
+        ]
+        call_count = {"value": 0}
+
+        def mock_get_pr_create(*_args, **_kwargs):
+            result = pr_responses[min(call_count["value"], len(pr_responses) - 1)]
+            call_count["value"] += 1
+            return result
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr_create),
+            patch.object(workflow, "_run_prompt") as mock_run,
+        ):
+            workflow.execute(workflow_context, mock_config)
+
+        # Verify prepare_implementation was called without --base flag
+        prepare_calls = [c for c in mock_run.call_args_list if "/kiln-prepare_implementation_github" in c[0][0]]
+        assert len(prepare_calls) == 1
+        prepare_prompt = prepare_calls[0][0][0]
+        assert "--base" not in prepare_prompt

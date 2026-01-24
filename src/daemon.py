@@ -1921,6 +1921,25 @@ class Daemon:
         resume_session = None
         logger.info(f"Starting fresh {workflow_name} session")
 
+        # Resolve parent_branch for workflows that need it (e.g., Implement for PR --base flag)
+        parent_branch: str | None = None
+        parent_issue_number: int | None = None
+        if workflow_name == "Implement":
+            # Pre-fetch issue body and parse frontmatter
+            issue_body = self.ticket_client.get_ticket_body(item.repo, item.ticket_id)
+            frontmatter = parse_issue_frontmatter(issue_body)
+            feature_branch = frontmatter.get("feature_branch")
+
+            # Explicit feature_branch takes precedence over parent detection
+            if feature_branch:
+                logger.info(f"Using explicit feature_branch '{feature_branch}' from issue frontmatter")
+                parent_branch = feature_branch
+            else:
+                # Check for parent issue with open PR
+                parent_issue_number, parent_branch = self._get_parent_pr_info(
+                    item.repo, item.ticket_id
+                )
+
         # Create context
         ctx = WorkflowContext(
             repo=item.repo,
@@ -1929,6 +1948,8 @@ class Daemon:
             workspace_path=workspace_path,
             project_url=item.board_url,
             username_self=self.config.username_self,
+            parent_issue_number=parent_issue_number,
+            parent_branch=parent_branch,
         )
 
         # Run workflow

@@ -126,7 +126,9 @@ class ImplementWorkflow:
                     f"No PR found for {key}, creating via /prepare_implementation_github "
                     f"(attempt {attempt}/2)"
                 )
-                prepare_prompt = f"/kiln-prepare_implementation_github {issue_url}"
+                # Pass --base flag when parent_branch is set (from feature_branch or parent issue)
+                base_flag = f" --base {ctx.parent_branch}" if ctx.parent_branch else ""
+                prepare_prompt = f"/kiln-prepare_implementation_github {issue_url}{base_flag}"
                 self._run_prompt(prepare_prompt, ctx, config, "prepare_implementation")
 
                 # Check for PR
