@@ -25,9 +25,9 @@ jobs:
 
       - name: Run mutation testing
         run: |
-          mutmut run --no-progress || true
+          mutmut run || true
           mutmut results
-          mutmut html
+          mutmut html || true
 
       - name: Generate summary
         run: |
