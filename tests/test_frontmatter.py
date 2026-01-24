@@ -178,3 +178,38 @@ Description.
             "Feature_Branch": "MyBranch",
             "UPPERCASE": "VALUE",
         }
+
+    def test_blocked_by_single_int(self):
+        """Test parsing blocked_by with a single integer."""
+        body = """---
+blocked_by: 115
+---
+
+This issue is blocked by #115.
+"""
+        result = parse_issue_frontmatter(body)
+        assert result == {"blocked_by": 115}
+
+    def test_blocked_by_inline_list(self):
+        """Test parsing blocked_by with an inline list of integers."""
+        body = """---
+blocked_by: [115, 116]
+---
+
+This issue is blocked by #115 and #116.
+"""
+        result = parse_issue_frontmatter(body)
+        assert result == {"blocked_by": [115, 116]}
+
+    def test_blocked_by_yaml_list_syntax(self):
+        """Test parsing blocked_by with YAML list syntax."""
+        body = """---
+blocked_by:
+  - 115
+  - 116
+---
+
+This issue is blocked by #115 and #116 (YAML list syntax).
+"""
+        result = parse_issue_frontmatter(body)
+        assert result == {"blocked_by": [115, 116]}
