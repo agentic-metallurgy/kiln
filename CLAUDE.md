@@ -1,2 +1,4 @@
 - always edit the github issue description directly when updating research or plans — don't create local files or add amendment comments
 - no claude or any user attribution needed in comments, prs, commits, issues
+- when we create an issue in this repo, always add it to project 3 with status backlog
+- always merge from main when working in a pr branch and we need to update the branch
