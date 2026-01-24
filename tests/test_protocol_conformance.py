@@ -12,6 +12,8 @@ undetected and ensure all clients are interchangeable via the TicketClient
 protocol.
 """
 
+import inspect
+
 import pytest
 
 from src.interfaces.ticket import TicketClient
@@ -124,3 +126,90 @@ class TestProtocolMethodExistence:
         assert callable(method), (
             f"{client_class.__name__}.{method_name} is not callable"
         )
+
+
+def _get_protocol_signature(method_name: str) -> inspect.Signature:
+    """Extract the signature of a method from the TicketClient protocol."""
+    protocol_method = getattr(TicketClient, method_name)
+    return inspect.signature(protocol_method)
+
+
+def _get_required_params(sig: inspect.Signature) -> list[str]:
+    """Extract required parameter names from a signature, excluding 'self'.
+
+    A parameter is required if it has no default value and is not keyword-only
+    with a default.
+    """
+    required = []
+    for name, param in sig.parameters.items():
+        if name == "self":
+            continue
+        # Parameter is required if it has no default and is not variadic
+        if param.default is inspect.Parameter.empty and param.kind not in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            required.append(name)
+    return required
+
+
+def _get_param_names(sig: inspect.Signature) -> list[str]:
+    """Extract parameter names from a signature, excluding 'self'."""
+    return [name for name in sig.parameters if name != "self"]
+
+
+@pytest.mark.unit
+class TestProtocolSignatureConformance:
+    """Tests that method signatures match the protocol definition.
+
+    Verifies that each client's implementation of protocol methods is compatible
+    with the protocol signature. Implementations may have additional optional
+    parameters (with defaults) as extensions.
+
+    Note: Type annotations are not enforced at runtime by runtime_checkable.
+    """
+
+    @pytest.mark.parametrize("client_class", ALL_CLIENT_CLASSES, ids=_client_id)
+    @pytest.mark.parametrize("method_name", PROTOCOL_METHODS)
+    def test_method_signature_matches_protocol(
+        self, client_class: type, method_name: str
+    ) -> None:
+        """Verify method signature is compatible with protocol definition.
+
+        This test ensures that each client method can be called with the
+        protocol's signature. Implementations may add extra optional parameters
+        but must accept all protocol parameters in the same order.
+        """
+        # Get protocol signature
+        protocol_sig = _get_protocol_signature(method_name)
+        protocol_params = _get_param_names(protocol_sig)
+
+        # Get client method signature
+        client = client_class(tokens={})
+        client_method = getattr(client, method_name)
+        client_sig = inspect.signature(client_method)
+        client_params = _get_param_names(client_sig)
+
+        # All protocol parameters must be present in client
+        for i, protocol_param in enumerate(protocol_params):
+            assert i < len(client_params), (
+                f"{client_class.__name__}.{method_name} is missing required parameter "
+                f"'{protocol_param}' at position {i}. "
+                f"Client: {client_params}, Protocol: {protocol_params}"
+            )
+            assert client_params[i] == protocol_param, (
+                f"{client_class.__name__}.{method_name} has parameter "
+                f"'{client_params[i]}' at position {i} but protocol expects "
+                f"'{protocol_param}'. "
+                f"Client: {client_params}, Protocol: {protocol_params}"
+            )
+
+        # Any extra client parameters must have default values
+        extra_params = client_params[len(protocol_params) :]
+        for extra_param in extra_params:
+            param = client_sig.parameters[extra_param]
+            assert param.default is not inspect.Parameter.empty, (
+                f"{client_class.__name__}.{method_name} has extra required parameter "
+                f"'{extra_param}' not in protocol. Extra parameters must have defaults. "
+                f"Client: {client_params}, Protocol: {protocol_params}"
+            )
