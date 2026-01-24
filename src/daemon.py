@@ -915,6 +915,12 @@ class Daemon:
             logger.debug(f"Skipping {key} - has '{Labels.RESEARCH_FAILED}' label")
             return False
 
+        # Skip if blocked by issues without merged PRs
+        is_blocked, blockers = self._is_blocked_by_unmerged_issues(item)
+        if is_blocked:
+            logger.info(f"Skipping {key} - blocked by issues without merged PRs: {blockers}")
+            return False
+
         # Check actor authorization if supported by the client
         if self.ticket_client.supports_status_actor_check:
             actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
