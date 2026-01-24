@@ -1,0 +1,45 @@
+name: Mutation Testing
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight UTC
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  mutate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # 2 hour timeout for full codebase
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run mutation testing
+        run: |
+          mutmut run --no-progress || true
+          mutmut results
+          mutmut html
+
+      - name: Generate summary
+        run: |
+          echo "## Mutation Testing Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          mutmut results >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload mutation results
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-results
+          path: |
+            .mutmut-cache
+            html/
+          retention-days: 30
