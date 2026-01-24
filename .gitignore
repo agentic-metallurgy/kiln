@@ -44,6 +44,11 @@ build/
 htmlcov/
 *.cover
 
+# Mutation testing
+.mutmut-cache/
+mutants/
+html/
+
 # Ruff cache
 .ruff_cache/
 
