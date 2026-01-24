@@ -58,12 +58,22 @@ class PrepareWorkflow:
 
         # Determine base branch for worktree
         if ctx.parent_branch:
-            base_branch_instruction = (
-                f"Create the worktree from the parent branch '{ctx.parent_branch}' "
-                f"(this is the branch from the parent issue #{ctx.parent_issue_number}'s open PR). "
-                f"First fetch the parent branch from origin: `git fetch origin {ctx.parent_branch}`, "
-                f"then create the worktree from it."
-            )
+            if ctx.parent_issue_number:
+                # Implicit: parent branch from parent issue's PR
+                base_branch_instruction = (
+                    f"Create the worktree from the parent branch '{ctx.parent_branch}' "
+                    f"(this is the branch from the parent issue #{ctx.parent_issue_number}'s open PR). "
+                    f"First fetch the parent branch from origin: `git fetch origin {ctx.parent_branch}`, "
+                    f"then create the worktree from it."
+                )
+            else:
+                # Explicit: feature_branch from issue frontmatter
+                base_branch_instruction = (
+                    f"Create the worktree from the feature branch '{ctx.parent_branch}' "
+                    f"(specified in issue frontmatter). "
+                    f"First fetch the branch from origin: `git fetch origin {ctx.parent_branch}`, "
+                    f"then create the worktree from it."
+                )
         else:
             base_branch_instruction = "Create the worktree from the main branch."
 

@@ -415,6 +415,33 @@ class TestPrepareWorkflow:
         assert "main branch" in prompts[1]
         assert "parent branch" not in prompts[1]
 
+    def test_prepare_workflow_with_explicit_feature_branch_no_parent_issue(self):
+        """Test that workflow uses feature_branch messaging when no parent_issue_number.
+
+        When parent_branch is set but parent_issue_number is None, this indicates
+        an explicit feature_branch from issue frontmatter, not a parent issue's PR.
+        """
+        ctx = WorkflowContext(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            issue_title="Feature Issue",
+            workspace_path="/tmp/workspaces",
+            issue_body="Issue body",
+            parent_issue_number=None,  # No parent issue
+            parent_branch="my-feature-branch",  # Explicit feature_branch from frontmatter
+        )
+        workflow = PrepareWorkflow()
+        prompts = workflow.init(ctx)
+
+        # Should instruct to create from feature branch with frontmatter messaging
+        assert "my-feature-branch" in prompts[1]
+        assert "feature branch" in prompts[1]
+        assert "specified in issue frontmatter" in prompts[1]
+        assert "git fetch origin my-feature-branch" in prompts[1]
+        # Should NOT mention parent issue
+        assert "parent issue" not in prompts[1]
+        assert "parent branch" not in prompts[1]
+
 
 @pytest.mark.unit
 class TestCountTasks:
