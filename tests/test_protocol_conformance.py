@@ -91,3 +91,36 @@ class TestProtocolStructuralConformance:
         assert isinstance(
             client, TicketClient
         ), f"{client_class.__name__} should be an instance of TicketClient protocol"
+
+
+@pytest.mark.unit
+class TestProtocolMethodExistence:
+    """Tests that all protocol methods exist on client implementations.
+
+    Verifies each of the 21 TicketClient protocol methods exists on every
+    client class and is callable.
+    """
+
+    @pytest.mark.parametrize("client_class", ALL_CLIENT_CLASSES, ids=_client_id)
+    @pytest.mark.parametrize("method_name", PROTOCOL_METHODS)
+    def test_method_exists_and_callable(
+        self, client_class: type, method_name: str
+    ) -> None:
+        """Verify required method exists and is callable.
+
+        This test checks that each client class has all 21 methods required
+        by the TicketClient protocol, and that each method is callable.
+        """
+        # Create instance with empty tokens dict
+        client = client_class(tokens={})
+
+        # Verify method exists
+        assert hasattr(client, method_name), (
+            f"{client_class.__name__} missing required method: {method_name}"
+        )
+
+        # Verify method is callable
+        method = getattr(client, method_name)
+        assert callable(method), (
+            f"{client_class.__name__}.{method_name} is not callable"
+        )
