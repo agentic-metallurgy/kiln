@@ -6,7 +6,7 @@ must implement (GitHub, Jira, Linear, etc.).
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass
@@ -85,6 +85,7 @@ class LinkedPullRequest:
     branch_name: str | None = None
 
 
+@runtime_checkable
 class TicketClient(Protocol):
     """Protocol defining the interface for ticket system clients.
 
