@@ -12,14 +12,10 @@ undetected and ensure all clients are interchangeable via the TicketClient
 protocol.
 """
 
-import inspect
-from typing import get_type_hints
-
 import pytest
 
 from src.interfaces.ticket import TicketClient
 from src.ticket_clients import (
-    GHES_VERSION_CLIENTS,
     GitHubEnterprise314Client,
     GitHubEnterprise315Client,
     GitHubEnterprise316Client,
@@ -65,3 +61,33 @@ ALL_CLIENT_CLASSES = [
     GitHubEnterprise318Client,
     GitHubEnterprise319Client,
 ]
+
+
+# Helper to get client class name for test IDs
+def _client_id(client_class: type) -> str:
+    """Generate a readable test ID from client class."""
+    return client_class.__name__
+
+
+@pytest.mark.unit
+class TestProtocolStructuralConformance:
+    """Tests that all client classes structurally conform to TicketClient protocol.
+
+    Uses isinstance() with @runtime_checkable to verify that each client
+    implementation is recognized as a TicketClient at runtime.
+    """
+
+    @pytest.mark.parametrize("client_class", ALL_CLIENT_CLASSES, ids=_client_id)
+    def test_isinstance_ticket_client(self, client_class: type) -> None:
+        """Verify client class instances pass isinstance(client, TicketClient) check.
+
+        This test creates an instance of each client class with mock credentials
+        and verifies it is recognized as implementing the TicketClient protocol.
+        """
+        # Create instance with empty tokens dict (clients accept tokens dict, not single token)
+        client = client_class(tokens={})
+
+        # Verify isinstance check passes
+        assert isinstance(
+            client, TicketClient
+        ), f"{client_class.__name__} should be an instance of TicketClient protocol"
