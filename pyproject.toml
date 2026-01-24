@@ -39,6 +39,7 @@ dev = [
     "pyinstaller>=6.0.0",
     "mypy>=1.8.0",
     "types-requests>=2.31.0",
+    "mutmut>=3.0.0",
 ]
 
 [tool.ruff]
