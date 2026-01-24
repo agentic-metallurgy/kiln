@@ -1040,6 +1040,55 @@ class Daemon:
             logger.warning(f"Could not fetch current labels for {repo}#{issue_number}: {e}")
             return False  # Fail safe - don't advance if we can't verify
 
+    @staticmethod
+    def _normalize_blocked_by(blocked_by: int | list[int] | None) -> list[int]:
+        """Normalize blocked_by to a list of ints.
+
+        Args:
+            blocked_by: Single int, list of ints, or None from frontmatter
+
+        Returns:
+            List of blocking issue numbers (empty if None)
+        """
+        if blocked_by is None:
+            return []
+        if isinstance(blocked_by, int):
+            return [blocked_by]
+        return blocked_by
+
+    def _is_blocked_by_unmerged_issues(self, item: TicketItem) -> tuple[bool, list[int]]:
+        """Check if issue is blocked by other issues without merged PRs.
+
+        Fetches the issue body, parses frontmatter for blocked_by setting,
+        and checks each blocking issue for a merged PR.
+
+        Args:
+            item: TicketItem to check for blockers
+
+        Returns:
+            Tuple of (is_blocked, list of blocking issue numbers).
+            Returns (False, []) on any error (fail-safe: proceed if check fails).
+        """
+        try:
+            issue_body = self.ticket_client.get_ticket_body(item.repo, item.ticket_id)
+            frontmatter = parse_issue_frontmatter(issue_body)
+            blocked_by = self._normalize_blocked_by(frontmatter.get("blocked_by"))
+
+            if not blocked_by:
+                return (False, [])
+
+            blocking_issues = []
+            for blocker_num in blocked_by:
+                linked_prs = self.ticket_client.get_linked_prs(item.repo, blocker_num)
+                has_merged_pr = any(pr.merged for pr in linked_prs)
+                if not has_merged_pr:
+                    blocking_issues.append(blocker_num)
+
+            return (len(blocking_issues) > 0, blocking_issues)
+        except Exception as e:
+            logger.warning(f"Could not check blocked_by for {item.repo}#{item.ticket_id}: {e}")
+            return (False, [])  # Fail-safe: proceed if check fails
+
     def _get_pr_for_issue(self, repo: str, issue_number: int) -> dict[str, Any] | None:
         """Get the open PR that closes a specific issue.
 
