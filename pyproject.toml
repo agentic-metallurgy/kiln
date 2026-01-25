@@ -42,6 +42,7 @@ dev = [
     "types-requests>=2.31.0",
     "types-PyYAML>=6.0.0",
     "mutmut>=3.0.0",
+    "hypothesis>=6.0.0",
 ]
 
 [tool.ruff]
