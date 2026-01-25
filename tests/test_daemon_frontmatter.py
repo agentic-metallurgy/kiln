@@ -53,9 +53,9 @@ class TestDaemonFrontmatterIntegration:
 
     def test_feature_branch_from_frontmatter_used(self, daemon, mock_item):
         """Test that explicit feature_branch from frontmatter is used."""
-        issue_body = """---
+        issue_body = """```
 feature_branch: my-feature
----
+```
 
 Issue description here.
 """
@@ -71,9 +71,9 @@ Issue description here.
 
     def test_feature_branch_skips_parent_pr_lookup(self, daemon, mock_item):
         """Test that _get_parent_pr_info is NOT called when feature_branch is set."""
-        issue_body = """---
+        issue_body = """```
 feature_branch: develop
----
+```
 
 Issue description.
 """
@@ -104,9 +104,9 @@ No frontmatter in this issue.
 
     def test_empty_frontmatter_falls_back_to_parent_detection(self, daemon, mock_item):
         """Test that parent detection is used with empty frontmatter."""
-        issue_body = """---
+        issue_body = """```
 other_setting: value
----
+```
 
 No feature_branch setting.
 """
@@ -121,9 +121,9 @@ No feature_branch setting.
 
     def test_feature_branch_passed_to_workflow_context(self, daemon, mock_item):
         """Test that feature_branch is passed as parent_branch in context."""
-        issue_body = """---
+        issue_body = """```
 feature_branch: release/v2.0
----
+```
 
 Issue description.
 """
@@ -164,9 +164,9 @@ Issue description.
 
     def test_feature_branch_logs_auto_prepared_message(self, daemon, mock_item):
         """Test that auto-prepared log message includes feature branch info."""
-        issue_body = """---
+        issue_body = """```
 feature_branch: develop
----
+```
 
 Description.
 """
@@ -197,9 +197,9 @@ class TestDaemonFrontmatterIntegrationTests:
         4. _get_parent_pr_info is NOT called
         5. PrepareWorkflow is invoked with correct context
         """
-        issue_body = """---
+        issue_body = """```
 feature_branch: release/v2.0
----
+```
 
 ## Description
 
@@ -237,9 +237,9 @@ This is an issue that should branch from release/v2.0.
         This is an important optimization - when an explicit feature_branch is set,
         we don't need to query for parent issue's PR branch.
         """
-        issue_body = """---
+        issue_body = """```
 feature_branch: develop
----
+```
 
 Description with explicit feature branch.
 """
@@ -270,9 +270,9 @@ Description with explicit feature branch.
         from frontmatter (or parent detection) and passed to WorkflowContext.
         This enables PR creation with the correct --base flag.
         """
-        issue_body = """---
+        issue_body = """```
 feature_branch: hotfix/v1.5
----
+```
 
 Description of hotfix issue.
 """
