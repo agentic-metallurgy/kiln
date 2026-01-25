@@ -88,9 +88,9 @@ This issue has no blocked_by setting.
 
     def test_blocker_with_merged_pr_returns_not_blocked(self, daemon, mock_item):
         """Test returns (False, []) when blocker has a merged PR."""
-        daemon.ticket_client.get_ticket_body.return_value = """---
+        daemon.ticket_client.get_ticket_body.return_value = """```
 blocked_by: 115
----
+```
 
 This issue is blocked by #115.
 """
@@ -114,9 +114,9 @@ This issue is blocked by #115.
 
     def test_blocker_without_merged_pr_returns_blocked(self, daemon, mock_item):
         """Test returns (True, [blocker]) when blocker has no merged PR."""
-        daemon.ticket_client.get_ticket_body.return_value = """---
+        daemon.ticket_client.get_ticket_body.return_value = """```
 blocked_by: 115
----
+```
 
 This issue is blocked by #115.
 """
@@ -137,9 +137,9 @@ This issue is blocked by #115.
 
     def test_blocker_with_no_pr_returns_blocked(self, daemon, mock_item):
         """Test returns (True, [blocker]) when blocker has no PR at all."""
-        daemon.ticket_client.get_ticket_body.return_value = """---
+        daemon.ticket_client.get_ticket_body.return_value = """```
 blocked_by: 115
----
+```
 
 This issue is blocked by #115.
 """
@@ -151,9 +151,9 @@ This issue is blocked by #115.
 
     def test_multiple_blockers_one_unmerged_returns_blocked(self, daemon, mock_item):
         """Test returns blocked with only the unmerged blocker when one of two has unmerged PR."""
-        daemon.ticket_client.get_ticket_body.return_value = """---
+        daemon.ticket_client.get_ticket_body.return_value = """```
 blocked_by: [115, 116]
----
+```
 
 This issue is blocked by both #115 and #116.
 """
@@ -189,9 +189,9 @@ This issue is blocked by both #115 and #116.
 
     def test_multiple_blockers_all_unmerged_returns_all(self, daemon, mock_item):
         """Test returns all blockers when all have unmerged PRs."""
-        daemon.ticket_client.get_ticket_body.return_value = """---
+        daemon.ticket_client.get_ticket_body.return_value = """```
 blocked_by: [115, 116]
----
+```
 
 This issue is blocked by both #115 and #116.
 """
@@ -203,9 +203,9 @@ This issue is blocked by both #115 and #116.
 
     def test_multiple_blockers_all_merged_returns_not_blocked(self, daemon, mock_item):
         """Test returns not blocked when all blockers have merged PRs."""
-        daemon.ticket_client.get_ticket_body.return_value = """---
+        daemon.ticket_client.get_ticket_body.return_value = """```
 blocked_by: [115, 116]
----
+```
 
 This issue is blocked by both #115 and #116.
 """
@@ -233,9 +233,9 @@ This issue is blocked by both #115 and #116.
 
     def test_get_linked_prs_error_returns_fail_safe(self, daemon, mock_item):
         """Test returns (False, []) when get_linked_prs fails (fail-safe)."""
-        daemon.ticket_client.get_ticket_body.return_value = """---
+        daemon.ticket_client.get_ticket_body.return_value = """```
 blocked_by: 115
----
+```
 
 Blocked by #115.
 """
@@ -246,9 +246,9 @@ Blocked by #115.
 
     def test_empty_blocked_by_list_returns_not_blocked(self, daemon, mock_item):
         """Test returns (False, []) when blocked_by is an empty list."""
-        daemon.ticket_client.get_ticket_body.return_value = """---
+        daemon.ticket_client.get_ticket_body.return_value = """```
 blocked_by: []
----
+```
 
 Empty blocked_by list.
 """
@@ -257,11 +257,11 @@ Empty blocked_by list.
 
     def test_yaml_list_syntax_works(self, daemon, mock_item):
         """Test that YAML list syntax for blocked_by is parsed correctly."""
-        daemon.ticket_client.get_ticket_body.return_value = """---
+        daemon.ticket_client.get_ticket_body.return_value = """```
 blocked_by:
   - 115
   - 116
----
+```
 
 YAML list syntax for blocked_by.
 """
