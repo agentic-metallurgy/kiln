@@ -11,9 +11,9 @@ class TestParseIssueFrontmatter:
 
     def test_valid_frontmatter_with_feature_branch(self):
         """Test parsing valid frontmatter with feature_branch setting."""
-        body = """---
+        body = """```
 feature_branch: my-feature-branch
----
+```
 
 ## Description
 This is the issue description.
@@ -23,11 +23,11 @@ This is the issue description.
 
     def test_valid_frontmatter_with_multiple_settings(self):
         """Test parsing frontmatter with multiple settings."""
-        body = """---
+        body = """```
 feature_branch: develop
 skip_research: true
 priority: high
----
+```
 
 Some description here.
 """
@@ -58,10 +58,10 @@ This is just a regular issue without frontmatter.
 
     def test_malformed_yaml_returns_empty_dict(self, caplog):
         """Test that malformed YAML returns empty dict and logs warning."""
-        body = """---
+        body = """```
 feature_branch: [unclosed bracket
 invalid: yaml: here: too many colons
----
+```
 
 Description.
 """
@@ -70,8 +70,8 @@ Description.
         assert "Failed to parse issue frontmatter" in caplog.text
 
     def test_frontmatter_without_closing_delimiter_returns_empty_dict(self):
-        """Test that frontmatter without closing --- returns empty dict."""
-        body = """---
+        """Test that frontmatter without closing ``` returns empty dict."""
+        body = """```
 feature_branch: my-branch
 
 ## Description
@@ -84,9 +84,9 @@ This frontmatter is never closed.
         """Test that frontmatter not at document start is ignored."""
         body = """Some content before.
 
----
+```
 feature_branch: my-branch
----
+```
 
 More content.
 """
@@ -95,9 +95,9 @@ More content.
 
     def test_empty_frontmatter_returns_empty_dict(self):
         """Test that empty frontmatter returns empty dict."""
-        body = """---
+        body = """```
 
----
+```
 
 Description here.
 """
@@ -106,9 +106,9 @@ Description here.
 
     def test_frontmatter_with_only_whitespace_returns_empty_dict(self):
         """Test that frontmatter with only whitespace returns empty dict."""
-        body = """---
+        body = """```
 
----
+```
 
 Description here.
 """
@@ -117,9 +117,9 @@ Description here.
 
     def test_frontmatter_with_branch_containing_slashes(self):
         """Test parsing branch name with path-like structure."""
-        body = """---
+        body = """```
 feature_branch: user/feature/my-cool-feature
----
+```
 
 Description.
 """
@@ -128,9 +128,9 @@ Description.
 
     def test_frontmatter_scalar_value_returns_empty_dict(self):
         """Test that scalar YAML (not a dict) returns empty dict."""
-        body = """---
+        body = """```
 just a string value
----
+```
 
 Description.
 """
@@ -139,10 +139,10 @@ Description.
 
     def test_frontmatter_list_value_returns_empty_dict(self):
         """Test that list YAML (not a dict) returns empty dict."""
-        body = """---
+        body = """```
 - item1
 - item2
----
+```
 
 Description.
 """
@@ -151,10 +151,10 @@ Description.
 
     def test_frontmatter_with_quoted_values(self):
         """Test parsing frontmatter with quoted string values."""
-        body = """---
+        body = """```
 feature_branch: "main"
 description: 'A quoted string'
----
+```
 
 Description.
 """
@@ -166,10 +166,10 @@ Description.
 
     def test_frontmatter_preserves_case(self):
         """Test that key/value case is preserved."""
-        body = """---
+        body = """```
 Feature_Branch: MyBranch
 UPPERCASE: VALUE
----
+```
 
 Description.
 """
@@ -181,9 +181,9 @@ Description.
 
     def test_blocked_by_single_int(self):
         """Test parsing blocked_by with a single integer."""
-        body = """---
+        body = """```
 blocked_by: 115
----
+```
 
 This issue is blocked by #115.
 """
@@ -192,9 +192,9 @@ This issue is blocked by #115.
 
     def test_blocked_by_inline_list(self):
         """Test parsing blocked_by with an inline list of integers."""
-        body = """---
+        body = """```
 blocked_by: [115, 116]
----
+```
 
 This issue is blocked by #115 and #116.
 """
@@ -203,11 +203,11 @@ This issue is blocked by #115 and #116.
 
     def test_blocked_by_yaml_list_syntax(self):
         """Test parsing blocked_by with YAML list syntax."""
-        body = """---
+        body = """```
 blocked_by:
   - 115
   - 116
----
+```
 
 This issue is blocked by #115 and #116 (YAML list syntax).
 """
