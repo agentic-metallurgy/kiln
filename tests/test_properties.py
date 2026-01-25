@@ -9,8 +9,9 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import example, given
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
+from hypothesis.stateful import Bundle, RuleBasedStateMachine, initialize, invariant, rule
 
 from src.cli import parse_issue_arg
 from src.comment_processor import CommentProcessor
@@ -700,3 +701,162 @@ class TestCommentFilteringProperties:
         # Should never raise an exception
         result = processor._is_kiln_response(body)
         assert isinstance(result, bool)
+
+
+class MockLabelClient:
+    """A mock label client that simulates GitHub label operations.
+
+    This client tracks label state in memory and provides the same interface
+    as the real ticket client for add_label, remove_label, and get_ticket_labels.
+    Used for stateful property testing of label operation invariants.
+    """
+
+    def __init__(self):
+        """Initialize with empty label sets for all tickets."""
+        self._labels: dict[tuple[str, int], set[str]] = {}
+
+    def get_ticket_labels(self, repo: str, ticket_id: int) -> set[str]:
+        """Get current labels for a ticket."""
+        return self._labels.get((repo, ticket_id), set()).copy()
+
+    def add_label(self, repo: str, ticket_id: int, label: str) -> None:
+        """Add a label to a ticket (idempotent operation)."""
+        key = (repo, ticket_id)
+        if key not in self._labels:
+            self._labels[key] = set()
+        self._labels[key].add(label)
+
+    def remove_label(self, repo: str, ticket_id: int, label: str) -> None:
+        """Remove a label from a ticket (safe for non-existent labels)."""
+        key = (repo, ticket_id)
+        if key in self._labels:
+            self._labels[key].discard(label)
+
+
+@pytest.mark.unit
+@settings(max_examples=50, stateful_step_count=20)
+class LabelOperationsStateMachine(RuleBasedStateMachine):
+    """Stateful property tests for label operations.
+
+    This state machine tests the properties of label add/remove operations:
+    - Add/remove inverse property: add then remove returns to original state
+    - Add idempotency: adding the same label twice equals adding once
+    - Remove idempotency: removing a non-existent label is safe
+
+    Uses a mock client to track label state in memory, verifying that the
+    operations maintain expected invariants across arbitrary sequences.
+    """
+
+    # Bundle for tracking labels that have been added (for targeted removal)
+    added_labels = Bundle("added_labels")
+
+    # Strategy for generating valid label names
+    label_strategy = st.text(
+        min_size=1,
+        max_size=20,
+        alphabet=st.characters(
+            whitelist_categories=("Lu", "Ll", "Nd"),
+            whitelist_characters="-_",
+        ),
+    ).filter(lambda x: x.strip() == x and len(x.strip()) > 0)
+
+    def __init__(self):
+        """Initialize the state machine with a mock client and model state."""
+        super().__init__()
+        self.client = MockLabelClient()
+        self.repo = "github.com/test/repo"
+        self.ticket_id = 1
+        # Track expected state separately to verify against client
+        self.expected_labels: set[str] = set()
+
+    @initialize()
+    def init_state(self):
+        """Initialize clean state for each test run."""
+        self.client = MockLabelClient()
+        self.expected_labels = set()
+
+    @rule(target=added_labels, label=label_strategy)
+    def add_label(self, label: str) -> str:
+        """Add a label and track it in the bundle.
+
+        Returns the label so it can be used for targeted removal.
+        """
+        self.client.add_label(self.repo, self.ticket_id, label)
+        self.expected_labels.add(label)
+        return label
+
+    @rule(label=added_labels)
+    def remove_known_label(self, label: str):
+        """Remove a label that was previously added.
+
+        This tests the add/remove inverse property: after adding and then
+        removing a label, the state should be as if the label was never there
+        (for that specific label).
+        """
+        self.client.remove_label(self.repo, self.ticket_id, label)
+        self.expected_labels.discard(label)
+
+    @rule(label=label_strategy)
+    def remove_arbitrary_label(self, label: str):
+        """Remove an arbitrary label (may or may not exist).
+
+        This tests remove idempotency: removing a non-existent label
+        should be a no-op and not raise an error.
+        """
+        self.client.remove_label(self.repo, self.ticket_id, label)
+        self.expected_labels.discard(label)
+
+    @rule(label=label_strategy)
+    def add_label_twice(self, label: str):
+        """Add the same label twice to test idempotency.
+
+        Adding the same label twice should have the same effect as adding once.
+        """
+        self.client.add_label(self.repo, self.ticket_id, label)
+        self.client.add_label(self.repo, self.ticket_id, label)
+        self.expected_labels.add(label)
+
+    @rule(label=label_strategy)
+    def add_then_remove(self, label: str):
+        """Add and immediately remove a label.
+
+        Tests the inverse property: the label should no longer be present.
+        """
+        self.client.add_label(self.repo, self.ticket_id, label)
+        self.client.remove_label(self.repo, self.ticket_id, label)
+        # Label was added then removed, so it should not be in expected
+        # (unless it was already there from before, but we use discard)
+        self.expected_labels.discard(label)
+
+    @invariant()
+    def labels_match_expected(self):
+        """Verify the client's labels match our expected state.
+
+        This invariant ensures that after any sequence of operations,
+        the actual label state matches what we expect based on the
+        operations performed.
+        """
+        actual = self.client.get_ticket_labels(self.repo, self.ticket_id)
+        assert actual == self.expected_labels, (
+            f"Label mismatch: actual={actual}, expected={self.expected_labels}"
+        )
+
+    @invariant()
+    def labels_are_strings(self):
+        """Verify all labels are non-empty strings."""
+        labels = self.client.get_ticket_labels(self.repo, self.ticket_id)
+        for label in labels:
+            assert isinstance(label, str)
+            assert len(label) > 0
+
+
+# Create pytest test class from state machine
+# Settings are configured on the state machine class above
+class TestLabelOperationsStateful(LabelOperationsStateMachine.TestCase):
+    """Pytest wrapper for the label operations state machine.
+
+    This test class runs the stateful property tests using pytest.
+    It inherits from the state machine's TestCase to integrate with pytest.
+    """
+
+    pass
