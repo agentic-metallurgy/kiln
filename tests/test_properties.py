@@ -4,11 +4,14 @@ This module contains property-based tests that complement the existing example-b
 tests by generating random inputs to find edge cases and verify invariants.
 """
 
+from unittest.mock import MagicMock
+
 import pytest
-from hypothesis import example, given, settings
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from src.cli import parse_issue_arg
+from src.comment_processor import CommentProcessor
 from src.logger import _extract_org_from_url
 from src.workspace import WorkspaceManager
 
@@ -142,3 +145,115 @@ class TestURLParsingProperties:
         result = _extract_org_from_url(url)
 
         assert result == org_name
+
+
+def _make_comment_processor() -> CommentProcessor:
+    """Create a CommentProcessor with mocked dependencies for testing."""
+    return CommentProcessor(
+        ticket_client=MagicMock(),
+        database=MagicMock(),
+        runner=MagicMock(),
+        workspace_dir="/tmp/test-workspace",
+    )
+
+
+@pytest.mark.unit
+class TestDiffGenerationProperties:
+    """Property-based tests for diff generation functions."""
+
+    @given(content=st.text())
+    @example(content="")
+    @example(content="line1\nline2\nline3")
+    def test_generate_diff_identity_property(self, content: str):
+        """Test that _generate_diff returns empty string for identical content.
+
+        The identity property states that diff(x, x) == "" for all x.
+        """
+        processor = _make_comment_processor()
+        result = processor._generate_diff(content, content, "test")
+        assert result == ""
+
+    @given(
+        before=st.text(min_size=1).filter(lambda x: x.strip()),
+        after=st.text(min_size=1).filter(lambda x: x.strip()),
+    )
+    @example(before="old content", after="new content")
+    @example(before="line1", after="line2")
+    def test_generate_diff_different_content(self, before: str, after: str):
+        """Test that _generate_diff returns non-empty for different content."""
+        if before == after:
+            # Skip if inputs happen to be equal
+            return
+        processor = _make_comment_processor()
+        result = processor._generate_diff(before, after, "test")
+        assert result != ""
+
+    @given(
+        content=st.text(min_size=1, max_size=200).filter(lambda x: "\n" not in x),
+        width=st.integers(min_value=10, max_value=200),
+    )
+    @example(content="short", width=70)
+    @example(content="a" * 100, width=70)
+    def test_wrap_diff_line_respects_width_constraint(self, content: str, width: int):
+        """Test that _wrap_diff_line respects width constraint.
+
+        Each output line should be at most `width` characters.
+        Note: _wrap_diff_line is designed for single-line input only.
+        """
+        processor = _make_comment_processor()
+        # Test with a diff-like line (with prefix)
+        line = f"+{content}"
+        result = processor._wrap_diff_line(line, width)
+
+        # Each resulting line should respect the width
+        for output_line in result.split("\n"):
+            assert len(output_line) <= width
+
+    @given(
+        content=st.text(min_size=1, max_size=100).filter(lambda x: "\n" not in x),
+        prefix=st.sampled_from(["+", "-", " "]),
+    )
+    @example(content="some content", prefix="+")
+    @example(content="deleted line", prefix="-")
+    @example(content="context line", prefix=" ")
+    def test_wrap_diff_line_preserves_prefix(self, content: str, prefix: str):
+        """Test that _wrap_diff_line preserves diff prefix (+, -, space).
+
+        All wrapped lines should start with the same prefix.
+        Note: _wrap_diff_line is designed for single-line input only.
+        """
+        processor = _make_comment_processor()
+        line = f"{prefix}{content}"
+        result = processor._wrap_diff_line(line, width=70)
+
+        # All non-empty output lines should start with the prefix
+        for output_line in result.split("\n"):
+            if output_line:  # Skip empty lines
+                assert output_line.startswith(prefix), (
+                    f"Expected line to start with '{prefix}', got: {output_line!r}"
+                )
+
+    @given(
+        content=st.text(min_size=1, max_size=50).filter(lambda x: "\n" not in x),
+        prefix=st.sampled_from(["+", "-", " ", ""]),
+        width=st.integers(min_value=60, max_value=100),
+    )
+    @example(content="short line", prefix="+", width=70)
+    @example(content="context", prefix=" ", width=70)
+    def test_wrap_diff_line_idempotent_on_short_lines(
+        self, content: str, prefix: str, width: int
+    ):
+        """Test that _wrap_diff_line is idempotent on already-short lines.
+
+        If a line is already within the width limit, wrapping should not change it.
+        Note: _wrap_diff_line is designed for single-line input only.
+        """
+        processor = _make_comment_processor()
+        line = f"{prefix}{content}"
+
+        # Only test lines that are already short enough
+        if len(line) <= width:
+            result = processor._wrap_diff_line(line, width)
+            assert result == line, (
+                f"Short line should be unchanged: {line!r} -> {result!r}"
+            )
