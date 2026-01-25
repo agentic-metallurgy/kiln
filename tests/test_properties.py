@@ -447,7 +447,10 @@ class TestConfigParsingProperties:
         value=st.text(
             min_size=1,
             max_size=30,
-            alphabet=st.characters(blacklist_characters="\n\r"),
+            alphabet=st.characters(
+                blacklist_characters="\n\r",
+                blacklist_categories=("Cs",),  # Exclude surrogates (not UTF-8 encodable)
+            ),
         ),
     )
     @example(num_empty_lines=1, key="KEY", value="value")
@@ -510,3 +513,190 @@ class TestConfigParsingProperties:
             for key, value in zip(keys, values):
                 assert key in result
                 assert result[key] == value.strip()
+
+
+@pytest.mark.unit
+class TestCommentFilteringProperties:
+    """Property-based tests for comment filtering marker detection.
+
+    Tests the marker detection functions that identify kiln-generated posts
+    and responses. These functions filter out kiln content when processing
+    user comments.
+    """
+
+    @given(
+        leading_ws=st.text(max_size=10, alphabet=st.sampled_from(" \t\n\r")),
+        marker=st.sampled_from(
+            list(CommentProcessor.KILN_POST_MARKERS.values())
+            + list(CommentProcessor.KILN_POST_LEGACY_MARKERS.values())
+        ),
+        trailing_content=st.text(max_size=100),
+    )
+    @example(leading_ws="", marker="<!-- kiln:research -->", trailing_content="content")
+    @example(leading_ws="  ", marker="<!-- kiln:plan -->", trailing_content="")
+    @example(leading_ws="\n\n", marker="## Research Findings", trailing_content="stuff")
+    @example(leading_ws="\t ", marker="## Implementation Plan", trailing_content="")
+    def test_is_kiln_post_whitespace_invariance(
+        self, leading_ws: str, marker: str, trailing_content: str
+    ):
+        """Test that _is_kiln_post correctly detects markers regardless of leading whitespace.
+
+        The function strips leading whitespace before checking for markers,
+        so leading whitespace should not affect detection.
+        """
+        processor = _make_comment_processor()
+        all_markers = tuple(CommentProcessor.KILN_POST_MARKERS.values()) + tuple(
+            CommentProcessor.KILN_POST_LEGACY_MARKERS.values()
+        )
+
+        # Body with leading whitespace + marker should be detected
+        body = f"{leading_ws}{marker}{trailing_content}"
+        result = processor._is_kiln_post(body, all_markers)
+
+        assert result is True, (
+            f"Expected _is_kiln_post to return True for body starting with "
+            f"whitespace + marker: {body!r}"
+        )
+
+    @given(
+        leading_ws=st.text(max_size=10, alphabet=st.sampled_from(" \t\n\r")),
+        trailing_content=st.text(max_size=100),
+    )
+    @example(leading_ws="", trailing_content="Applied changes to **research**:")
+    @example(leading_ws="  \n", trailing_content="")
+    @example(leading_ws="\t", trailing_content="some content here")
+    def test_is_kiln_response_whitespace_invariance(
+        self, leading_ws: str, trailing_content: str
+    ):
+        """Test that _is_kiln_response correctly detects marker regardless of leading whitespace.
+
+        The function strips leading whitespace before checking for the response marker,
+        so leading whitespace should not affect detection.
+        """
+        processor = _make_comment_processor()
+        marker = CommentProcessor.KILN_RESPONSE_MARKER
+
+        # Body with leading whitespace + marker should be detected
+        body = f"{leading_ws}{marker}{trailing_content}"
+        result = processor._is_kiln_response(body)
+
+        assert result is True, (
+            f"Expected _is_kiln_response to return True for body starting with "
+            f"whitespace + marker: {body!r}"
+        )
+
+    @given(
+        content=st.text(
+            min_size=1,
+            max_size=200,
+            alphabet=st.characters(blacklist_characters="<#"),
+        ).filter(lambda x: x.strip()),
+    )
+    @example(content="This is a user comment")
+    @example(content="Please fix the bug in line 42")
+    @example(content="LGTM!")
+    def test_non_kiln_content_not_detected_as_kiln_post(self, content: str):
+        """Test that arbitrary user content is not falsely detected as kiln posts.
+
+        Content that doesn't start with a kiln marker should return False.
+        """
+        processor = _make_comment_processor()
+        all_markers = tuple(CommentProcessor.KILN_POST_MARKERS.values()) + tuple(
+            CommentProcessor.KILN_POST_LEGACY_MARKERS.values()
+        )
+
+        # Ensure content doesn't start with any marker (after stripping)
+        stripped = content.lstrip()
+        starts_with_marker = any(stripped.startswith(m) for m in all_markers)
+
+        if not starts_with_marker:
+            result = processor._is_kiln_post(content, all_markers)
+            assert result is False, (
+                f"Expected _is_kiln_post to return False for non-kiln content: {content!r}"
+            )
+
+    @given(
+        content=st.text(
+            min_size=1,
+            max_size=200,
+            alphabet=st.characters(blacklist_characters="<"),
+        ).filter(lambda x: x.strip()),
+    )
+    @example(content="Thanks for the update!")
+    @example(content="Can you add more tests?")
+    @example(content="Response looks good")
+    def test_non_kiln_content_not_detected_as_kiln_response(self, content: str):
+        """Test that arbitrary user content is not falsely detected as kiln responses.
+
+        Content that doesn't start with the response marker should return False.
+        """
+        processor = _make_comment_processor()
+        marker = CommentProcessor.KILN_RESPONSE_MARKER
+
+        # Ensure content doesn't start with the marker (after stripping)
+        stripped = content.lstrip()
+        starts_with_marker = stripped.startswith(marker)
+
+        if not starts_with_marker:
+            result = processor._is_kiln_response(content)
+            assert result is False, (
+                f"Expected _is_kiln_response to return False for non-kiln content: {content!r}"
+            )
+
+    @given(
+        marker=st.sampled_from(
+            list(CommentProcessor.KILN_POST_MARKERS.values())
+            + list(CommentProcessor.KILN_POST_LEGACY_MARKERS.values())
+        ),
+    )
+    @example(marker="<!-- kiln:research -->")
+    @example(marker="<!-- kiln:plan -->")
+    @example(marker="## Research Findings")
+    @example(marker="## Implementation Plan")
+    def test_marker_detection_consistency(self, marker: str):
+        """Test that marker detection is consistent across calls.
+
+        The same input should always produce the same output (deterministic).
+        """
+        processor = _make_comment_processor()
+        all_markers = tuple(CommentProcessor.KILN_POST_MARKERS.values()) + tuple(
+            CommentProcessor.KILN_POST_LEGACY_MARKERS.values()
+        )
+
+        body = f"{marker}\nSome content here"
+
+        # Call multiple times to ensure consistency
+        result1 = processor._is_kiln_post(body, all_markers)
+        result2 = processor._is_kiln_post(body, all_markers)
+        result3 = processor._is_kiln_post(body, all_markers)
+
+        assert result1 == result2 == result3 == True, (
+            f"Expected consistent True result for marker {marker!r}"
+        )
+
+    @given(st.text(max_size=500))
+    @example("")
+    @example("   ")
+    @example("\n\n\n")
+    def test_is_kiln_post_never_crashes(self, body: str):
+        """Test that _is_kiln_post never crashes on arbitrary input."""
+        processor = _make_comment_processor()
+        all_markers = tuple(CommentProcessor.KILN_POST_MARKERS.values()) + tuple(
+            CommentProcessor.KILN_POST_LEGACY_MARKERS.values()
+        )
+
+        # Should never raise an exception
+        result = processor._is_kiln_post(body, all_markers)
+        assert isinstance(result, bool)
+
+    @given(st.text(max_size=500))
+    @example("")
+    @example("   ")
+    @example("\n\n\n")
+    def test_is_kiln_response_never_crashes(self, body: str):
+        """Test that _is_kiln_response never crashes on arbitrary input."""
+        processor = _make_comment_processor()
+
+        # Should never raise an exception
+        result = processor._is_kiln_response(body)
+        assert isinstance(result, bool)
