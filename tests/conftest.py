@@ -1,9 +1,11 @@
 """Pytest configuration and shared fixtures."""
 
+import os
 import tempfile
 from unittest.mock import patch
 
 import pytest
+from hypothesis import Verbosity, settings
 
 
 def pytest_configure(config):
@@ -58,3 +60,12 @@ def mock_claude_subprocess():
     """Fixture for mocking subprocess.Popen for Claude CLI."""
     with patch("subprocess.Popen") as mock_popen:
         yield mock_popen
+
+
+# Hypothesis configuration for property-based testing
+# Register profiles for different environments
+settings.register_profile("ci", max_examples=100, verbosity=Verbosity.verbose)
+settings.register_profile("dev", max_examples=50)
+
+# Load profile from environment variable, defaulting to "dev"
+settings.load_profile(os.getenv("HYPOTHESIS_PROFILE", "dev"))
