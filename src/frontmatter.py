@@ -9,19 +9,19 @@ from src.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Pattern to match YAML frontmatter (content between first two ---)
-FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---", re.DOTALL)
+# Pattern to match YAML frontmatter (content between triple-tick codeblock)
+FRONTMATTER_PATTERN = re.compile(r"^```\s*\n(.*?)\n```", re.DOTALL)
 
 
 def parse_issue_frontmatter(body: str | None) -> dict[str, Any]:
     """Parse YAML frontmatter from issue body.
 
-    Frontmatter is the YAML content between the first two `---` delimiters
+    Frontmatter is the YAML content between the first triple-tick codeblock
     at the start of the issue body. For example:
 
-        ---
+        ```
         feature_branch: my-feature
-        ---
+        ```
 
         Issue description here...
 
