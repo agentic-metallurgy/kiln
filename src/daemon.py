@@ -1369,21 +1369,27 @@ class Daemon:
 
         key = f"{item.repo}#{item.ticket_id}"
 
-        actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.RESET)
-        actor_category = check_actor_allowed(
-            actor, self.config.username_self, key, "RESET", self.config.team_usernames
-        )
-        if actor_category != ActorCategory.SELF:
-            # Only remove reset label when actor is known but not allowed (to prevent repeated warnings)
-            # When actor is unknown, keep the label for security logging visibility
-            if actor_category == ActorCategory.BLOCKED or actor_category == ActorCategory.TEAM:
-                self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.RESET)
-            return
+        if self.config.allow_others_tickets:
+            logger.info(
+                f"RESET: Processing reset for {key} in '{item.status}' - "
+                f"actor check bypassed (ALLOW_OTHERS_TICKETS enabled)"
+            )
+        else:
+            actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.RESET)
+            actor_category = check_actor_allowed(
+                actor, self.config.username_self, key, "RESET", self.config.team_usernames
+            )
+            if actor_category != ActorCategory.SELF:
+                # Only remove reset label when actor is known but not allowed (to prevent repeated warnings)
+                # When actor is unknown, keep the label for security logging visibility
+                if actor_category == ActorCategory.BLOCKED or actor_category == ActorCategory.TEAM:
+                    self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.RESET)
+                return
 
-        logger.info(
-            f"RESET: Processing reset for {key} in '{item.status}' "
-            f"(label added by allowed user '{actor}')"
-        )
+            logger.info(
+                f"RESET: Processing reset for {key} in '{item.status}' "
+                f"(label added by allowed user '{actor}')"
+            )
 
         # Remove the reset label first
         self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.RESET)
