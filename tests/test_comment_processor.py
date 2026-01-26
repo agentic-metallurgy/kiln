@@ -468,3 +468,251 @@ class TestCommentProcessorWrapDiff:
         diff = "+line1\n-line2\n line3"
         result = processor._wrap_diff(diff, width=70)
         assert result == diff
+
+
+@pytest.mark.unit
+class TestCommentProcessorAllowOthersTickets:
+    """Tests for CommentProcessor allow_others_tickets functionality."""
+
+    def test_allow_others_tickets_processes_non_self_comments(self):
+        """Test that non-self comments are processed when allow_others_tickets is enabled."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        # Create processor with allow_others_tickets enabled
+        processor = CommentProcessor(
+            ticket_client,
+            database,
+            runner,
+            "/workspaces",
+            username_self="allowed_user",
+            allow_others_tickets=True,
+        )
+
+        # Mock database to return stored state
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Create comments from different users
+        allowed_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="Comment from allowed user",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="allowed_user",
+            is_processed=False,
+            is_processing=False,
+        )
+        other_comment = Comment(
+            id="IC_2",
+            database_id=2,
+            body="Comment from another user",
+            created_at=datetime(2024, 1, 15, 11, 0, 0),
+            author="other_user",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [allowed_comment, other_comment]
+
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Research",
+            title="Test Issue",
+            comment_count=2,
+        )
+
+        # Mock the methods that would be called after filtering
+        with (
+            patch.object(processor, "_get_target_type", return_value="research"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_apply_comment_to_kiln_post"),
+            patch.object(processor, "_generate_diff", return_value="-old\n+new"),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+        ):
+            ticket_client.add_comment.return_value = Comment(
+                id="IC_3",
+                database_id=3,
+                body="response",
+                created_at=datetime(2024, 1, 15, 12, 0, 0),
+                author="test-user",
+            )
+
+            processor.process(item)
+
+            # Both comments should be processed (eyes reaction added)
+            reaction_calls = [
+                c for c in ticket_client.add_reaction.call_args_list if c[0][1] == "EYES"
+            ]
+            comment_ids = [c[0][0] for c in reaction_calls]
+            assert "IC_1" in comment_ids  # allowed_user comment processed
+            assert "IC_2" in comment_ids  # other_user comment also processed
+
+    def test_allow_others_tickets_disabled_filters_non_self(self):
+        """Test that non-self comments are filtered when allow_others_tickets is disabled."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        # Create processor with allow_others_tickets disabled (default)
+        processor = CommentProcessor(
+            ticket_client,
+            database,
+            runner,
+            "/workspaces",
+            username_self="allowed_user",
+            allow_others_tickets=False,
+        )
+
+        # Mock database to return stored state
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Create comments from different users
+        allowed_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="Comment from allowed user",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="allowed_user",
+            is_processed=False,
+            is_processing=False,
+        )
+        other_comment = Comment(
+            id="IC_2",
+            database_id=2,
+            body="Comment from another user",
+            created_at=datetime(2024, 1, 15, 11, 0, 0),
+            author="other_user",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [allowed_comment, other_comment]
+
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Research",
+            title="Test Issue",
+            comment_count=2,
+        )
+
+        # Mock the methods that would be called after filtering
+        with (
+            patch.object(processor, "_get_target_type", return_value="research"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_apply_comment_to_kiln_post"),
+            patch.object(processor, "_generate_diff", return_value="-old\n+new"),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+        ):
+            ticket_client.add_comment.return_value = Comment(
+                id="IC_3",
+                database_id=3,
+                body="response",
+                created_at=datetime(2024, 1, 15, 12, 0, 0),
+                author="test-user",
+            )
+
+            processor.process(item)
+
+            # Only allowed_user comment should be processed
+            reaction_calls = [
+                c for c in ticket_client.add_reaction.call_args_list if c[0][1] == "EYES"
+            ]
+            comment_ids = [c[0][0] for c in reaction_calls]
+            assert "IC_1" in comment_ids  # allowed_user comment processed
+            assert "IC_2" not in comment_ids  # other_user comment filtered out
+
+    def test_allow_others_tickets_still_filters_bots(self):
+        """Test that bot comments are still filtered even when allow_others_tickets is enabled."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        # Create processor with allow_others_tickets enabled
+        processor = CommentProcessor(
+            ticket_client,
+            database,
+            runner,
+            "/workspaces",
+            username_self="allowed_user",
+            allow_others_tickets=True,
+        )
+
+        # Mock database to return stored state
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Create comments including bot comment
+        user_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="Comment from user",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="some_user",
+            is_processed=False,
+            is_processing=False,
+        )
+        bot_comment = Comment(
+            id="IC_2",
+            database_id=2,
+            body="Comment from bot",
+            created_at=datetime(2024, 1, 15, 11, 0, 0),
+            author="github-actions[bot]",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [user_comment, bot_comment]
+
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Research",
+            title="Test Issue",
+            comment_count=2,
+        )
+
+        # Mock the methods that would be called after filtering
+        with (
+            patch.object(processor, "_get_target_type", return_value="research"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_apply_comment_to_kiln_post"),
+            patch.object(processor, "_generate_diff", return_value="-old\n+new"),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+        ):
+            ticket_client.add_comment.return_value = Comment(
+                id="IC_3",
+                database_id=3,
+                body="response",
+                created_at=datetime(2024, 1, 15, 12, 0, 0),
+                author="test-user",
+            )
+
+            processor.process(item)
+
+            # Only user comment should be processed, not bot
+            reaction_calls = [
+                c for c in ticket_client.add_reaction.call_args_list if c[0][1] == "EYES"
+            ]
+            comment_ids = [c[0][0] for c in reaction_calls]
+            assert "IC_1" in comment_ids  # user comment processed
+            assert "IC_2" not in comment_ids  # bot comment filtered out

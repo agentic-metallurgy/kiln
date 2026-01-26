@@ -149,3 +149,145 @@ class TestDaemonBackoff:
 
         # Should have only 1 wait call before shutdown was detected
         assert wait_count[0] == 1
+
+
+@pytest.mark.integration
+class TestDaemonAllowOthersTicketsWorkflowTrigger:
+    """Tests for workflow trigger behavior with ALLOW_OTHERS_TICKETS enabled."""
+
+    @pytest.fixture
+    def daemon_allow_others(self, temp_workspace_dir):
+        """Create a daemon instance with allow_others_tickets enabled."""
+        config = MagicMock()
+        config.poll_interval = 60
+        config.watched_statuses = ["Research", "Plan", "Implement"]
+        config.max_concurrent_workflows = 2
+        config.database_path = f"{temp_workspace_dir}/test.db"
+        config.workspace_dir = temp_workspace_dir
+        config.project_urls = ["https://github.com/orgs/test/projects/1"]
+        config.stage_models = {}
+        config.github_enterprise_version = None
+        config.username_self = "test-user"
+        config.allow_others_tickets = True  # Enable bypass
+        config.team_usernames = []
+
+        with patch("src.ticket_clients.github.GitHubTicketClient"):
+            daemon = Daemon(config)
+            daemon.ticket_client = MagicMock()
+            daemon.ticket_client.supports_status_actor_check = True
+            yield daemon
+            daemon.stop()
+
+    @pytest.fixture
+    def daemon_default(self, temp_workspace_dir):
+        """Create a daemon instance with default allow_others_tickets (False)."""
+        config = MagicMock()
+        config.poll_interval = 60
+        config.watched_statuses = ["Research", "Plan", "Implement"]
+        config.max_concurrent_workflows = 2
+        config.database_path = f"{temp_workspace_dir}/test.db"
+        config.workspace_dir = temp_workspace_dir
+        config.project_urls = ["https://github.com/orgs/test/projects/1"]
+        config.stage_models = {}
+        config.github_enterprise_version = None
+        config.username_self = "test-user"
+        config.allow_others_tickets = False  # Default
+        config.team_usernames = ["teammate"]
+
+        with patch("src.ticket_clients.github.GitHubTicketClient"):
+            daemon = Daemon(config)
+            daemon.ticket_client = MagicMock()
+            daemon.ticket_client.supports_status_actor_check = True
+            yield daemon
+            daemon.stop()
+
+    def test_should_trigger_workflow_bypasses_actor_check_when_enabled(self, daemon_allow_others):
+        """Test _should_trigger_workflow bypasses actor check when allow_others_tickets enabled."""
+        from src.interfaces import TicketItem
+
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels=set(),  # No running or complete labels
+            state="OPEN",
+        )
+
+        result = daemon_allow_others._should_trigger_workflow(item)
+
+        # Should trigger workflow without calling get_last_status_actor
+        assert result is True
+        daemon_allow_others.ticket_client.get_last_status_actor.assert_not_called()
+
+    def test_should_trigger_workflow_allows_non_self_actor_when_enabled(self, daemon_allow_others):
+        """Test _should_trigger_workflow allows non-self actor when enabled."""
+        from src.interfaces import TicketItem
+
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Plan",
+            labels=set(),
+            state="OPEN",
+        )
+
+        result = daemon_allow_others._should_trigger_workflow(item)
+
+        # Should return True (allowing action from any user)
+        assert result is True
+
+    def test_should_trigger_workflow_checks_actor_when_disabled(self, daemon_default):
+        """Test _should_trigger_workflow checks actor when allow_others_tickets disabled."""
+        from src.interfaces import TicketItem
+
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels=set(),
+            state="OPEN",
+        )
+
+        # Mock get_last_status_actor to return a non-allowed user
+        daemon_default.ticket_client.get_last_status_actor.return_value = "blocked-user"
+
+        result = daemon_default._should_trigger_workflow(item)
+
+        # Should call get_last_status_actor
+        daemon_default.ticket_client.get_last_status_actor.assert_called_once()
+        # Should return False (blocked user)
+        assert result is False
+
+    def test_should_trigger_workflow_allows_self_actor_when_disabled(self, daemon_default):
+        """Test _should_trigger_workflow allows self actor when disabled."""
+        from src.interfaces import TicketItem
+
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels=set(),
+            state="OPEN",
+        )
+
+        # Mock get_last_status_actor to return the allowed user
+        daemon_default.ticket_client.get_last_status_actor.return_value = "test-user"
+
+        result = daemon_default._should_trigger_workflow(item)
+
+        # Should call get_last_status_actor
+        daemon_default.ticket_client.get_last_status_actor.assert_called_once()
+        # Should return True (allowed user)
+        assert result is True

@@ -10,7 +10,6 @@ import pytest
 from src.daemon import Daemon
 from src.interfaces import LinkedPullRequest, TicketItem
 
-
 # ============================================================================
 # Daemon Clear Kiln Content Tests
 # ============================================================================
@@ -747,3 +746,124 @@ class TestDaemonClosePrsAndDeleteBranches:
 
         # get_pr_state should NOT be called if close_pr failed
         daemon.ticket_client.get_pr_state.assert_not_called()
+
+
+@pytest.mark.integration
+class TestDaemonResetAllowOthersTickets:
+    """Tests for reset label handling with ALLOW_OTHERS_TICKETS enabled."""
+
+    @pytest.fixture
+    def daemon_allow_others(self, temp_workspace_dir):
+        """Create a daemon instance with allow_others_tickets enabled."""
+        config = MagicMock()
+        config.poll_interval = 60
+        config.watched_statuses = ["Research", "Plan"]
+        config.max_concurrent_workflows = 2
+        config.database_path = f"{temp_workspace_dir}/test.db"
+        config.workspace_dir = temp_workspace_dir
+        config.project_urls = []
+        config.stage_models = {}
+        config.github_enterprise_version = None
+        config.username_self = "test-user"
+        config.allow_others_tickets = True  # Enable bypass
+        config.team_usernames = []
+
+        with patch("src.ticket_clients.github.GitHubTicketClient"):
+            daemon = Daemon(config)
+            daemon.ticket_client = MagicMock()
+            yield daemon
+            daemon.stop()
+
+    def test_reset_bypasses_actor_check_when_enabled(self, daemon_allow_others):
+        """Test _maybe_handle_reset bypasses actor check when allow_others_tickets is enabled."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels={"reset", "researching"},
+            state="OPEN",
+        )
+
+        # Mock issue body and linked PRs
+        daemon_allow_others.ticket_client.get_ticket_body.return_value = "Issue description"
+        daemon_allow_others.ticket_client.get_linked_prs.return_value = []
+
+        daemon_allow_others._maybe_handle_reset(item)
+
+        # Should process reset without calling get_label_actor
+        daemon_allow_others.ticket_client.get_label_actor.assert_not_called()
+        # Should remove the reset label
+        daemon_allow_others.ticket_client.remove_label.assert_called()
+        # Should move to Backlog
+        daemon_allow_others.ticket_client.update_item_status.assert_called_once_with(
+            "PVI_123", "Backlog", hostname="github.com"
+        )
+
+    def test_reset_allows_non_self_actor_when_enabled(self, daemon_allow_others):
+        """Test _maybe_handle_reset allows non-self actor when allow_others_tickets is enabled."""
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            title="Test Issue",
+            repo="github.com/owner/repo",
+            status="Plan",
+            labels={"reset", "planning"},
+            state="OPEN",
+        )
+
+        # Mock issue body and linked PRs (reset added by "other-user")
+        daemon_allow_others.ticket_client.get_ticket_body.return_value = "Issue description"
+        daemon_allow_others.ticket_client.get_linked_prs.return_value = []
+
+        daemon_allow_others._maybe_handle_reset(item)
+
+        # Should process reset (allowing "other-user"'s action)
+        daemon_allow_others.ticket_client.update_item_status.assert_called_once_with(
+            "PVI_123", "Backlog", hostname="github.com"
+        )
+
+    def test_reset_disabled_blocks_non_self_actor(self, temp_workspace_dir):
+        """Test _maybe_handle_reset blocks non-self actor when allow_others_tickets is disabled."""
+        config = MagicMock()
+        config.poll_interval = 60
+        config.watched_statuses = ["Research", "Plan"]
+        config.max_concurrent_workflows = 2
+        config.database_path = f"{temp_workspace_dir}/test.db"
+        config.workspace_dir = temp_workspace_dir
+        config.project_urls = []
+        config.stage_models = {}
+        config.github_enterprise_version = None
+        config.username_self = "test-user"
+        config.allow_others_tickets = False  # Disable bypass
+        config.team_usernames = ["teammate"]
+
+        with patch("src.ticket_clients.github.GitHubTicketClient"):
+            daemon = Daemon(config)
+            daemon.ticket_client = MagicMock()
+
+            item = TicketItem(
+                item_id="PVI_123",
+                board_url="https://github.com/orgs/test/projects/1",
+                ticket_id=42,
+                title="Test Issue",
+                repo="github.com/owner/repo",
+                status="Research",
+                labels={"reset", "researching"},
+                state="OPEN",
+            )
+
+            # Mock get_label_actor to return a non-allowed user
+            daemon.ticket_client.get_label_actor.return_value = "blocked-user"
+
+            daemon._maybe_handle_reset(item)
+
+            # Should call get_label_actor
+            daemon.ticket_client.get_label_actor.assert_called_once()
+            # Should NOT move to Backlog (blocked user)
+            daemon.ticket_client.update_item_status.assert_not_called()
+
+            daemon.stop()

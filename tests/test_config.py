@@ -1271,3 +1271,102 @@ class TestBackwardIncompatibility:
 
         assert config.username_self == "newuser"
         assert not hasattr(config, "allowed_username")
+
+
+@pytest.mark.unit
+class TestAllowOthersTicketsConfiguration:
+    """Tests for ALLOW_OTHERS_TICKETS configuration."""
+
+    def test_allow_others_tickets_default_env(self, monkeypatch):
+        """Test allow_others_tickets defaults to False when not specified."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.delenv("ALLOW_OTHERS_TICKETS", raising=False)
+
+        config = load_config_from_env()
+
+        assert config.allow_others_tickets is False
+
+    def test_allow_others_tickets_enabled_env(self, monkeypatch):
+        """Test allow_others_tickets parses '1' as True."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("ALLOW_OTHERS_TICKETS", "1")
+
+        config = load_config_from_env()
+
+        assert config.allow_others_tickets is True
+
+    def test_allow_others_tickets_disabled_explicit_env(self, monkeypatch):
+        """Test allow_others_tickets parses '0' as False."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("ALLOW_OTHERS_TICKETS", "0")
+
+        config = load_config_from_env()
+
+        assert config.allow_others_tickets is False
+
+    def _write_config(self, tmp_path, content):
+        """Helper to write a config file."""
+        config_file = tmp_path / "config"
+        config_file.write_text(content)
+        return config_file
+
+    def test_allow_others_tickets_default_file(self, tmp_path, monkeypatch):
+        """Test allow_others_tickets defaults to False when not in file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.allow_others_tickets is False
+
+    def test_allow_others_tickets_enabled_file(self, tmp_path, monkeypatch):
+        """Test allow_others_tickets parses '1' as True from file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser\n"
+            "ALLOW_OTHERS_TICKETS=1",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.allow_others_tickets is True
+
+    def test_allow_others_tickets_disabled_explicit_file(self, tmp_path, monkeypatch):
+        """Test allow_others_tickets parses '0' as False from file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser\n"
+            "ALLOW_OTHERS_TICKETS=0",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.allow_others_tickets is False
+
+    def test_allow_others_tickets_invalid_value_treated_as_false_env(self, monkeypatch):
+        """Test allow_others_tickets with invalid value treated as False."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("ALLOW_OTHERS_TICKETS", "yes")  # Invalid value
+
+        config = load_config_from_env()
+
+        assert config.allow_others_tickets is False
