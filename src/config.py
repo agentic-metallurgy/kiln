@@ -61,6 +61,7 @@ class Config:
     claude_code_enable_telemetry: bool = False
     safety_allow_appended_tasks: int = 0  # 0 = infinite (no limit)
     ghes_logs_mask: bool = True  # Mask GHES hostname and org in logs
+    allow_others_tickets: bool = False  # Allow workflows on tickets from any actor
     pagerduty_routing_key: str | None = None  # PagerDuty Events API v2 routing key
 
 
@@ -255,6 +256,9 @@ def load_config_from_file(config_path: Path) -> Config:
     # Log masking settings
     ghes_logs_mask = data.get("GHES_LOGS_MASK", "true").lower() == "true"
 
+    # Actor settings
+    allow_others_tickets = data.get("ALLOW_OTHERS_TICKETS", "0") == "1"
+
     # PagerDuty settings
     pagerduty_routing_key = data.get("PAGERDUTY_ROUTING_KEY")
     if not pagerduty_routing_key:
@@ -280,6 +284,7 @@ def load_config_from_file(config_path: Path) -> Config:
         claude_code_enable_telemetry=claude_code_enable_telemetry,
         safety_allow_appended_tasks=safety_allow_appended_tasks,
         ghes_logs_mask=ghes_logs_mask,
+        allow_others_tickets=allow_others_tickets,
         pagerduty_routing_key=pagerduty_routing_key,
     )
 
@@ -426,6 +431,7 @@ def load_config_from_env() -> Config:
         claude_code_enable_telemetry=os.environ.get("CLAUDE_CODE_ENABLE_TELEMETRY", "0") == "1",
         safety_allow_appended_tasks=int(os.environ.get("SAFETY_ALLOW_APPENDED_TASKS", "0")),
         ghes_logs_mask=os.environ.get("GHES_LOGS_MASK", "true").lower() == "true",
+        allow_others_tickets=os.environ.get("ALLOW_OTHERS_TICKETS", "0") == "1",
         pagerduty_routing_key=pagerduty_routing_key,
     )
 
