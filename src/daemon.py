@@ -922,7 +922,12 @@ class Daemon:
             return False
 
         # Check actor authorization if supported by the client
-        if self.ticket_client.supports_status_actor_check:
+        if self.config.allow_others_tickets:
+            logger.info(
+                f"Workflow trigger: {key} in '{item.status}' - "
+                f"actor check bypassed (ALLOW_OTHERS_TICKETS enabled)"
+            )
+        elif self.ticket_client.supports_status_actor_check:
             actor = self.ticket_client.get_last_status_actor(item.repo, item.ticket_id)
             actor_category = check_actor_allowed(
                 actor, self.config.username_self, key, "", self.config.team_usernames
