@@ -295,6 +295,7 @@ class Daemon:
             config.workspace_dir,
             username_self=config.username_self,
             team_usernames=config.team_usernames,
+            allow_others_tickets=config.allow_others_tickets,
         )
 
         # Setup signal handlers for graceful shutdown

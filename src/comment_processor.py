@@ -64,6 +64,7 @@ class CommentProcessor:
         workspace_dir: str,
         username_self: str | None = None,
         team_usernames: list[str] | None = None,
+        allow_others_tickets: bool = False,
     ) -> None:
         """Initialize the comment processor.
 
@@ -74,6 +75,7 @@ class CommentProcessor:
             workspace_dir: Base directory for worktrees
             username_self: Username allowed to trigger comment processing
             team_usernames: List of team member usernames (logged at DEBUG, not WARNING)
+            allow_others_tickets: When True, process comments from any non-bot user
         """
         self.ticket_client = ticket_client
         self.database = database
@@ -81,6 +83,7 @@ class CommentProcessor:
         self.workspace_dir = workspace_dir
         self.username_self = username_self
         self.team_usernames = team_usernames or []
+        self.allow_others_tickets = allow_others_tickets
         logger.debug("CommentProcessor initialized")
 
     def _get_worktree_path(self, repo: str, issue_number: int) -> str:
@@ -157,12 +160,15 @@ class CommentProcessor:
 
             # Log filtered comments with appropriate severity:
             # - Team member comments: DEBUG (silent in normal operation)
-            # - Unknown/blocked user comments: WARNING (audit trail)
+            # - Unknown/blocked user comments: WARNING (audit trail) unless allow_others_tickets
             team_authors: set[str] = set()
             blocked_authors: set[str] = set()
+            other_authors: set[str] = set()  # Non-self users when allow_others_tickets enabled
             for c in new_comments:
                 if c.author not in self.BOT_USERNAMES and c.author != self.username_self:
-                    if c.author in self.team_usernames:
+                    if self.allow_others_tickets:
+                        other_authors.add(c.author)
+                    elif c.author in self.team_usernames:
                         team_authors.add(c.author)
                     else:
                         blocked_authors.add(c.author)
@@ -176,17 +182,35 @@ class CommentProcessor:
                     f"BLOCKED: Filtered out comments from non-allowed users: {blocked_authors}. "
                     f"Allowed username: {self.username_self}"
                 )
+            if other_authors:
+                logger.debug(
+                    f"Processing comments from non-self users: {other_authors} "
+                    "(ALLOW_OTHERS_TICKETS enabled)"
+                )
 
-            user_comments = [
-                c
-                for c in new_comments
-                if c.author == self.username_self  # Must be from allowed username
-                and c.author not in self.BOT_USERNAMES
-                and not self._is_kiln_post(c.body, all_markers)
-                and not self._is_kiln_response(c.body)
-                and not c.is_processed  # Skip already-processed comments
-                and not c.is_processing  # Skip comments being processed by another thread
-            ]
+            if self.allow_others_tickets:
+                # When allow_others_tickets is enabled, process comments from any non-bot user
+                user_comments = [
+                    c
+                    for c in new_comments
+                    if c.author not in self.BOT_USERNAMES
+                    and not self._is_kiln_post(c.body, all_markers)
+                    and not self._is_kiln_response(c.body)
+                    and not c.is_processed  # Skip already-processed comments
+                    and not c.is_processing  # Skip comments being processed by another thread
+                ]
+            else:
+                # Default behavior: only process comments from allowed username
+                user_comments = [
+                    c
+                    for c in new_comments
+                    if c.author == self.username_self  # Must be from allowed username
+                    and c.author not in self.BOT_USERNAMES
+                    and not self._is_kiln_post(c.body, all_markers)
+                    and not self._is_kiln_response(c.body)
+                    and not c.is_processed  # Skip already-processed comments
+                    and not c.is_processing  # Skip comments being processed by another thread
+                ]
 
             if not user_comments:
                 logger.debug(f"All {len(new_comments)} comments filtered out")
