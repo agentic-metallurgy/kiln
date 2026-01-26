@@ -799,18 +799,24 @@ class Daemon:
                     logger.debug(f"YOLO: Skipping Backlog→Research for {key} - yolo label was removed")
                     continue
 
-                actor = self.ticket_client.get_label_actor(
-                    item.repo, item.ticket_id, Labels.YOLO
-                )
-                actor_category = check_actor_allowed(
-                    actor, self.config.username_self, key, "YOLO", self.config.team_usernames
-                )
-                if actor_category != ActorCategory.SELF:
-                    continue
-                logger.info(
-                    f"YOLO: Starting auto-progression for {key} from Backlog "
-                    f"(label added by allowed user '{actor}')"
-                )
+                if self.config.allow_others_tickets:
+                    logger.info(
+                        f"YOLO: Starting auto-progression for {key} from Backlog - "
+                        f"actor check bypassed (ALLOW_OTHERS_TICKETS enabled)"
+                    )
+                else:
+                    actor = self.ticket_client.get_label_actor(
+                        item.repo, item.ticket_id, Labels.YOLO
+                    )
+                    actor_category = check_actor_allowed(
+                        actor, self.config.username_self, key, "YOLO", self.config.team_usernames
+                    )
+                    if actor_category != ActorCategory.SELF:
+                        continue
+                    logger.info(
+                        f"YOLO: Starting auto-progression for {key} from Backlog "
+                        f"(label added by allowed user '{actor}')"
+                    )
                 hostname = self._get_hostname_from_url(item.board_url)
                 self.ticket_client.update_item_status(item.item_id, "Research", hostname=hostname)
 
@@ -1015,17 +1021,23 @@ class Daemon:
             logger.info(f"YOLO: Skipping advancement for {key} - yolo label was removed")
             return
 
-        actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.YOLO)
-        actor_category = check_actor_allowed(
-            actor, self.config.username_self, key, "YOLO", self.config.team_usernames
-        )
-        if actor_category != ActorCategory.SELF:
-            return
+        if self.config.allow_others_tickets:
+            logger.info(
+                f"YOLO: Advancing {key} from '{item.status}' to '{yolo_next}' - "
+                f"actor check bypassed (ALLOW_OTHERS_TICKETS enabled)"
+            )
+        else:
+            actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.YOLO)
+            actor_category = check_actor_allowed(
+                actor, self.config.username_self, key, "YOLO", self.config.team_usernames
+            )
+            if actor_category != ActorCategory.SELF:
+                return
 
-        logger.info(
-            f"YOLO: Advancing {key} from '{item.status}' to '{yolo_next}' "
-            f"(stage complete, label added by allowed user '{actor}')"
-        )
+            logger.info(
+                f"YOLO: Advancing {key} from '{item.status}' to '{yolo_next}' "
+                f"(stage complete, label added by allowed user '{actor}')"
+            )
         hostname = self._get_hostname_from_url(item.board_url)
         self.ticket_client.update_item_status(item.item_id, yolo_next, hostname=hostname)
 
