@@ -84,10 +84,10 @@ Keep it simple in the scenario where there's no plan provided: 2-4 tasks max. Do
 
    **If `--base` was provided** (child issue with parent PR):
    ```bash
-   gh pr create --draft --base <base_branch> --title "feat: <issue_title>" --body "$(cat <<'EOF'
+   gh pr create --draft --base <base_branch> --issue <issue_number> --title "feat: <issue_title>" --body "$(cat <<'EOF'
    Closes #<issue_number>
 
-   > **Note**: This PR targets the parent branch `<base_branch>` and will be merged into the parent PR, not directly into main.
+   > **Note**: This PR targets the branch `<base_branch>`, not the default branch. The issue will auto-close when `<base_branch>` is merged to the default branch, or can be closed manually after this PR merges.
 
    <plan content here>
 
@@ -101,7 +101,7 @@ Keep it simple in the scenario where there's no plan provided: 2-4 tasks max. Do
    **If `--base` was NOT provided** (standalone issue):
 
    ```bash
-   gh pr create --draft --title "feat: <issue_title>" --body "$(cat <<'EOF'
+   gh pr create --draft --issue <issue_number> --title "feat: <issue_title>" --body "$(cat <<'EOF'
    Closes #<issue_number>
 
    <plan content here>
