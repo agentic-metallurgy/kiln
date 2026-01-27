@@ -98,6 +98,106 @@ GITHUB_ENTERPRISE_VERSION=3.19
 
 ---
 
+## 🔌 MCP Server Configuration
+
+MCP (Model Context Protocol) servers give Claude access to external tools during workflow execution—deployment APIs, monitoring systems, databases, and more. Kiln supports MCP servers that require Azure Entra ID (Azure AD) authentication.
+
+### How It Works
+
+1. Define MCP servers in `.kiln/mcp.json`
+2. Configure Azure OAuth credentials in `.kiln/config` (if servers need authentication)
+3. Kiln retrieves bearer tokens and writes resolved config to each worktree
+4. Claude workflows receive the `--mcp-config` flag and can use your MCP tools
+
+### MCP Config Structure
+
+Create `.kiln/mcp.json` in your kiln directory:
+
+```json
+{
+  "mcpServers": {
+    "deployment-api": {
+      "command": "npx",
+      "args": ["-y", "@company/mcp-deployment-server"],
+      "env": {
+        "API_ENDPOINT": "https://deploy.company.com",
+        "BEARER_TOKEN": "${AZURE_BEARER_TOKEN}"
+      }
+    },
+    "monitoring": {
+      "command": "python",
+      "args": ["-m", "monitoring_mcp"],
+      "env": {
+        "AUTH_TOKEN": "${AZURE_BEARER_TOKEN}",
+        "REGION": "us-east-1"
+      }
+    }
+  }
+}
+```
+
+Each server entry requires:
+- `command`: Executable to run
+- `args`: Array of command arguments
+- `env` (optional): Environment variables for the server process
+
+### Token Placeholders
+
+Kiln supports the following placeholder for dynamic token substitution:
+
+| Placeholder | Description |
+|-------------|-------------|
+| `${AZURE_BEARER_TOKEN}` | Azure OAuth 2.0 bearer token from ROPC flow |
+
+The placeholder can be used in any string field within your MCP config—typically in `env` values for authentication headers or tokens.
+
+### Azure OAuth Setup
+
+To use `${AZURE_BEARER_TOKEN}`, configure Azure credentials in `.kiln/config`:
+
+```bash
+# Azure Entra ID (Azure AD) credentials for MCP authentication
+AZURE_TENANT_ID=your-tenant-id
+AZURE_CLIENT_ID=your-client-id
+AZURE_USERNAME=service-user@yourdomain.com
+AZURE_PASSWORD=your-service-user-password
+
+# Optional: Custom OAuth scope (defaults to Microsoft Graph)
+# AZURE_SCOPE=api://your-api/.default
+```
+
+**Requirements:**
+- All Azure fields must be set together or none at all
+- The Azure AD application must allow ROPC (Resource Owner Password Credentials) flow
+- The service user account must have appropriate permissions
+
+**Setting up Azure AD:**
+1. Create an Azure AD application in your Azure portal
+2. Enable "Allow public client flows" in Authentication settings
+3. Create a service user account (e.g., `kiln-service@yourdomain.com`)
+4. Grant the service user necessary API permissions
+5. Configure the fields above with your credentials
+
+### Troubleshooting
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| "MCP config contains placeholder but no Azure OAuth client is configured" | Using `${AZURE_BEARER_TOKEN}` without Azure credentials | Add Azure OAuth fields to `.kiln/config` |
+| "All Azure OAuth fields must be set together or none" | Partial Azure configuration | Ensure all five fields are set: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_USERNAME`, `AZURE_PASSWORD` |
+| "Token request failed: AADSTS..." | Azure authentication error | Check credentials, verify ROPC is enabled, confirm user permissions |
+| "Invalid JSON in MCP config file" | Malformed `.kiln/mcp.json` | Validate JSON syntax (check for trailing commas, missing quotes) |
+| "MCP server 'X' is missing 'command' field" | Incomplete server definition | Each server needs at minimum a `command` field |
+| MCP server not receiving token | Placeholder typo | Ensure exact match: `${AZURE_BEARER_TOKEN}` (case-sensitive) |
+
+**Token behavior:**
+- Tokens are cached and proactively refreshed 5 minutes before expiry
+- If token retrieval fails, Kiln logs a warning and continues without substitution
+- Each worktree gets its own resolved MCP config at `.mcp.kiln.json`
+
+🎯 MCP config is optional. If `.kiln/mcp.json` doesn't exist, workflows run without MCP tools.
+
+---
+
 ## 🚀 Your First Issue
 
 ### Where to Create
