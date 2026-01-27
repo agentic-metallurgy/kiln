@@ -62,6 +62,12 @@ class Config:
     safety_allow_appended_tasks: int = 0  # 0 = infinite (no limit)
     ghes_logs_mask: bool = True  # Mask GHES hostname and org in logs
     pagerduty_routing_key: str | None = None  # PagerDuty Events API v2 routing key
+    # Azure OAuth 2.0 ROPC configuration for MCP authentication
+    azure_tenant_id: str | None = None
+    azure_client_id: str | None = None
+    azure_username: str | None = None
+    azure_password: str | None = None
+    azure_scope: str | None = None  # Defaults to "https://graph.microsoft.com/.default" if not specified
 
 
 def _validate_project_urls_host(
@@ -260,6 +266,42 @@ def load_config_from_file(config_path: Path) -> Config:
     if not pagerduty_routing_key:
         pagerduty_routing_key = None
 
+    # Azure OAuth settings
+    azure_tenant_id = data.get("AZURE_TENANT_ID")
+    if not azure_tenant_id:
+        azure_tenant_id = None
+    azure_client_id = data.get("AZURE_CLIENT_ID")
+    if not azure_client_id:
+        azure_client_id = None
+    azure_username = data.get("AZURE_USERNAME")
+    if not azure_username:
+        azure_username = None
+    azure_password = data.get("AZURE_PASSWORD")
+    if not azure_password:
+        azure_password = None
+    azure_scope = data.get("AZURE_SCOPE")
+    if not azure_scope:
+        azure_scope = None
+
+    # Validate Azure OAuth: all fields must be set together or none
+    azure_fields = [azure_tenant_id, azure_client_id, azure_username, azure_password]
+    azure_fields_set = [f for f in azure_fields if f is not None]
+    if azure_fields_set and len(azure_fields_set) != len(azure_fields):
+        missing = []
+        if not azure_tenant_id:
+            missing.append("AZURE_TENANT_ID")
+        if not azure_client_id:
+            missing.append("AZURE_CLIENT_ID")
+        if not azure_username:
+            missing.append("AZURE_USERNAME")
+        if not azure_password:
+            missing.append("AZURE_PASSWORD")
+        raise ValueError(
+            f"Azure OAuth configuration is incomplete. Missing: {', '.join(missing)}. "
+            "All Azure OAuth fields (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_USERNAME, AZURE_PASSWORD) "
+            "must be set together or none at all."
+        )
+
     return Config(
         github_token=github_token,
         github_enterprise_host=github_enterprise_host,
@@ -281,6 +323,11 @@ def load_config_from_file(config_path: Path) -> Config:
         safety_allow_appended_tasks=safety_allow_appended_tasks,
         ghes_logs_mask=ghes_logs_mask,
         pagerduty_routing_key=pagerduty_routing_key,
+        azure_tenant_id=azure_tenant_id,
+        azure_client_id=azure_client_id,
+        azure_username=azure_username,
+        azure_password=azure_password,
+        azure_scope=azure_scope,
     )
 
 
@@ -404,6 +451,42 @@ def load_config_from_env() -> Config:
     if not pagerduty_routing_key:
         pagerduty_routing_key = None
 
+    # Azure OAuth settings
+    azure_tenant_id = os.environ.get("AZURE_TENANT_ID")
+    if not azure_tenant_id:
+        azure_tenant_id = None
+    azure_client_id = os.environ.get("AZURE_CLIENT_ID")
+    if not azure_client_id:
+        azure_client_id = None
+    azure_username = os.environ.get("AZURE_USERNAME")
+    if not azure_username:
+        azure_username = None
+    azure_password = os.environ.get("AZURE_PASSWORD")
+    if not azure_password:
+        azure_password = None
+    azure_scope = os.environ.get("AZURE_SCOPE")
+    if not azure_scope:
+        azure_scope = None
+
+    # Validate Azure OAuth: all fields must be set together or none
+    azure_fields = [azure_tenant_id, azure_client_id, azure_username, azure_password]
+    azure_fields_set = [f for f in azure_fields if f is not None]
+    if azure_fields_set and len(azure_fields_set) != len(azure_fields):
+        missing = []
+        if not azure_tenant_id:
+            missing.append("AZURE_TENANT_ID")
+        if not azure_client_id:
+            missing.append("AZURE_CLIENT_ID")
+        if not azure_username:
+            missing.append("AZURE_USERNAME")
+        if not azure_password:
+            missing.append("AZURE_PASSWORD")
+        raise ValueError(
+            f"Azure OAuth configuration is incomplete. Missing: {', '.join(missing)}. "
+            "All Azure OAuth fields (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_USERNAME, AZURE_PASSWORD) "
+            "must be set together or none at all."
+        )
+
     return Config(
         github_token=github_token,
         github_enterprise_host=github_enterprise_host,
@@ -427,6 +510,11 @@ def load_config_from_env() -> Config:
         safety_allow_appended_tasks=int(os.environ.get("SAFETY_ALLOW_APPENDED_TASKS", "0")),
         ghes_logs_mask=os.environ.get("GHES_LOGS_MASK", "true").lower() == "true",
         pagerduty_routing_key=pagerduty_routing_key,
+        azure_tenant_id=azure_tenant_id,
+        azure_client_id=azure_client_id,
+        azure_username=azure_username,
+        azure_password=azure_password,
+        azure_scope=azure_scope,
     )
 
 
