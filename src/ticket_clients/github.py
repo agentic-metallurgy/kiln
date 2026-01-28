@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any
 
 from src.interfaces import Comment, LinkedPullRequest, TicketItem
-from src.labels import REQUIRED_LABELS
+from src.labels import LabelConfig, REQUIRED_LABELS
 from src.logger import get_logger, is_debug_mode
 from src.ticket_clients.base import NetworkError
 
@@ -678,7 +678,7 @@ class GitHubTicketClient:
                 or "no labels" in error_output.lower()
             ):
                 logger.info(f"Label '{label}' not found in {repo}, creating it")
-                label_config = REQUIRED_LABELS.get(label, {})
+                label_config: LabelConfig | dict[str, str] = REQUIRED_LABELS.get(label, {})
                 if self.create_repo_label(
                     repo,
                     label,
