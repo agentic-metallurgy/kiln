@@ -20,6 +20,7 @@ from typing import Any, TypedDict
 
 from tenacity import wait_exponential
 
+from src.azure_oauth import AzureOAuthClient
 from src.claude_runner import run_claude
 from src.comment_processor import CommentProcessor
 from src.config import Config, load_config
@@ -37,6 +38,7 @@ from src.logger import (
     set_issue_context,
     setup_logging,
 )
+from src.mcp_config import MCPConfigManager
 from src.pagerduty import init_pagerduty, resolve_hibernation_alert, trigger_hibernation_alert
 from src.security import ActorCategory, check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
@@ -86,6 +88,7 @@ class WorkflowRunner:
         ctx: WorkflowContext,
         workflow_name: str,
         resume_session: str | None = None,
+        mcp_config_path: str | None = None,
     ) -> str | None:
         """Run a workflow by executing its prompts sequentially.
 
@@ -94,6 +97,7 @@ class WorkflowRunner:
             ctx: Context information for the workflow
             workflow_name: Name of the workflow stage for model selection
             resume_session: Optional session ID to resume from
+            mcp_config_path: Optional path to MCP configuration file for Claude
 
         Returns:
             The session ID from the last prompt execution, or None if not available
@@ -142,6 +146,7 @@ class WorkflowRunner:
                             resume_session=resume_session,
                             enable_telemetry=self.config.claude_code_enable_telemetry,
                             execution_stage=workflow_name.lower(),
+                            mcp_config_path=mcp_config_path,
                         )
                         logger.debug(f"Prompt {i}/{len(prompts)} completed successfully")
                         logger.debug(f"Response length: {len(result.response)} characters")
@@ -296,6 +301,39 @@ class Daemon:
             username_self=config.username_self,
             team_usernames=config.team_usernames,
         )
+
+        # Initialize Azure OAuth client if configured
+        self.azure_oauth_client: AzureOAuthClient | None = None
+        if (
+            config.azure_tenant_id
+            and config.azure_client_id
+            and config.azure_username
+            and config.azure_password
+        ):
+            self.azure_oauth_client = AzureOAuthClient(
+                tenant_id=config.azure_tenant_id,
+                client_id=config.azure_client_id,
+                username=config.azure_username,
+                password=config.azure_password,
+                scope=config.azure_scope,
+            )
+            logger.info("Azure OAuth client initialized for MCP authentication")
+        else:
+            logger.debug("Azure OAuth not configured (MCP servers requiring Azure auth will fail)")
+
+        # Initialize MCP config manager
+        self.mcp_config_manager = MCPConfigManager(
+            azure_client=self.azure_oauth_client,
+        )
+
+        # Validate MCP config at startup
+        mcp_warnings = self.mcp_config_manager.validate_config()
+        for warning in mcp_warnings:
+            logger.warning(f"MCP config warning: {warning}")
+
+        if self.mcp_config_manager.has_config():
+            config_count = len(self.mcp_config_manager.load_config().mcp_servers)  # type: ignore[union-attr]
+            logger.info(f"MCP configuration loaded with {config_count} server(s)")
 
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -1637,6 +1675,17 @@ class Daemon:
                     self._running_labels[key] = running_label
                 logger.debug(f"Added '{running_label}' label to {key}")
 
+            # Write MCP config to worktree if configured
+            mcp_config_path: str | None = None
+            if self.mcp_config_manager.has_config():
+                try:
+                    mcp_config_path = self.mcp_config_manager.write_to_worktree(worktree_path)
+                    if mcp_config_path:
+                        logger.info(f"Wrote MCP config to {mcp_config_path}")
+                except Exception as e:
+                    # Log warning but don't fail the workflow
+                    logger.warning(f"Failed to write MCP config to worktree: {e}")
+
             # Create masking filter if configured
             masking_filter: MaskingFilter | None = None
             if self.config.ghes_logs_mask and self.config.github_enterprise_host:
@@ -1670,7 +1719,7 @@ class Daemon:
                 logger.debug(f"Created run record {run_id} for {key}")
 
                 # Run the workflow
-                session_id = self._run_workflow(item.status, item)
+                session_id = self._run_workflow(item.status, item, mcp_config_path)
 
                 # Workflow completed successfully - update run record
                 self.database.update_run_record(
@@ -1935,12 +1984,14 @@ class Daemon:
         self,
         workflow_name: str,
         item: TicketItem,
+        mcp_config_path: str | None = None,
     ) -> str | None:
         """Run a workflow for a project item.
 
         Args:
             workflow_name: Name of the workflow status (e.g., "Research", "Plan")
             item: TicketItem to process
+            mcp_config_path: Optional path to MCP configuration file for Claude
 
         Returns:
             The Claude session ID from the workflow, or None if not available.
@@ -2014,7 +2065,9 @@ class Daemon:
                 workflow.execute(ctx, self.config)
                 session_id = None  # No session resumption for implement workflow
             else:
-                session_id = self.runner.run(workflow, ctx, workflow_name, resume_session)
+                session_id = self.runner.run(
+                    workflow, ctx, workflow_name, resume_session, mcp_config_path
+                )
             logger.info(f"Successfully completed workflow '{workflow_name}'")
 
             # Store the session ID for future resumption (must be a proper string)
