@@ -40,6 +40,7 @@ from src.logger import (
 )
 from src.mcp_config import MCPConfigManager
 from src.pagerduty import init_pagerduty, resolve_hibernation_alert, trigger_hibernation_alert
+from src.slack import init_slack, send_phase_completion_notification
 from src.security import ActorCategory, check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients import get_github_client
@@ -2149,6 +2150,9 @@ def main() -> None:
         # Initialize PagerDuty if configured
         if config.pagerduty_routing_key:
             init_pagerduty(config.pagerduty_routing_key)
+
+        # Initialize Slack if configured
+        init_slack(config.slack_bot_token, config.slack_user_id)
 
         # Create and run daemon with locked version
         daemon = Daemon(config, version=git_version)
