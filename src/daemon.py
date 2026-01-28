@@ -517,7 +517,7 @@ class Daemon:
                 else:
                     logger.warning(f"Failed to create label '{label_name}'")
             else:
-                logger.info(f"Label '{label_name}' already exists")
+                logger.debug(f"Label '{label_name}' already exists")
 
     def _signal_handler(self, signum: int, _frame: object) -> None:
         """Handle shutdown signals gracefully.
