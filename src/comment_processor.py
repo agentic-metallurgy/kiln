@@ -107,6 +107,11 @@ class CommentProcessor:
         # Set logging context for comment processing
         set_issue_context(item.repo, item.ticket_id)
 
+        # Skip comment processing entirely for Backlog items - nothing to edit there
+        if item.status == "Backlog":
+            logger.debug("Skipping comment processing for Backlog item")
+            return
+
         try:
             # Get the last processed timestamp from database
             stored_state = self.database.get_issue_state(item.repo, item.ticket_id)
