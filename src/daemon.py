@@ -965,7 +965,14 @@ class Daemon:
             actor_category = check_actor_allowed(
                 actor, self.config.username_self, key, "", self.config.team_usernames
             )
-            if actor_category != ActorCategory.SELF:
+            if actor_category == ActorCategory.TEAM:
+                logger.debug(
+                    f"Workflow trigger skipped for {key} - "
+                    f"last status change by team member '{actor}'"
+                )
+                return False
+            elif actor_category != ActorCategory.SELF:
+                # WARNING already logged by check_actor_allowed for BLOCKED/UNKNOWN
                 return False
             logger.info(f"Workflow trigger: {key} in '{item.status}' by allowed user '{actor}'")
         else:
