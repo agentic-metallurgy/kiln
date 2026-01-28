@@ -1651,9 +1651,19 @@ class Daemon:
         run_logger: RunLogger | None = None
 
         try:
+            # Check if placement_status needs to be set (for Slack notifications)
+            # Only set when issue first enters a workflow status (Research/Plan/Implement)
+            existing_state = self.database.get_issue_state(item.repo, item.ticket_id)
+            should_set_placement = (
+                item.status in self.WORKFLOW_CONFIG
+                and (existing_state is None or existing_state.placement_status is None)
+            )
+            placement_to_set = item.status if should_set_placement else None
+
             # Ensure issue state exists before workflow runs (needed for session ID storage)
             self.database.update_issue_state(
-                item.repo, item.ticket_id, item.status, project_url=item.board_url
+                item.repo, item.ticket_id, item.status, project_url=item.board_url,
+                placement_status=placement_to_set,
             )
 
             # Ensure required labels exist for this repo (handles repos added after daemon start)
