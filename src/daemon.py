@@ -1876,7 +1876,7 @@ class Daemon:
             # next_status is set to None after moving to Validate, so we check if status was Implement
             # and the config indicates it should move to Validate
             is_yolo = Labels.YOLO in item.labels
-            moved_to_validate = (
+            moved_to_validate = bool(
                 item.status == "Implement"
                 and config
                 and config["next_status"] == "Validate"
