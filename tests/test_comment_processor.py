@@ -468,3 +468,203 @@ class TestCommentProcessorWrapDiff:
         diff = "+line1\n-line2\n line3"
         result = processor._wrap_diff(diff, width=70)
         assert result == diff
+
+
+@pytest.mark.unit
+class TestCommentProcessorSkipReactions:
+    """Tests for skip_reactions behavior based on item status."""
+
+    def test_process_backlog_item_skips_reactions(self):
+        """Test that no reactions are added when item.status == 'Backlog'."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        processor = CommentProcessor(
+            ticket_client, database, runner, "/workspaces", username_self="allowed_user"
+        )
+
+        # Mock database to return stored state with a timestamp
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Create a comment from the allowed user
+        user_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="This is feedback on my backlog idea",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="allowed_user",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [user_comment]
+
+        # Create a ticket item with Backlog status
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Backlog",
+            title="Test Backlog Issue",
+            comment_count=1,
+        )
+
+        # Mock the methods that would be called after filtering
+        with (
+            patch.object(processor, "_get_target_type", return_value="description"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_apply_comment_to_kiln_post"),
+            patch.object(processor, "_generate_diff", return_value="-old\n+new"),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+        ):
+            ticket_client.add_comment.return_value = Comment(
+                id="IC_2",
+                database_id=2,
+                body="response",
+                created_at=datetime(2024, 1, 15, 12, 0, 0),
+                author="test-user",
+            )
+
+            processor.process(item)
+
+            # Verify add_reaction was NEVER called (no EYES, no THUMBS_UP)
+            ticket_client.add_reaction.assert_not_called()
+
+            # Verify the comment was still processed (add_comment was called for response)
+            ticket_client.add_comment.assert_called_once()
+
+    def test_process_research_item_adds_reactions(self):
+        """Test that reactions are added when item.status == 'Research'."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        processor = CommentProcessor(
+            ticket_client, database, runner, "/workspaces", username_self="allowed_user"
+        )
+
+        # Mock database to return stored state with a timestamp
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Create a comment from the allowed user
+        user_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="This is feedback on research",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="allowed_user",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [user_comment]
+
+        # Create a ticket item with Research status
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Research",
+            title="Test Research Issue",
+            comment_count=1,
+        )
+
+        # Mock the methods that would be called after filtering
+        with (
+            patch.object(processor, "_get_target_type", return_value="research"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_apply_comment_to_kiln_post"),
+            patch.object(processor, "_generate_diff", return_value="-old\n+new"),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+        ):
+            ticket_client.add_comment.return_value = Comment(
+                id="IC_2",
+                database_id=2,
+                body="response",
+                created_at=datetime(2024, 1, 15, 12, 0, 0),
+                author="test-user",
+            )
+
+            processor.process(item)
+
+            # Verify add_reaction WAS called - should have both EYES and THUMBS_UP
+            reaction_calls = ticket_client.add_reaction.call_args_list
+            reaction_types = [call[0][1] for call in reaction_calls]
+            assert "EYES" in reaction_types, "EYES reaction should be added for Research items"
+            assert "THUMBS_UP" in reaction_types, "THUMBS_UP reaction should be added for Research items"
+
+    def test_process_plan_item_adds_reactions(self):
+        """Test that reactions are added when item.status == 'Plan'."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        processor = CommentProcessor(
+            ticket_client, database, runner, "/workspaces", username_self="allowed_user"
+        )
+
+        # Mock database to return stored state with a timestamp
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Create a comment from the allowed user
+        user_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="This is feedback on the plan",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="allowed_user",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [user_comment]
+
+        # Create a ticket item with Plan status
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Plan",
+            title="Test Plan Issue",
+            comment_count=1,
+        )
+
+        # Mock the methods that would be called after filtering
+        with (
+            patch.object(processor, "_get_target_type", return_value="plan"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_apply_comment_to_kiln_post"),
+            patch.object(processor, "_generate_diff", return_value="-old\n+new"),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+        ):
+            ticket_client.add_comment.return_value = Comment(
+                id="IC_2",
+                database_id=2,
+                body="response",
+                created_at=datetime(2024, 1, 15, 12, 0, 0),
+                author="test-user",
+            )
+
+            processor.process(item)
+
+            # Verify add_reaction WAS called - should have both EYES and THUMBS_UP
+            reaction_calls = ticket_client.add_reaction.call_args_list
+            reaction_types = [call[0][1] for call in reaction_calls]
+            assert "EYES" in reaction_types, "EYES reaction should be added for Plan items"
+            assert "THUMBS_UP" in reaction_types, "THUMBS_UP reaction should be added for Plan items"
