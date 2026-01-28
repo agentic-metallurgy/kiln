@@ -335,6 +335,47 @@ class TestRunClaude:
         env = call_args[1].get("env", {})
         assert env.get("CLAUDE_CODE_ENABLE_TELEMETRY") != "1"
 
+    def test_run_claude_with_mcp_config_path(self, mock_claude_subprocess, tmp_path):
+        """Test run_claude passes --mcp-config flag to CLI when path is provided."""
+        result_event = json.dumps({"type": "result", "result": "Response with MCP"})
+        mock_process = self._create_mock_process([result_event + "\n"])
+        mock_claude_subprocess.return_value = mock_process
+
+        mcp_path = str(tmp_path / ".mcp.kiln.json")
+        run_claude("Prompt", str(tmp_path), mcp_config_path=mcp_path)
+
+        call_args = mock_claude_subprocess.call_args
+        cmd = call_args[0][0]
+        assert "--mcp-config" in cmd
+        assert mcp_path in cmd
+        # Verify --mcp-config appears before the path
+        mcp_config_index = cmd.index("--mcp-config")
+        assert cmd[mcp_config_index + 1] == mcp_path
+
+    def test_run_claude_without_mcp_config_path(self, mock_claude_subprocess, tmp_path):
+        """Test run_claude does not include --mcp-config flag when path is not provided."""
+        result_event = json.dumps({"type": "result", "result": "Response"})
+        mock_process = self._create_mock_process([result_event + "\n"])
+        mock_claude_subprocess.return_value = mock_process
+
+        run_claude("Prompt", str(tmp_path))
+
+        call_args = mock_claude_subprocess.call_args
+        cmd = call_args[0][0]
+        assert "--mcp-config" not in cmd
+
+    def test_run_claude_with_mcp_config_path_none(self, mock_claude_subprocess, tmp_path):
+        """Test run_claude does not include --mcp-config flag when path is explicitly None."""
+        result_event = json.dumps({"type": "result", "result": "Response"})
+        mock_process = self._create_mock_process([result_event + "\n"])
+        mock_claude_subprocess.return_value = mock_process
+
+        run_claude("Prompt", str(tmp_path), mcp_config_path=None)
+
+        call_args = mock_claude_subprocess.call_args
+        cmd = call_args[0][0]
+        assert "--mcp-config" not in cmd
+
 
 @pytest.mark.unit
 class TestRunClaudeJsonStreamParsing:

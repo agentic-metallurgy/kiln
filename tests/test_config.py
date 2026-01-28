@@ -1271,3 +1271,246 @@ class TestBackwardIncompatibility:
 
         assert config.username_self == "newuser"
         assert not hasattr(config, "allowed_username")
+
+
+@pytest.mark.unit
+class TestAzureOAuthConfiguration:
+    """Tests for Azure OAuth configuration fields."""
+
+    def _write_config(self, tmp_path, content):
+        """Helper to write a config file."""
+        config_file = tmp_path / "config"
+        config_file.write_text(content)
+        return config_file
+
+    def test_azure_oauth_defaults_to_none_env(self, monkeypatch):
+        """Test Azure OAuth fields default to None when not set."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.delenv("AZURE_TENANT_ID", raising=False)
+        monkeypatch.delenv("AZURE_CLIENT_ID", raising=False)
+        monkeypatch.delenv("AZURE_USERNAME", raising=False)
+        monkeypatch.delenv("AZURE_PASSWORD", raising=False)
+        monkeypatch.delenv("AZURE_SCOPE", raising=False)
+
+        config = load_config_from_env()
+
+        assert config.azure_tenant_id is None
+        assert config.azure_client_id is None
+        assert config.azure_username is None
+        assert config.azure_password is None
+        assert config.azure_scope is None
+
+    def test_azure_oauth_all_fields_set_env(self, monkeypatch):
+        """Test Azure OAuth fields are parsed correctly when all set."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("AZURE_TENANT_ID", "tenant-123")
+        monkeypatch.setenv("AZURE_CLIENT_ID", "client-456")
+        monkeypatch.setenv("AZURE_USERNAME", "service@example.com")
+        monkeypatch.setenv("AZURE_PASSWORD", "secret-password")
+        monkeypatch.setenv("AZURE_SCOPE", "https://api.example.com/.default")
+
+        config = load_config_from_env()
+
+        assert config.azure_tenant_id == "tenant-123"
+        assert config.azure_client_id == "client-456"
+        assert config.azure_username == "service@example.com"
+        assert config.azure_password == "secret-password"
+        assert config.azure_scope == "https://api.example.com/.default"
+
+    def test_azure_oauth_scope_optional_env(self, monkeypatch):
+        """Test Azure OAuth works when scope is not set (optional)."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("AZURE_TENANT_ID", "tenant-123")
+        monkeypatch.setenv("AZURE_CLIENT_ID", "client-456")
+        monkeypatch.setenv("AZURE_USERNAME", "service@example.com")
+        monkeypatch.setenv("AZURE_PASSWORD", "secret-password")
+        monkeypatch.delenv("AZURE_SCOPE", raising=False)
+
+        config = load_config_from_env()
+
+        assert config.azure_tenant_id == "tenant-123"
+        assert config.azure_client_id == "client-456"
+        assert config.azure_username == "service@example.com"
+        assert config.azure_password == "secret-password"
+        assert config.azure_scope is None
+
+    def test_azure_oauth_partial_config_raises_error_env(self, monkeypatch):
+        """Test partial Azure OAuth config raises validation error."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("AZURE_TENANT_ID", "tenant-123")
+        monkeypatch.setenv("AZURE_CLIENT_ID", "client-456")
+        # Missing AZURE_USERNAME and AZURE_PASSWORD
+        monkeypatch.delenv("AZURE_USERNAME", raising=False)
+        monkeypatch.delenv("AZURE_PASSWORD", raising=False)
+
+        with pytest.raises(
+            ValueError,
+            match="Azure OAuth configuration is incomplete.*Missing: AZURE_USERNAME, AZURE_PASSWORD",
+        ):
+            load_config_from_env()
+
+    def test_azure_oauth_missing_password_only_env(self, monkeypatch):
+        """Test missing password only raises validation error with correct message."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("AZURE_TENANT_ID", "tenant-123")
+        monkeypatch.setenv("AZURE_CLIENT_ID", "client-456")
+        monkeypatch.setenv("AZURE_USERNAME", "service@example.com")
+        monkeypatch.delenv("AZURE_PASSWORD", raising=False)
+
+        with pytest.raises(
+            ValueError,
+            match="Azure OAuth configuration is incomplete.*Missing: AZURE_PASSWORD",
+        ):
+            load_config_from_env()
+
+    def test_azure_oauth_empty_values_normalized_to_none_env(self, monkeypatch):
+        """Test empty Azure OAuth values become None."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("AZURE_TENANT_ID", "")
+        monkeypatch.setenv("AZURE_CLIENT_ID", "")
+        monkeypatch.setenv("AZURE_USERNAME", "")
+        monkeypatch.setenv("AZURE_PASSWORD", "")
+        monkeypatch.setenv("AZURE_SCOPE", "")
+
+        config = load_config_from_env()
+
+        assert config.azure_tenant_id is None
+        assert config.azure_client_id is None
+        assert config.azure_username is None
+        assert config.azure_password is None
+        assert config.azure_scope is None
+
+    def test_azure_oauth_defaults_to_none_file(self, tmp_path, monkeypatch):
+        """Test Azure OAuth fields default to None when not in file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.azure_tenant_id is None
+        assert config.azure_client_id is None
+        assert config.azure_username is None
+        assert config.azure_password is None
+        assert config.azure_scope is None
+
+    def test_azure_oauth_all_fields_set_file(self, tmp_path, monkeypatch):
+        """Test Azure OAuth fields are parsed correctly from file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser\n"
+            "AZURE_TENANT_ID=tenant-123\n"
+            "AZURE_CLIENT_ID=client-456\n"
+            "AZURE_USERNAME=service@example.com\n"
+            "AZURE_PASSWORD=secret-password\n"
+            "AZURE_SCOPE=https://api.example.com/.default",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.azure_tenant_id == "tenant-123"
+        assert config.azure_client_id == "client-456"
+        assert config.azure_username == "service@example.com"
+        assert config.azure_password == "secret-password"
+        assert config.azure_scope == "https://api.example.com/.default"
+
+    def test_azure_oauth_scope_optional_file(self, tmp_path, monkeypatch):
+        """Test Azure OAuth works when scope is not set in file."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser\n"
+            "AZURE_TENANT_ID=tenant-123\n"
+            "AZURE_CLIENT_ID=client-456\n"
+            "AZURE_USERNAME=service@example.com\n"
+            "AZURE_PASSWORD=secret-password",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.azure_tenant_id == "tenant-123"
+        assert config.azure_client_id == "client-456"
+        assert config.azure_username == "service@example.com"
+        assert config.azure_password == "secret-password"
+        assert config.azure_scope is None
+
+    def test_azure_oauth_partial_config_raises_error_file(self, tmp_path, monkeypatch):
+        """Test partial Azure OAuth config in file raises validation error."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser\n"
+            "AZURE_TENANT_ID=tenant-123\n"
+            "AZURE_CLIENT_ID=client-456",
+            # Missing AZURE_USERNAME and AZURE_PASSWORD
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        with pytest.raises(
+            ValueError,
+            match="Azure OAuth configuration is incomplete.*Missing: AZURE_USERNAME, AZURE_PASSWORD",
+        ):
+            load_config_from_file(config_file)
+
+    def test_azure_oauth_empty_values_normalized_to_none_file(self, tmp_path, monkeypatch):
+        """Test empty Azure OAuth values in file become None."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser\n"
+            "AZURE_TENANT_ID=\n"
+            "AZURE_CLIENT_ID=\n"
+            "AZURE_USERNAME=\n"
+            "AZURE_PASSWORD=\n"
+            "AZURE_SCOPE=",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.azure_tenant_id is None
+        assert config.azure_client_id is None
+        assert config.azure_username is None
+        assert config.azure_password is None
+        assert config.azure_scope is None
+
+    def test_azure_oauth_quoted_password_file(self, tmp_path, monkeypatch):
+        """Test Azure OAuth password with special characters in quotes."""
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_TOKEN=ghp_test\n"
+            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser\n"
+            "AZURE_TENANT_ID=tenant-123\n"
+            "AZURE_CLIENT_ID=client-456\n"
+            "AZURE_USERNAME=service@example.com\n"
+            'AZURE_PASSWORD="pass=word!@#$%"',
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.azure_password == "pass=word!@#$%"

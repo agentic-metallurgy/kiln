@@ -48,6 +48,7 @@ def run_claude(
     resume_session: str | None = None,
     enable_telemetry: bool = False,
     execution_stage: str | None = None,
+    mcp_config_path: str | None = None,
 ) -> ClaudeResult:
     """
     Run the Claude CLI with a given prompt and return the response with metrics.
@@ -65,6 +66,7 @@ def run_claude(
         issue_context: Issue reference for logging (e.g., "owner/repo#123")
         resume_session: Optional session ID to resume. If provided, adds --resume flag.
         execution_stage: Workflow stage name for logging (e.g., "research", "plan", "implement")
+        mcp_config_path: Path to MCP configuration file. If provided, adds --mcp-config flag.
 
     Returns:
         ClaudeResult containing response text and optional LLMMetrics
@@ -103,6 +105,9 @@ def run_claude(
 
     if resume_session:
         cmd.extend(["--resume", resume_session])
+
+    if mcp_config_path:
+        cmd.extend(["--mcp-config", mcp_config_path])
 
     try:
         # Start the process with stdin as PIPE for prompt input
