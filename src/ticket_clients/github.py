@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any
 
 from src.interfaces import Comment, LinkedPullRequest, TicketItem
+from src.labels import REQUIRED_LABELS
 from src.logger import get_logger, is_debug_mode
 from src.ticket_clients.base import NetworkError
 
@@ -523,9 +524,7 @@ class GitHubTicketClient:
 
         logger.info(f"Successfully updated project item {item_id} to '{new_status}'")
 
-    def archive_item(
-        self, board_id: str, item_id: str, *, hostname: str = "github.com"
-    ) -> bool:
+    def archive_item(self, board_id: str, item_id: str, *, hostname: str = "github.com") -> bool:
         """Archive a project item.
 
         Args:
@@ -679,7 +678,13 @@ class GitHubTicketClient:
                 or "no labels" in error_output.lower()
             ):
                 logger.info(f"Label '{label}' not found in {repo}, creating it")
-                if self.create_repo_label(repo, label):
+                label_config = REQUIRED_LABELS.get(label, {})
+                if self.create_repo_label(
+                    repo,
+                    label,
+                    description=label_config.get("description", ""),
+                    color=label_config.get("color", ""),
+                ):
                     # Retry adding the label after creation
                     self._run_gh_command(args, repo=repo)
                     logger.info(f"Added label '{label}' to {repo}#{ticket_id}")
@@ -1378,10 +1383,12 @@ class GitHubTicketClient:
             children = []
             for child in sub_issues:
                 if child:
-                    children.append({
-                        "number": child["number"],
-                        "state": child["state"],
-                    })
+                    children.append(
+                        {
+                            "number": child["number"],
+                            "state": child["state"],
+                        }
+                    )
 
             logger.debug(f"Found {len(children)} child issues for {repo}#{ticket_id}")
             return children
