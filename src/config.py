@@ -62,6 +62,8 @@ class Config:
     safety_allow_appended_tasks: int = 0  # 0 = infinite (no limit)
     ghes_logs_mask: bool = True  # Mask GHES hostname and org in logs
     pagerduty_routing_key: str | None = None  # PagerDuty Events API v2 routing key
+    slack_bot_token: str | None = None  # Slack Bot OAuth token (xoxb-...)
+    slack_user_id: str | None = None  # Slack user ID to DM (U...)
     # Azure OAuth 2.0 ROPC configuration for MCP authentication
     azure_tenant_id: str | None = None
     azure_client_id: str | None = None
@@ -266,6 +268,14 @@ def load_config_from_file(config_path: Path) -> Config:
     if not pagerduty_routing_key:
         pagerduty_routing_key = None
 
+    # Slack notification settings
+    slack_bot_token = data.get("SLACK_BOT_TOKEN")
+    if not slack_bot_token:
+        slack_bot_token = None
+    slack_user_id = data.get("SLACK_USER_ID")
+    if not slack_user_id:
+        slack_user_id = None
+
     # Azure OAuth settings
     azure_tenant_id = data.get("AZURE_TENANT_ID")
     if not azure_tenant_id:
@@ -323,6 +333,8 @@ def load_config_from_file(config_path: Path) -> Config:
         safety_allow_appended_tasks=safety_allow_appended_tasks,
         ghes_logs_mask=ghes_logs_mask,
         pagerduty_routing_key=pagerduty_routing_key,
+        slack_bot_token=slack_bot_token,
+        slack_user_id=slack_user_id,
         azure_tenant_id=azure_tenant_id,
         azure_client_id=azure_client_id,
         azure_username=azure_username,
@@ -451,6 +463,14 @@ def load_config_from_env() -> Config:
     if not pagerduty_routing_key:
         pagerduty_routing_key = None
 
+    # Slack notification settings
+    slack_bot_token = os.environ.get("SLACK_BOT_TOKEN")
+    if not slack_bot_token:
+        slack_bot_token = None
+    slack_user_id = os.environ.get("SLACK_USER_ID")
+    if not slack_user_id:
+        slack_user_id = None
+
     # Azure OAuth settings
     azure_tenant_id = os.environ.get("AZURE_TENANT_ID")
     if not azure_tenant_id:
@@ -510,6 +530,8 @@ def load_config_from_env() -> Config:
         safety_allow_appended_tasks=int(os.environ.get("SAFETY_ALLOW_APPENDED_TASKS", "0")),
         ghes_logs_mask=os.environ.get("GHES_LOGS_MASK", "true").lower() == "true",
         pagerduty_routing_key=pagerduty_routing_key,
+        slack_bot_token=slack_bot_token,
+        slack_user_id=slack_user_id,
         azure_tenant_id=azure_tenant_id,
         azure_client_id=azure_client_id,
         azure_username=azure_username,
