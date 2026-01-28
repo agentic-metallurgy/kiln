@@ -1616,6 +1616,43 @@ class Daemon:
                     f"RESET: Failed to remove linking keyword from PR #{pr.number} for {key}: {e}"
                 )
 
+    def _should_notify_completion(
+        self, item: TicketItem, placement_status: str | None, is_yolo: bool, moving_to_validate: bool
+    ) -> bool:
+        """Check if a Slack notification should be sent for phase completion.
+
+        Notifications are sent when an issue reaches its "final destination":
+        - Research: notify if placement_status was Research and completing research
+        - Plan: notify if placement_status was Plan and completing plan
+        - Implement: notify if placement_status was Implement and moving to Validate
+        - YOLO: only notify when reaching Validate (regardless of placement)
+
+        Args:
+            item: The TicketItem being processed
+            placement_status: The original status when issue first entered workflow
+            is_yolo: Whether the issue has YOLO label
+            moving_to_validate: Whether the issue is being moved to Validate status
+
+        Returns:
+            True if notification should be sent, False otherwise
+        """
+        if is_yolo:
+            # YOLO issues only notify when reaching Validate
+            return moving_to_validate
+
+        if placement_status is None:
+            return False
+
+        # For non-YOLO issues, notify when completing the phase we were placed in
+        if item.status == "Research" and placement_status == "Research":
+            return True
+        if item.status == "Plan" and placement_status == "Plan":
+            return True
+        if item.status == "Implement" and placement_status == "Implement" and moving_to_validate:
+            return True
+
+        return False
+
     def _process_item_workflow(self, item: TicketItem) -> None:
         """Process an item that needs a workflow (runs in thread).
 
@@ -1659,6 +1696,14 @@ class Daemon:
                 and (existing_state is None or existing_state.placement_status is None)
             )
             placement_to_set = item.status if should_set_placement else None
+
+            # Capture effective placement_status for notification logic
+            # Either the newly set value or the existing one from database
+            effective_placement_status = (
+                placement_to_set
+                if placement_to_set
+                else (existing_state.placement_status if existing_state else None)
+            )
 
             # Ensure issue state exists before workflow runs (needed for session ID storage)
             self.database.update_issue_state(
@@ -1813,6 +1858,30 @@ class Daemon:
                         logger.info(
                             f"YOLO: Cancelled auto-advance for {key}, label removed during workflow"
                         )
+
+            # Send Slack notification if issue reached its "final destination"
+            # For Implement, we check if we moved to Validate (via next_status or checkbox completion)
+            # next_status is set to None after moving to Validate, so we check if status was Implement
+            # and the config indicates it should move to Validate
+            is_yolo = Labels.YOLO in item.labels
+            moved_to_validate = (
+                item.status == "Implement"
+                and config
+                and config["next_status"] == "Validate"
+            )
+            if self._should_notify_completion(item, effective_placement_status, is_yolo, moved_to_validate):
+                issue_url = f"https://{item.repo}/issues/{item.ticket_id}"
+                # Determine phase for notification message
+                if moved_to_validate:
+                    notify_phase = "Implement"
+                else:
+                    notify_phase = item.status
+                send_phase_completion_notification(
+                    issue_url=issue_url,
+                    phase=notify_phase,
+                    issue_title=item.title,
+                    issue_number=item.ticket_id,
+                )
 
             # After workflow completes, update last_processed_comment timestamp to skip
             # any comments posted during the workflow (prevents daemon from treating
