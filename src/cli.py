@@ -577,6 +577,12 @@ def main() -> None:
         action="version",
         version=f"kiln {__version__}",
     )
+    parser.add_argument(
+        "--daemon",
+        "-d",
+        action="store_true",
+        help="Run in daemon mode (log to file only, no stdout)",
+    )
 
     # Create subparsers
     subparsers = parser.add_subparsers(dest="command")
@@ -631,26 +637,9 @@ def main() -> None:
         cmd_run(args)
     else:
         # No subcommand given - default to 'run' behavior
-        # Re-parse with daemon flag support
-        parser_default = argparse.ArgumentParser(
-            prog="kiln",
-            description="GitHub project automation daemon with Claude-powered workflows",
-        )
-        parser_default.add_argument(
-            "--version",
-            "-v",
-            action="version",
-            version=f"kiln {__version__}",
-        )
-        parser_default.add_argument(
-            "--daemon",
-            "-d",
-            action="store_true",
-            help="Run in daemon mode (log to file only, no stdout)",
-        )
-        default_args = parser_default.parse_args()
-        default_args.command = "run"
-        cmd_run(default_args)
+        # Use daemon flag from main parser
+        args.command = "run"
+        cmd_run(args)
 
 
 if __name__ == "__main__":
