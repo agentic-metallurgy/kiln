@@ -297,6 +297,13 @@ Processed feedback for **{target_type}**. No textual changes detected (may have 
                 logger.info(f"Processed {len(user_comments)} comment(s)")
             except Exception as e:
                 logger.error(f"Failed to process comments: {e}")
+                # Add failure reaction to indicate processing attempted but failed
+                # Users will see CONFUSED reaction instead of just eyes emoji
+                for comment in user_comments:
+                    try:
+                        self.ticket_client.add_reaction(comment.id, "CONFUSED", repo=item.repo)
+                    except Exception as reaction_err:
+                        logger.warning(f"Failed to add failure reaction to {comment.database_id}: {reaction_err}")
             finally:
                 # Always remove editing label when done (success or failure)
                 try:
