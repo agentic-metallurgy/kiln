@@ -78,6 +78,7 @@ class IssueState:
         research_session_id: Claude session ID for Research workflow
         plan_session_id: Claude session ID for Plan workflow
         implement_session_id: Claude session ID for Implement workflow
+        placement_status: Original status when issue first entered workflow (for notifications)
     """
 
     repo: str
@@ -91,6 +92,7 @@ class IssueState:
     research_session_id: str | None = None
     plan_session_id: str | None = None
     implement_session_id: str | None = None
+    placement_status: str | None = None
 
 
 class Database:
@@ -175,6 +177,8 @@ class Database:
                     conn.execute("ALTER TABLE issue_states ADD COLUMN plan_session_id TEXT")
                 if "implement_session_id" not in columns:
                     conn.execute("ALTER TABLE issue_states ADD COLUMN implement_session_id TEXT")
+                if "placement_status" not in columns:
+                    conn.execute("ALTER TABLE issue_states ADD COLUMN placement_status TEXT")
 
                 # Create project_metadata table for caching project status options
                 conn.execute("""
@@ -239,7 +243,7 @@ class Database:
             """
             SELECT repo, issue_number, status, last_updated, branch_name, project_url,
                    last_processed_comment_timestamp, last_known_comment_count,
-                   research_session_id, plan_session_id, implement_session_id
+                   research_session_id, plan_session_id, implement_session_id, placement_status
             FROM issue_states
             WHERE repo = ? AND issue_number = ?
             """,
@@ -260,6 +264,7 @@ class Database:
                 research_session_id=row["research_session_id"],
                 plan_session_id=row["plan_session_id"],
                 implement_session_id=row["implement_session_id"],
+                placement_status=row["placement_status"],
             )
         return None
 
@@ -275,6 +280,7 @@ class Database:
         research_session_id: str | None = None,
         plan_session_id: str | None = None,
         implement_session_id: str | None = None,
+        placement_status: str | None = None,
     ) -> None:
         """
         Update or insert the state of an issue.
@@ -293,6 +299,7 @@ class Database:
             research_session_id: Claude session ID for Research workflow (optional, preserved if not provided)
             plan_session_id: Claude session ID for Plan workflow (optional, preserved if not provided)
             implement_session_id: Claude session ID for Implement workflow (optional, preserved if not provided)
+            placement_status: Original status when issue first entered workflow (optional, preserved if not provided; use empty string to clear)
         """
         conn = self._get_conn()
 
@@ -313,6 +320,12 @@ class Database:
                 plan_session_id = existing.plan_session_id
             if implement_session_id is None:
                 implement_session_id = existing.implement_session_id
+            if placement_status is None:
+                placement_status = existing.placement_status
+
+        # Convert empty string to None for placement_status (used to clear the value)
+        if placement_status == "":
+            placement_status = None
 
         with conn:
             conn.execute(
@@ -320,8 +333,8 @@ class Database:
                 INSERT OR REPLACE INTO issue_states
                 (repo, issue_number, status, last_updated, branch_name, project_url,
                  last_processed_comment_timestamp, last_known_comment_count,
-                 research_session_id, plan_session_id, implement_session_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 research_session_id, plan_session_id, implement_session_id, placement_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     repo,
@@ -335,6 +348,7 @@ class Database:
                     research_session_id,
                     plan_session_id,
                     implement_session_id,
+                    placement_status,
                 ),
             )
 
