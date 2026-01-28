@@ -202,15 +202,19 @@ class CommentProcessor:
 
             logger.info(f"Processing {len(user_comments)} user comment(s) (target: {target_type})")
 
+            # Skip reactions for Backlog items (self-notes don't need visual feedback)
+            skip_reactions = item.status == "Backlog"
+
             # Add editing label to indicate we're processing comments
             self.ticket_client.add_label(item.repo, item.ticket_id, Labels.EDITING)
 
             # Add eyes reaction to all comments to indicate we're processing them
-            for comment in user_comments:
-                try:
-                    self.ticket_client.add_reaction(comment.id, "EYES", repo=item.repo)
-                except Exception as e:
-                    logger.warning(f"Failed to add eyes reaction to {comment.database_id}: {e}")
+            if not skip_reactions:
+                for comment in user_comments:
+                    try:
+                        self.ticket_client.add_reaction(comment.id, "EYES", repo=item.repo)
+                    except Exception as e:
+                        logger.warning(f"Failed to add eyes reaction to {comment.database_id}: {e}")
 
             # Merge multiple comments into one, with later comments taking precedence
             # for any conflicting instructions
@@ -278,11 +282,12 @@ Processed feedback for **{target_type}**. No textual changes detected (may have 
                 )
 
                 # React with thumbs up to ALL comments to indicate successful processing
-                for comment in user_comments:
-                    try:
-                        self.ticket_client.add_reaction(comment.id, "THUMBS_UP", repo=item.repo)
-                    except Exception as e:
-                        logger.warning(f"Failed to add thumbs up to {comment.database_id}: {e}")
+                if not skip_reactions:
+                    for comment in user_comments:
+                        try:
+                            self.ticket_client.add_reaction(comment.id, "THUMBS_UP", repo=item.repo)
+                        except Exception as e:
+                            logger.warning(f"Failed to add thumbs up to {comment.database_id}: {e}")
 
                 # Update last processed to the RESPONSE comment (past both user comment and our reply)
                 self.database.update_issue_state(
