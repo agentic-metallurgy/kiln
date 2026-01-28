@@ -1445,6 +1445,18 @@ class Daemon:
         except Exception as e:
             logger.error(f"RESET: Failed to move {key} to Backlog: {e}")
 
+        # Clear placement_status so issue can be re-placed in a new workflow
+        try:
+            self.database.update_issue_state(
+                item.repo,
+                item.ticket_id,
+                "Backlog",
+                placement_status="",  # Empty string clears the value
+            )
+            logger.info(f"RESET: Cleared placement_status for {key}")
+        except Exception as e:
+            logger.warning(f"RESET: Failed to clear placement_status for {key}: {e}")
+
     def _clear_kiln_content(self, item: TicketItem) -> None:
         """Clear kiln-generated content from an issue's body.
 
