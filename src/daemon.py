@@ -260,6 +260,9 @@ class Daemon:
         self._running_labels: dict[str, str] = {}
         self._running_labels_lock = threading.Lock()
 
+        # Track repos that have had labels initialized
+        self._repos_with_labels: set[str] = set()
+
         # Thread pool for parallel workflow execution
         self.executor = ThreadPoolExecutor(
             max_workers=config.max_concurrent_workflows, thread_name_prefix="workflow-"
@@ -447,9 +450,6 @@ class Daemon:
         """
         logger.info("Initializing project metadata cache...")
 
-        # Track repos we've already ensured labels for (avoid duplicates)
-        repos_with_labels: set[str] = set()
-
         for project_url in self.config.project_urls:
             try:
                 # Fetch project metadata (project ID, status field, options)
@@ -464,9 +464,9 @@ class Daemon:
                 # Ensure required labels exist in ALL repos that have items in this project
                 unique_repos = {item.repo for item in items}
                 for repo in unique_repos:
-                    if repo not in repos_with_labels:
+                    if repo not in self._repos_with_labels:
                         self._ensure_required_labels(repo)
-                        repos_with_labels.add(repo)
+                        self._repos_with_labels.add(repo)
 
                 # Use first repo for ProjectMetadata (only used for caching reference)
                 repo = items[0].repo
@@ -1654,6 +1654,12 @@ class Daemon:
             self.database.update_issue_state(
                 item.repo, item.ticket_id, item.status, project_url=item.board_url
             )
+
+            # Ensure required labels exist for this repo (handles repos added after daemon start)
+            if item.repo not in self._repos_with_labels:
+                logger.info(f"Initializing labels for new repo {item.repo}")
+                self._ensure_required_labels(item.repo)
+                self._repos_with_labels.add(item.repo)
 
             # Auto-prepare: Create worktree if it doesn't exist (for any workflow)
             worktree_path = self._get_worktree_path(item.repo, item.ticket_id)

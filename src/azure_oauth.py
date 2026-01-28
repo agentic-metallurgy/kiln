@@ -111,7 +111,7 @@ class AzureOAuthClient:
             AzureTokenRequestError: If token request fails.
         """
         with self._lock:
-            if self._is_token_valid():
+            if self._is_token_valid() and self._token is not None:
                 return self._token.access_token
 
             # Token is missing, expired, or about to expire - refresh it

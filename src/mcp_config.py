@@ -10,7 +10,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from src.azure_oauth import AzureOAuthClient, AzureOAuthError
 
@@ -172,7 +172,7 @@ class MCPConfigManager:
             else:
                 return obj
 
-        return substitute_recursive(config)
+        return cast(dict[str, Any], substitute_recursive(config))
 
     def write_to_worktree(self, worktree_path: str) -> str | None:
         """Write resolved MCP configuration to a worktree directory.
