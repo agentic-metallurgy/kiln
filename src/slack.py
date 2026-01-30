@@ -37,7 +37,7 @@ def init_slack(bot_token: str | None, user_id: str | None) -> None:
         return
 
     if not bot_token or not user_id:
-        logger.debug("Slack not configured (missing bot token or user ID)")
+        logger.info("Slack not configured (missing bot token or user ID)")
         return
 
     _bot_token = bot_token
