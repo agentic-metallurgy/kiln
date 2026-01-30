@@ -199,9 +199,21 @@ class TestLoadConfig:
     def test_load_config_missing_project_urls(self, monkeypatch):
         """Test load_config raises ValueError when PROJECT_URLS is missing."""
         monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
         monkeypatch.delenv("PROJECT_URLS", raising=False)
 
-        with pytest.raises(ValueError, match="PROJECT_URLS environment variable is required"):
+        with pytest.raises(ValueError, match="Missing required environment variables: PROJECT_URLS"):
+            load_config_from_env()
+
+    def test_load_config_missing_multiple_required_vars(self, monkeypatch):
+        """Test load_config lists all missing required vars in a single error."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.delenv("PROJECT_URLS", raising=False)
+        monkeypatch.delenv("USERNAME_SELF", raising=False)
+
+        with pytest.raises(
+            ValueError, match="Missing required environment variables: PROJECT_URLS, USERNAME_SELF"
+        ):
             load_config_from_env()
 
     def test_load_config_project_urls_comma_separated(self, monkeypatch):
@@ -365,7 +377,7 @@ class TestLoadConfig:
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
         monkeypatch.delenv("USERNAME_SELF", raising=False)
 
-        with pytest.raises(ValueError, match="USERNAME_SELF environment variable is required"):
+        with pytest.raises(ValueError, match="Missing required environment variables: USERNAME_SELF"):
             load_config_from_env()
 
     def test_load_config_empty_username_self(self, monkeypatch):
@@ -374,7 +386,7 @@ class TestLoadConfig:
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
         monkeypatch.setenv("USERNAME_SELF", "")
 
-        with pytest.raises(ValueError, match="USERNAME_SELF environment variable is required"):
+        with pytest.raises(ValueError, match="Missing required environment variables: USERNAME_SELF"):
             load_config_from_env()
 
     def test_load_config_username_self_whitespace_only(self, monkeypatch):
@@ -383,7 +395,7 @@ class TestLoadConfig:
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
         monkeypatch.setenv("USERNAME_SELF", "   ")
 
-        with pytest.raises(ValueError, match="USERNAME_SELF environment variable is required"):
+        with pytest.raises(ValueError, match="Missing required environment variables: USERNAME_SELF"):
             load_config_from_env()
 
     def test_load_config_username_self(self, monkeypatch):
@@ -533,7 +545,7 @@ class TestLoadConfigFromFile:
         config_file = tmp_path / "config"
         config_file.write_text("GITHUB_TOKEN=ghp_test\nUSERNAME_SELF=testuser")
 
-        with pytest.raises(ValueError, match="PROJECT_URLS is required"):
+        with pytest.raises(ValueError, match="Missing required configuration in .kiln/config: PROJECT_URLS"):
             load_config_from_file(config_file)
 
     def test_load_config_from_file_parses_username_self(self, tmp_path, monkeypatch):
@@ -557,7 +569,17 @@ class TestLoadConfigFromFile:
             "GITHUB_TOKEN=ghp_test\nPROJECT_URLS=https://github.com/orgs/test/projects/1"
         )
 
-        with pytest.raises(ValueError, match="USERNAME_SELF is required"):
+        with pytest.raises(ValueError, match="Missing required configuration in .kiln/config: USERNAME_SELF"):
+            load_config_from_file(config_file)
+
+    def test_load_config_from_file_raises_on_missing_multiple_vars(self, tmp_path):
+        """Test ValueError lists all missing required vars in config file."""
+        config_file = tmp_path / "config"
+        config_file.write_text("GITHUB_TOKEN=ghp_test")
+
+        with pytest.raises(
+            ValueError, match="Missing required configuration in .kiln/config: PROJECT_URLS, USERNAME_SELF"
+        ):
             load_config_from_file(config_file)
 
     def test_load_config_from_file_parses_poll_interval(self, tmp_path, monkeypatch):
@@ -1236,7 +1258,7 @@ class TestBackwardIncompatibility:
         monkeypatch.setenv("ALLOWED_USERNAME", "olduser")  # Old config option
         monkeypatch.delenv("USERNAME_SELF", raising=False)
 
-        with pytest.raises(ValueError, match="USERNAME_SELF environment variable is required"):
+        with pytest.raises(ValueError, match="Missing required environment variables: USERNAME_SELF"):
             load_config_from_env()
 
     def test_allowed_username_not_accepted_file(self, tmp_path, monkeypatch):
@@ -1253,7 +1275,7 @@ class TestBackwardIncompatibility:
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
-        with pytest.raises(ValueError, match="USERNAME_SELF is required"):
+        with pytest.raises(ValueError, match="Missing required configuration in .kiln/config: USERNAME_SELF"):
             load_config_from_file(config_file)
 
     def test_allowed_username_ignored_when_username_self_present(self, monkeypatch):
