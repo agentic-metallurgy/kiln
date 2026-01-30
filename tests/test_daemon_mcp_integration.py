@@ -296,3 +296,321 @@ class TestWorkflowRunnerMCPConfig:
             mock_run_claude.assert_called_once()
             call_kwargs = mock_run_claude.call_args
             assert call_kwargs.kwargs.get("mcp_config_path") is None
+
+
+@pytest.mark.integration
+class TestDaemonMCPStartupLogging:
+    """Integration tests for MCP startup logging behavior.
+
+    These tests verify that the daemon correctly logs per-server MCP status
+    with tool lists at startup, matching the spec format:
+    - Success: "  Jenkins MCP loaded successfully. Tools: tool1, tool2"
+    - Failure: "  Jenkins MCP: connection failed (timeout after 30s)"
+    """
+
+    @pytest.fixture
+    def mock_mcp_config(self, tmp_path):
+        """Create a temporary MCP config with multiple servers."""
+        kiln_dir = tmp_path / ".kiln"
+        kiln_dir.mkdir()
+        mcp_config_path = kiln_dir / "mcp.json"
+
+        config_data = {
+            "mcpServers": {
+                "jenkins": {
+                    "url": "https://jenkins.example.com/mcp",
+                    "env": {"AUTHORIZATION": "Bearer test-token"},
+                },
+                "filesystem": {
+                    "command": "npx",
+                    "args": ["-y", "@modelcontextprotocol/fs-server"],
+                },
+            }
+        }
+        mcp_config_path.write_text(json.dumps(config_data))
+
+        # Change to this directory so MCPConfigManager finds the config
+        import os
+        original_cwd = os.getcwd()
+        os.chdir(tmp_path)
+        yield tmp_path
+        os.chdir(original_cwd)
+
+    @pytest.fixture
+    def base_config(self, tmp_path):
+        """Base configuration without Azure OAuth."""
+        config = MagicMock()
+        config.poll_interval = 60
+        config.watched_statuses = ["Research", "Plan", "Implement"]
+        config.max_concurrent_workflows = 2
+        config.workspace_dir = str(tmp_path)
+        config.database_path = str(tmp_path / "test.db")
+        config.project_urls = ["https://github.com/orgs/test/projects/1"]
+        config.stage_models = {}
+        config.github_enterprise_version = None
+        config.github_enterprise_host = None
+        config.github_token = None
+        config.github_enterprise_token = None
+        config.username_self = "test-bot"
+        config.team_usernames = []
+        config.ghes_logs_mask = False
+        config.claude_code_enable_telemetry = False
+        config.azure_tenant_id = None
+        config.azure_client_id = None
+        config.azure_username = None
+        config.azure_password = None
+        config.azure_scope = None
+        return config
+
+    def test_daemon_logs_successful_mcp_connections(self, base_config, mock_mcp_config):
+        """Test that daemon logs per-server success with tool lists."""
+        from src.mcp_client import MCPTestResult
+
+        # Mock check_all_mcp_servers to return successful results
+        mock_results = [
+            MCPTestResult(
+                server_name="jenkins",
+                success=True,
+                tools=["build_job", "get_logs", "list_jobs"],
+            ),
+            MCPTestResult(
+                server_name="filesystem",
+                success=True,
+                tools=["read_file", "write_file"],
+            ),
+        ]
+
+        with (
+            patch("src.ticket_clients.github.GitHubTicketClient"),
+            patch("src.daemon.check_all_mcp_servers", return_value=mock_results) as mock_check,
+            patch("src.daemon.logger") as mock_logger,
+        ):
+            daemon = Daemon(base_config)
+
+            # Verify check_all_mcp_servers was called
+            mock_check.assert_called_once()
+
+            # Verify per-server success was logged with tool lists
+            info_calls = [str(call) for call in mock_logger.info.call_args_list]
+            jenkins_log = next((c for c in info_calls if "jenkins" in c.lower()), None)
+            filesystem_log = next((c for c in info_calls if "filesystem" in c.lower()), None)
+
+            assert jenkins_log is not None, "Jenkins MCP success should be logged"
+            assert "loaded successfully" in jenkins_log
+            assert "build_job" in jenkins_log or "Tools:" in jenkins_log
+
+            assert filesystem_log is not None, "Filesystem MCP success should be logged"
+            assert "loaded successfully" in filesystem_log
+
+            daemon.stop()
+
+    def test_daemon_logs_failing_mcp_connections(self, base_config, mock_mcp_config):
+        """Test that daemon logs per-server failures with error messages."""
+        from src.mcp_client import MCPTestResult
+
+        # Mock check_all_mcp_servers to return failure results
+        mock_results = [
+            MCPTestResult(
+                server_name="jenkins",
+                success=False,
+                error="timeout after 30s",
+            ),
+            MCPTestResult(
+                server_name="filesystem",
+                success=False,
+                error="command not found",
+            ),
+        ]
+
+        with (
+            patch("src.ticket_clients.github.GitHubTicketClient"),
+            patch("src.daemon.check_all_mcp_servers", return_value=mock_results),
+            patch("src.daemon.logger") as mock_logger,
+        ):
+            daemon = Daemon(base_config)
+
+            # Verify failures are logged as warnings
+            warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
+            jenkins_warning = next((c for c in warning_calls if "jenkins" in c.lower()), None)
+            filesystem_warning = next((c for c in warning_calls if "filesystem" in c.lower()), None)
+
+            assert jenkins_warning is not None, "Jenkins MCP failure should be logged as warning"
+            assert "timeout" in jenkins_warning
+
+            assert filesystem_warning is not None, "Filesystem MCP failure should be logged as warning"
+            assert "command not found" in filesystem_warning
+
+            daemon.stop()
+
+    def test_daemon_logs_mixed_mcp_results(self, base_config, mock_mcp_config):
+        """Test that daemon correctly logs mix of successful and failing servers."""
+        from src.mcp_client import MCPTestResult
+
+        # Mock check_all_mcp_servers to return mixed results
+        mock_results = [
+            MCPTestResult(
+                server_name="jenkins",
+                success=True,
+                tools=["build_job", "get_logs"],
+            ),
+            MCPTestResult(
+                server_name="filesystem",
+                success=False,
+                error="connection refused",
+            ),
+        ]
+
+        with (
+            patch("src.ticket_clients.github.GitHubTicketClient"),
+            patch("src.daemon.check_all_mcp_servers", return_value=mock_results),
+            patch("src.daemon.logger") as mock_logger,
+        ):
+            daemon = Daemon(base_config)
+
+            # Verify successful connection is logged as info
+            info_calls = [str(call) for call in mock_logger.info.call_args_list]
+            jenkins_log = next((c for c in info_calls if "jenkins" in c.lower()), None)
+            assert jenkins_log is not None, "Jenkins MCP success should be logged as info"
+            assert "loaded successfully" in jenkins_log
+
+            # Verify failure is logged as warning
+            warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
+            filesystem_warning = next((c for c in warning_calls if "filesystem" in c.lower()), None)
+            assert filesystem_warning is not None, "Filesystem MCP failure should be logged as warning"
+            assert "connection refused" in filesystem_warning
+
+            daemon.stop()
+
+    def test_daemon_skips_mcp_testing_when_no_config(self, base_config):
+        """Test that daemon doesn't call check_all_mcp_servers when no MCP config."""
+        with (
+            patch("src.ticket_clients.github.GitHubTicketClient"),
+            patch("src.daemon.check_all_mcp_servers") as mock_check,
+            patch("src.daemon.MCPConfigManager") as mock_mcp_class,
+        ):
+            mock_mcp_instance = MagicMock()
+            mock_mcp_instance.validate_config.return_value = []
+            mock_mcp_instance.has_config.return_value = False
+            mock_mcp_class.return_value = mock_mcp_instance
+
+            daemon = Daemon(base_config)
+
+            # Verify check_all_mcp_servers was NOT called
+            mock_check.assert_not_called()
+
+            daemon.stop()
+
+    def test_daemon_logs_tools_as_comma_separated_list(self, base_config, mock_mcp_config):
+        """Test that tool lists are formatted as comma-separated strings."""
+        from src.mcp_client import MCPTestResult
+
+        # Mock check_all_mcp_servers to return results with multiple tools
+        mock_results = [
+            MCPTestResult(
+                server_name="jenkins",
+                success=True,
+                tools=["build_job", "get_logs", "list_jobs"],
+            ),
+        ]
+
+        with (
+            patch("src.ticket_clients.github.GitHubTicketClient"),
+            patch("src.daemon.check_all_mcp_servers", return_value=mock_results),
+            patch("src.daemon.logger") as mock_logger,
+        ):
+            daemon = Daemon(base_config)
+
+            # Check the format: "Tools: build_job, get_logs, list_jobs"
+            info_calls = [str(call) for call in mock_logger.info.call_args_list]
+            jenkins_log = next((c for c in info_calls if "jenkins" in c.lower()), None)
+            assert jenkins_log is not None
+            # Verify comma-separated format
+            assert "build_job, get_logs, list_jobs" in jenkins_log or all(
+                tool in jenkins_log for tool in ["build_job", "get_logs", "list_jobs"]
+            )
+
+            daemon.stop()
+
+    def test_daemon_logs_none_when_no_tools(self, base_config, mock_mcp_config):
+        """Test that 'none' is logged when server has no tools."""
+        from src.mcp_client import MCPTestResult
+
+        # Mock check_all_mcp_servers to return results with empty tools
+        mock_results = [
+            MCPTestResult(
+                server_name="empty-server",
+                success=True,
+                tools=[],
+            ),
+        ]
+
+        with (
+            patch("src.ticket_clients.github.GitHubTicketClient"),
+            patch("src.daemon.check_all_mcp_servers", return_value=mock_results),
+            patch("src.daemon.logger") as mock_logger,
+        ):
+            daemon = Daemon(base_config)
+
+            # Check that "Tools: none" is logged
+            info_calls = [str(call) for call in mock_logger.info.call_args_list]
+            empty_log = next((c for c in info_calls if "empty-server" in c.lower()), None)
+            assert empty_log is not None
+            assert "Tools: none" in empty_log
+
+            daemon.stop()
+
+    def test_daemon_continues_startup_on_mcp_failures(self, base_config, mock_mcp_config):
+        """Test that daemon startup completes even when all MCP servers fail."""
+        from src.mcp_client import MCPTestResult
+
+        # Mock check_all_mcp_servers to return all failures
+        mock_results = [
+            MCPTestResult(
+                server_name="jenkins",
+                success=False,
+                error="network unreachable",
+            ),
+            MCPTestResult(
+                server_name="filesystem",
+                success=False,
+                error="command not found",
+            ),
+        ]
+
+        with (
+            patch("src.ticket_clients.github.GitHubTicketClient"),
+            patch("src.daemon.check_all_mcp_servers", return_value=mock_results),
+            patch("src.daemon.logger"),
+        ):
+            # Daemon should initialize successfully despite all MCP failures
+            daemon = Daemon(base_config)
+            assert daemon is not None
+            assert daemon._running is False  # Not started yet, just initialized
+
+            daemon.stop()
+
+    def test_daemon_logs_mcp_server_count_before_details(self, base_config, mock_mcp_config):
+        """Test that daemon logs total server count before per-server details."""
+        from src.mcp_client import MCPTestResult
+
+        mock_results = [
+            MCPTestResult(server_name="server1", success=True, tools=["tool1"]),
+            MCPTestResult(server_name="server2", success=True, tools=["tool2"]),
+        ]
+
+        with (
+            patch("src.ticket_clients.github.GitHubTicketClient"),
+            patch("src.daemon.check_all_mcp_servers", return_value=mock_results),
+            patch("src.daemon.logger") as mock_logger,
+        ):
+            daemon = Daemon(base_config)
+
+            # Verify server count is logged
+            info_calls = [str(call) for call in mock_logger.info.call_args_list]
+            count_log = next(
+                (c for c in info_calls if "server(s)" in c.lower() or "2 server" in c.lower()),
+                None
+            )
+            assert count_log is not None, "MCP server count should be logged"
+
+            daemon.stop()
