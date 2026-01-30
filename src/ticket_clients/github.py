@@ -1048,13 +1048,47 @@ class GitHubTicketClient:
 
             nodes = issue_data.get("timelineItems", {}).get("nodes", [])
             if not nodes:
+                logger.debug(f"No timeline events found for {repo}#{ticket_id}")
                 return None
 
+            logger.debug(f"Timeline events for {repo}#{ticket_id}: {len(nodes)} events")
+            for node in nodes:
+                if node:
+                    event_type = node.get("__typename", "Unknown")
+                    actor_login = (
+                        node.get("actor", {}).get("login") if node.get("actor") else None
+                    )
+                    logger.debug(f"  {event_type}: actor={actor_login}")
+
+            # First pass: look for PROJECT_V2_ITEM_STATUS_CHANGED_EVENT (most specific)
             for node in reversed(nodes):
-                if node and node.get("actor"):
+                if (
+                    node
+                    and node.get("__typename") == "ProjectV2ItemStatusChangedEvent"
+                    and node.get("actor")
+                ):
                     login: str | None = node["actor"].get("login")
+                    logger.info(
+                        f"Selected actor '{login}' from ProjectV2ItemStatusChangedEvent "
+                        f"for {repo}#{ticket_id}"
+                    )
                     return login
 
+            # Fallback: use ADDED_TO_PROJECT_V2_EVENT if no status change event found
+            for node in reversed(nodes):
+                if (
+                    node
+                    and node.get("__typename") == "AddedToProjectV2Event"
+                    and node.get("actor")
+                ):
+                    login = node["actor"].get("login")
+                    logger.info(
+                        f"Selected actor '{login}' from AddedToProjectV2Event (fallback) "
+                        f"for {repo}#{ticket_id}"
+                    )
+                    return login
+
+            logger.debug(f"No actor found in timeline events for {repo}#{ticket_id}")
             return None
 
         except Exception as e:
