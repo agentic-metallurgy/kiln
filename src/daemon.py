@@ -7,6 +7,7 @@ This module provides the orchestrator that ties together all components:
 - Runs Claude workflows with proper error handling
 """
 
+import asyncio
 import re
 import signal
 import subprocess
@@ -38,10 +39,11 @@ from src.logger import (
     set_issue_context,
     setup_logging,
 )
+from src.mcp_client import check_all_mcp_servers
 from src.mcp_config import MCPConfigManager
 from src.pagerduty import init_pagerduty, resolve_hibernation_alert, trigger_hibernation_alert
-from src.slack import init_slack, send_phase_completion_notification
 from src.security import ActorCategory, check_actor_allowed
+from src.slack import init_slack, send_phase_completion_notification
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients import get_github_client
 from src.workflows import (
@@ -336,8 +338,18 @@ class Daemon:
             logger.warning(f"MCP config warning: {warning}")
 
         if self.mcp_config_manager.has_config():
-            config_count = len(self.mcp_config_manager.load_config().mcp_servers)  # type: ignore[union-attr]
-            logger.info(f"MCP configuration loaded with {config_count} server(s)")
+            config = self.mcp_config_manager.load_config()
+            mcp_servers = config.mcp_servers  # type: ignore[union-attr]
+            logger.info(f"MCP configuration loaded with {len(mcp_servers)} server(s)")
+
+            # Test MCP server connectivity and list tools
+            results = asyncio.run(check_all_mcp_servers(mcp_servers))
+            for result in results:
+                if result.success:
+                    tools_str = ", ".join(result.tools) if result.tools else "none"
+                    logger.info(f"  {result.server_name} MCP loaded successfully. Tools: {tools_str}")
+                else:
+                    logger.warning(f"  {result.server_name} MCP: {result.error}")
 
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
