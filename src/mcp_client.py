@@ -245,7 +245,7 @@ async def check_all_mcp_servers(
     # Convert any exceptions to MCPTestResult
     final_results: list[MCPTestResult] = []
     for result, (server_name, _) in zip(results, mcp_servers.items(), strict=True):
-        if isinstance(result, Exception):
+        if isinstance(result, BaseException):
             final_results.append(
                 MCPTestResult(
                     server_name=server_name,
@@ -254,6 +254,7 @@ async def check_all_mcp_servers(
                 )
             )
         else:
+            # result is MCPTestResult after BaseException check
             final_results.append(result)
 
     return final_results

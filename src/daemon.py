@@ -337,9 +337,9 @@ class Daemon:
         for warning in mcp_warnings:
             logger.warning(f"MCP config warning: {warning}")
 
-        if self.mcp_config_manager.has_config():
-            config = self.mcp_config_manager.load_config()
-            mcp_servers = config.mcp_servers  # type: ignore[union-attr]
+        mcp_config = self.mcp_config_manager.load_config()
+        if mcp_config is not None:
+            mcp_servers = mcp_config.mcp_servers
             logger.info(f"MCP configuration loaded with {len(mcp_servers)} server(s)")
 
             # Test MCP server connectivity and list tools

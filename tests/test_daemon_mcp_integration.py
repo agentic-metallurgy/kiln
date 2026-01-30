@@ -490,7 +490,7 @@ class TestDaemonMCPStartupLogging:
         ):
             mock_mcp_instance = MagicMock()
             mock_mcp_instance.validate_config.return_value = []
-            mock_mcp_instance.has_config.return_value = False
+            mock_mcp_instance.load_config.return_value = None
             mock_mcp_class.return_value = mock_mcp_instance
 
             daemon = Daemon(base_config)
