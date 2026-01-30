@@ -112,8 +112,8 @@ class TestAddLabel:
         assert "--add-label" in call_args
         assert "researching" in call_args
 
-    def test_add_label_creates_missing_label(self, github_client):
-        """Test that add_label creates the label if it doesn't exist."""
+    def test_add_label_creates_missing_label_with_metadata(self, github_client):
+        """Test that add_label creates missing label with REQUIRED_LABELS metadata."""
         # First call fails with "label not found", second call succeeds
         error = subprocess.CalledProcessError(1, "gh")
         error.stderr = "label 'researching' not found"
@@ -135,8 +135,46 @@ class TestAddLabel:
         ):
             github_client.add_label("github.com/owner/repo", 123, "researching")
 
-        # Verify create_repo_label was called
-        mock_create.assert_called_once_with("github.com/owner/repo", "researching")
+        # Verify create_repo_label was called with metadata from REQUIRED_LABELS
+        mock_create.assert_called_once_with(
+            "github.com/owner/repo",
+            "researching",
+            description="Research workflow in progress",
+            color="FFA500",
+        )
+        # Verify add_label was retried
+        assert call_count == 2
+
+    def test_add_label_creates_unknown_label_without_metadata(self, github_client):
+        """Test that add_label creates unknown labels with empty metadata."""
+        # First call fails with "label not found", second call succeeds
+        error = subprocess.CalledProcessError(1, "gh")
+        error.stderr = "label 'custom-label' not found"
+        error.stdout = ""
+
+        call_count = 0
+
+        def mock_run_gh(args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First add_label attempt fails
+                raise error
+            return ""
+
+        with (
+            patch.object(github_client, "_run_gh_command", side_effect=mock_run_gh),
+            patch.object(github_client, "create_repo_label", return_value=True) as mock_create,
+        ):
+            github_client.add_label("github.com/owner/repo", 123, "custom-label")
+
+        # Verify create_repo_label was called with empty metadata (not in REQUIRED_LABELS)
+        mock_create.assert_called_once_with(
+            "github.com/owner/repo",
+            "custom-label",
+            description="",
+            color="",
+        )
         # Verify add_label was retried
         assert call_count == 2
 

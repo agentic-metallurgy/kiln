@@ -20,6 +20,7 @@ from typing import Any, TypedDict
 
 from tenacity import wait_exponential
 
+from src.azure_oauth import AzureOAuthClient
 from src.claude_runner import run_claude
 from src.comment_processor import CommentProcessor
 from src.config import Config, load_config
@@ -37,7 +38,9 @@ from src.logger import (
     set_issue_context,
     setup_logging,
 )
+from src.mcp_config import MCPConfigManager
 from src.pagerduty import init_pagerduty, resolve_hibernation_alert, trigger_hibernation_alert
+from src.slack import init_slack, send_phase_completion_notification
 from src.security import ActorCategory, check_actor_allowed
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients import get_github_client
@@ -86,6 +89,7 @@ class WorkflowRunner:
         ctx: WorkflowContext,
         workflow_name: str,
         resume_session: str | None = None,
+        mcp_config_path: str | None = None,
     ) -> str | None:
         """Run a workflow by executing its prompts sequentially.
 
@@ -94,6 +98,7 @@ class WorkflowRunner:
             ctx: Context information for the workflow
             workflow_name: Name of the workflow stage for model selection
             resume_session: Optional session ID to resume from
+            mcp_config_path: Optional path to MCP configuration file for Claude
 
         Returns:
             The session ID from the last prompt execution, or None if not available
@@ -142,6 +147,7 @@ class WorkflowRunner:
                             resume_session=resume_session,
                             enable_telemetry=self.config.claude_code_enable_telemetry,
                             execution_stage=workflow_name.lower(),
+                            mcp_config_path=mcp_config_path,
                         )
                         logger.debug(f"Prompt {i}/{len(prompts)} completed successfully")
                         logger.debug(f"Response length: {len(result.response)} characters")
@@ -255,6 +261,9 @@ class Daemon:
         self._running_labels: dict[str, str] = {}
         self._running_labels_lock = threading.Lock()
 
+        # Track repos that have had labels initialized
+        self._repos_with_labels: set[str] = set()
+
         # Thread pool for parallel workflow execution
         self.executor = ThreadPoolExecutor(
             max_workers=config.max_concurrent_workflows, thread_name_prefix="workflow-"
@@ -296,6 +305,39 @@ class Daemon:
             username_self=config.username_self,
             team_usernames=config.team_usernames,
         )
+
+        # Initialize Azure OAuth client if configured
+        self.azure_oauth_client: AzureOAuthClient | None = None
+        if (
+            config.azure_tenant_id
+            and config.azure_client_id
+            and config.azure_username
+            and config.azure_password
+        ):
+            self.azure_oauth_client = AzureOAuthClient(
+                tenant_id=config.azure_tenant_id,
+                client_id=config.azure_client_id,
+                username=config.azure_username,
+                password=config.azure_password,
+                scope=config.azure_scope,
+            )
+            logger.info("Azure OAuth client initialized for MCP authentication")
+        else:
+            logger.debug("Azure OAuth not configured (MCP servers requiring Azure auth will fail)")
+
+        # Initialize MCP config manager
+        self.mcp_config_manager = MCPConfigManager(
+            azure_client=self.azure_oauth_client,
+        )
+
+        # Validate MCP config at startup
+        mcp_warnings = self.mcp_config_manager.validate_config()
+        for warning in mcp_warnings:
+            logger.warning(f"MCP config warning: {warning}")
+
+        if self.mcp_config_manager.has_config():
+            config_count = len(self.mcp_config_manager.load_config().mcp_servers)  # type: ignore[union-attr]
+            logger.info(f"MCP configuration loaded with {config_count} server(s)")
 
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -409,9 +451,6 @@ class Daemon:
         """
         logger.info("Initializing project metadata cache...")
 
-        # Track repos we've already ensured labels for (avoid duplicates)
-        repos_with_labels: set[str] = set()
-
         for project_url in self.config.project_urls:
             try:
                 # Fetch project metadata (project ID, status field, options)
@@ -426,9 +465,9 @@ class Daemon:
                 # Ensure required labels exist in ALL repos that have items in this project
                 unique_repos = {item.repo for item in items}
                 for repo in unique_repos:
-                    if repo not in repos_with_labels:
+                    if repo not in self._repos_with_labels:
                         self._ensure_required_labels(repo)
-                        repos_with_labels.add(repo)
+                        self._repos_with_labels.add(repo)
 
                 # Use first repo for ProjectMetadata (only used for caching reference)
                 repo = items[0].repo
@@ -479,7 +518,7 @@ class Daemon:
                 else:
                     logger.warning(f"Failed to create label '{label_name}'")
             else:
-                logger.info(f"Label '{label_name}' already exists")
+                logger.debug(f"Label '{label_name}' already exists")
 
     def _signal_handler(self, signum: int, _frame: object) -> None:
         """Handle shutdown signals gracefully.
@@ -1406,6 +1445,18 @@ class Daemon:
         except Exception as e:
             logger.error(f"RESET: Failed to move {key} to Backlog: {e}")
 
+        # Clear placement_status so issue can be re-placed in a new workflow
+        try:
+            self.database.update_issue_state(
+                item.repo,
+                item.ticket_id,
+                "Backlog",
+                placement_status="",  # Empty string clears the value
+            )
+            logger.info(f"RESET: Cleared placement_status for {key}")
+        except Exception as e:
+            logger.warning(f"RESET: Failed to clear placement_status for {key}: {e}")
+
     def _clear_kiln_content(self, item: TicketItem) -> None:
         """Clear kiln-generated content from an issue's body.
 
@@ -1577,6 +1628,43 @@ class Daemon:
                     f"RESET: Failed to remove linking keyword from PR #{pr.number} for {key}: {e}"
                 )
 
+    def _should_notify_completion(
+        self, item: TicketItem, placement_status: str | None, is_yolo: bool, moving_to_validate: bool
+    ) -> bool:
+        """Check if a Slack notification should be sent for phase completion.
+
+        Notifications are sent when an issue reaches its "final destination":
+        - Research: notify if placement_status was Research and completing research
+        - Plan: notify if placement_status was Plan and completing plan
+        - Implement: notify if placement_status was Implement and moving to Validate
+        - YOLO: only notify when reaching Validate (regardless of placement)
+
+        Args:
+            item: The TicketItem being processed
+            placement_status: The original status when issue first entered workflow
+            is_yolo: Whether the issue has YOLO label
+            moving_to_validate: Whether the issue is being moved to Validate status
+
+        Returns:
+            True if notification should be sent, False otherwise
+        """
+        if is_yolo:
+            # YOLO issues only notify when reaching Validate
+            return moving_to_validate
+
+        if placement_status is None:
+            return False
+
+        # For non-YOLO issues, notify when completing the phase we were placed in
+        if item.status == "Research" and placement_status == "Research":
+            return True
+        if item.status == "Plan" and placement_status == "Plan":
+            return True
+        if item.status == "Implement" and placement_status == "Implement" and moving_to_validate:
+            return True
+
+        return False
+
     def _process_item_workflow(self, item: TicketItem) -> None:
         """Process an item that needs a workflow (runs in thread).
 
@@ -1612,10 +1700,34 @@ class Daemon:
         run_logger: RunLogger | None = None
 
         try:
+            # Check if placement_status needs to be set (for Slack notifications)
+            # Only set when issue first enters a workflow status (Research/Plan/Implement)
+            existing_state = self.database.get_issue_state(item.repo, item.ticket_id)
+            should_set_placement = (
+                item.status in self.WORKFLOW_CONFIG
+                and (existing_state is None or existing_state.placement_status is None)
+            )
+            placement_to_set = item.status if should_set_placement else None
+
+            # Capture effective placement_status for notification logic
+            # Either the newly set value or the existing one from database
+            effective_placement_status = (
+                placement_to_set
+                if placement_to_set
+                else (existing_state.placement_status if existing_state else None)
+            )
+
             # Ensure issue state exists before workflow runs (needed for session ID storage)
             self.database.update_issue_state(
-                item.repo, item.ticket_id, item.status, project_url=item.board_url
+                item.repo, item.ticket_id, item.status, project_url=item.board_url,
+                placement_status=placement_to_set,
             )
+
+            # Ensure required labels exist for this repo (handles repos added after daemon start)
+            if item.repo not in self._repos_with_labels:
+                logger.info(f"Initializing labels for new repo {item.repo}")
+                self._ensure_required_labels(item.repo)
+                self._repos_with_labels.add(item.repo)
 
             # Auto-prepare: Create worktree if it doesn't exist (for any workflow)
             worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
@@ -1636,6 +1748,17 @@ class Daemon:
                 with self._running_labels_lock:
                     self._running_labels[key] = running_label
                 logger.debug(f"Added '{running_label}' label to {key}")
+
+            # Write MCP config to worktree if configured
+            mcp_config_path: str | None = None
+            if self.mcp_config_manager.has_config():
+                try:
+                    mcp_config_path = self.mcp_config_manager.write_to_worktree(worktree_path)
+                    if mcp_config_path:
+                        logger.info(f"Wrote MCP config to {mcp_config_path}")
+                except Exception as e:
+                    # Log warning but don't fail the workflow
+                    logger.warning(f"Failed to write MCP config to worktree: {e}")
 
             # Create masking filter if configured
             masking_filter: MaskingFilter | None = None
@@ -1670,7 +1793,7 @@ class Daemon:
                 logger.debug(f"Created run record {run_id} for {key}")
 
                 # Run the workflow
-                session_id = self._run_workflow(item.status, item)
+                session_id = self._run_workflow(item.status, item, mcp_config_path)
 
                 # Workflow completed successfully - update run record
                 self.database.update_run_record(
@@ -1747,6 +1870,30 @@ class Daemon:
                         logger.info(
                             f"YOLO: Cancelled auto-advance for {key}, label removed during workflow"
                         )
+
+            # Send Slack notification if issue reached its "final destination"
+            # For Implement, we check if we moved to Validate (via next_status or checkbox completion)
+            # next_status is set to None after moving to Validate, so we check if status was Implement
+            # and the config indicates it should move to Validate
+            is_yolo = Labels.YOLO in item.labels
+            moved_to_validate = bool(
+                item.status == "Implement"
+                and config
+                and config["next_status"] == "Validate"
+            )
+            if self._should_notify_completion(item, effective_placement_status, is_yolo, moved_to_validate):
+                issue_url = f"https://{item.repo}/issues/{item.ticket_id}"
+                # Determine phase for notification message
+                if moved_to_validate:
+                    notify_phase = "Implement"
+                else:
+                    notify_phase = item.status
+                send_phase_completion_notification(
+                    issue_url=issue_url,
+                    phase=notify_phase,
+                    issue_title=item.title,
+                    issue_number=item.ticket_id,
+                )
 
             # After workflow completes, update last_processed_comment timestamp to skip
             # any comments posted during the workflow (prevents daemon from treating
@@ -1935,12 +2082,14 @@ class Daemon:
         self,
         workflow_name: str,
         item: TicketItem,
+        mcp_config_path: str | None = None,
     ) -> str | None:
         """Run a workflow for a project item.
 
         Args:
             workflow_name: Name of the workflow status (e.g., "Research", "Plan")
             item: TicketItem to process
+            mcp_config_path: Optional path to MCP configuration file for Claude
 
         Returns:
             The Claude session ID from the workflow, or None if not available.
@@ -2014,7 +2163,9 @@ class Daemon:
                 workflow.execute(ctx, self.config)
                 session_id = None  # No session resumption for implement workflow
             else:
-                session_id = self.runner.run(workflow, ctx, workflow_name, resume_session)
+                session_id = self.runner.run(
+                    workflow, ctx, workflow_name, resume_session, mcp_config_path
+                )
             logger.info(f"Successfully completed workflow '{workflow_name}'")
 
             # Store the session ID for future resumption (must be a proper string)
@@ -2090,6 +2241,9 @@ def main() -> None:
         # Initialize PagerDuty if configured
         if config.pagerduty_routing_key:
             init_pagerduty(config.pagerduty_routing_key)
+
+        # Initialize Slack if configured
+        init_slack(config.slack_bot_token, config.slack_user_id)
 
         # Create and run daemon with locked version
         daemon = Daemon(config, version=git_version)
