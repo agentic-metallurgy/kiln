@@ -43,7 +43,7 @@ from src.mcp_client import check_all_mcp_servers
 from src.mcp_config import MCPConfigManager
 from src.pagerduty import init_pagerduty, resolve_hibernation_alert, trigger_hibernation_alert
 from src.security import ActorCategory, check_actor_allowed
-from src.slack import init_slack, send_phase_completion_notification
+from src.slack import init_slack, send_phase_completion_notification, send_startup_ping
 from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients import get_github_client
 from src.workflows import (
@@ -2256,6 +2256,7 @@ def main() -> None:
 
         # Initialize Slack if configured
         init_slack(config.slack_bot_token, config.slack_user_id)
+        send_startup_ping()
 
         # Create and run daemon with locked version
         daemon = Daemon(config, version=git_version)
