@@ -230,6 +230,20 @@ class MCPConfigManager:
         self._cached_config = None
         logger.debug("MCP config cache cleared")
 
+    def is_remote_server(self, server_config: dict[str, Any]) -> bool:
+        """Check if server config is for a remote MCP (has url field).
+
+        Remote MCPs use HTTP/SSE transport via a URL instead of launching
+        a local subprocess via command.
+
+        Args:
+            server_config: Server configuration dictionary.
+
+        Returns:
+            True if the server is configured for remote transport (has url field).
+        """
+        return "url" in server_config
+
     def validate_config(self) -> list[str]:
         """Validate the MCP configuration and return any warnings.
 
@@ -264,9 +278,12 @@ class MCPConfigManager:
                 )
                 continue
 
-            if "command" not in server_config:
+            # Only warn about missing command for local (non-remote) servers
+            if "command" not in server_config and not self.is_remote_server(
+                server_config
+            ):
                 warnings.append(
-                    f"MCP server '{server_name}' is missing 'command' field"
+                    f"MCP server '{server_name}' is missing 'command' field (local server)"
                 )
 
         return warnings

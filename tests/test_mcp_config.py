@@ -570,7 +570,7 @@ class TestMCPConfigManagerValidateConfig:
             Path(config_path).unlink()
 
     def test_validate_config_missing_command(self):
-        """Test warning for server missing command field."""
+        """Test warning for local server missing command field."""
         config_data = {
             "mcpServers": {
                 "no-command-server": {
@@ -589,6 +589,7 @@ class TestMCPConfigManagerValidateConfig:
             warnings = manager.validate_config()
 
             assert any("missing 'command'" in w for w in warnings)
+            assert any("local server" in w for w in warnings)
         finally:
             Path(config_path).unlink()
 
@@ -636,6 +637,168 @@ class TestMCPConfigManagerValidateConfig:
 
             warnings = manager.validate_config()
 
+            assert len(warnings) == 0
+        finally:
+            Path(config_path).unlink()
+
+
+@pytest.mark.unit
+class TestMCPConfigManagerIsRemoteServer:
+    """Tests for MCPConfigManager.is_remote_server()."""
+
+    def test_is_remote_server_with_url(self):
+        """Test that server with url field is detected as remote."""
+        manager = MCPConfigManager()
+        server_config = {"url": "https://api.example.com/mcp"}
+
+        assert manager.is_remote_server(server_config) is True
+
+    def test_is_remote_server_with_url_and_other_fields(self):
+        """Test remote server with additional config fields."""
+        manager = MCPConfigManager()
+        server_config = {
+            "url": "https://api.example.com/mcp",
+            "env": {"API_KEY": "test-key"},
+            "transport": "streamable-http",
+        }
+
+        assert manager.is_remote_server(server_config) is True
+
+    def test_is_remote_server_local_with_command(self):
+        """Test that server with command (no url) is local."""
+        manager = MCPConfigManager()
+        server_config = {"command": "npx", "args": ["-y", "@test/mcp-server"]}
+
+        assert manager.is_remote_server(server_config) is False
+
+    def test_is_remote_server_empty_config(self):
+        """Test that empty config is not detected as remote."""
+        manager = MCPConfigManager()
+        server_config = {}
+
+        assert manager.is_remote_server(server_config) is False
+
+    def test_is_remote_server_only_args(self):
+        """Test server with only args (missing command and url) is not remote."""
+        manager = MCPConfigManager()
+        server_config = {"args": ["--test"]}
+
+        assert manager.is_remote_server(server_config) is False
+
+
+@pytest.mark.unit
+class TestMCPConfigManagerValidateRemoteServers:
+    """Tests for validate_config() handling of remote servers."""
+
+    def test_validate_config_remote_server_no_command_warning(self):
+        """Test that remote servers don't trigger 'missing command' warning."""
+        config_data = {
+            "mcpServers": {
+                "remote-server": {
+                    "url": "https://api.example.com/mcp",
+                    "env": {"API_KEY": "test-key"},
+                }
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(config_data, f)
+            config_path = f.name
+
+        try:
+            manager = MCPConfigManager(config_path=config_path)
+
+            warnings = manager.validate_config()
+
+            # Should NOT have any warning about missing 'command' field
+            assert not any("missing 'command'" in w for w in warnings)
+        finally:
+            Path(config_path).unlink()
+
+    def test_validate_config_local_server_missing_command_warns(self):
+        """Test that local servers without command still trigger warning."""
+        config_data = {
+            "mcpServers": {
+                "local-server-without-command": {
+                    "args": ["--test"]
+                }
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(config_data, f)
+            config_path = f.name
+
+        try:
+            manager = MCPConfigManager(config_path=config_path)
+
+            warnings = manager.validate_config()
+
+            # Should have warning about missing 'command' field for local server
+            assert any("missing 'command'" in w for w in warnings)
+            assert any("local server" in w for w in warnings)
+        finally:
+            Path(config_path).unlink()
+
+    def test_validate_config_mixed_local_and_remote_servers(self):
+        """Test validation with both local and remote servers."""
+        config_data = {
+            "mcpServers": {
+                "remote-jenkins": {
+                    "url": "https://jenkins.example.com/mcp",
+                },
+                "local-filesystem": {
+                    "command": "npx",
+                    "args": ["-y", "@test/fs-server"],
+                },
+                "local-missing-command": {
+                    "args": ["--some-arg"]
+                },
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(config_data, f)
+            config_path = f.name
+
+        try:
+            manager = MCPConfigManager(config_path=config_path)
+
+            warnings = manager.validate_config()
+
+            # Should only warn about the local server missing command
+            assert len(warnings) == 1
+            assert "local-missing-command" in warnings[0]
+            assert "missing 'command'" in warnings[0]
+            # Should NOT warn about remote-jenkins
+            assert not any("remote-jenkins" in w for w in warnings)
+        finally:
+            Path(config_path).unlink()
+
+    def test_validate_config_multiple_remote_servers(self):
+        """Test validation with multiple remote servers (none should warn)."""
+        config_data = {
+            "mcpServers": {
+                "remote-server-1": {
+                    "url": "https://api1.example.com/mcp",
+                },
+                "remote-server-2": {
+                    "url": "https://api2.example.com/mcp",
+                    "transport": "sse",
+                },
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(config_data, f)
+            config_path = f.name
+
+        try:
+            manager = MCPConfigManager(config_path=config_path)
+
+            warnings = manager.validate_config()
+
+            # No warnings should be produced
             assert len(warnings) == 0
         finally:
             Path(config_path).unlink()
