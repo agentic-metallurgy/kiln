@@ -100,14 +100,15 @@ GITHUB_ENTERPRISE_VERSION=3.19
 
 ## 🔌 MCP Server Configuration
 
-MCP (Model Context Protocol) servers give Claude access to external tools during workflow execution—deployment APIs, monitoring systems, databases, and more. Kiln supports MCP servers that require Azure Entra ID (Azure AD) authentication.
+MCP (Model Context Protocol) servers give Claude access to external tools during workflow execution—deployment APIs, monitoring systems, databases, and more. Kiln supports both local MCP servers (stdio) and remote MCP servers (HTTP/SSE), including those that require Azure Entra ID (Azure AD) authentication.
 
 ### How It Works
 
 1. Define MCP servers in `.kiln/mcp.json`
 2. Configure Azure OAuth credentials in `.kiln/config` (if servers need authentication)
-3. Kiln retrieves bearer tokens and writes resolved config to each worktree
-4. Claude workflows receive the `--mcp-config` flag and can use your MCP tools
+3. At startup, Kiln tests connectivity to each MCP server and lists available tools
+4. Kiln retrieves bearer tokens and writes resolved config to each worktree
+5. Claude workflows receive the `--mcp-config` flag and can use your MCP tools
 
 ### MCP Config Structure
 
@@ -136,10 +137,29 @@ Create `.kiln/mcp.json` in your kiln directory:
 }
 ```
 
-Each server entry requires:
+**Local server entries** require:
 - `command`: Executable to run
 - `args`: Array of command arguments
 - `env` (optional): Environment variables for the server process
+
+**Remote server entries** (HTTP/SSE) require:
+- `url`: The HTTP endpoint for the MCP server
+- `env` (optional): Environment variables (can include auth tokens)
+
+Example remote MCP server:
+
+```json
+{
+  "mcpServers": {
+    "jenkins-api": {
+      "url": "https://jenkins.company.com/mcp",
+      "env": {
+        "AUTHORIZATION": "Bearer ${AZURE_BEARER_TOKEN}"
+      }
+    }
+  }
+}
+```
 
 ### Token Placeholders
 
@@ -150,6 +170,32 @@ Kiln supports the following placeholder for dynamic token substitution:
 | `${AZURE_BEARER_TOKEN}` | Azure OAuth 2.0 bearer token from ROPC flow |
 
 The placeholder can be used in any string field within your MCP config—typically in `env` values for authentication headers or tokens.
+
+### Startup Logging
+
+At daemon startup, Kiln tests connectivity to each configured MCP server and logs the results. This helps verify your MCP configuration is working correctly.
+
+**Successful connections:**
+```
+MCP configuration loaded with 2 server(s)
+  deployment-api MCP loaded successfully. Tools: deploy_app, rollback, get_status
+  monitoring MCP loaded successfully. Tools: get_metrics, list_alerts, acknowledge_alert
+```
+
+**Connection failures:**
+```
+MCP configuration loaded with 2 server(s)
+  deployment-api MCP: connection failed (timeout after 30s)
+  monitoring MCP loaded successfully. Tools: get_metrics, list_alerts, acknowledge_alert
+```
+
+**Connection timeout behavior:**
+- Default timeout is 30 seconds per server
+- All servers are tested in parallel for efficiency
+- Connection failures are logged as warnings but **do not prevent daemon startup**
+- If a server fails to connect at startup, Claude may still attempt to use it during workflows
+
+🎯 Connection testing is informational only. A server that fails the startup test might still work later (e.g., if it was temporarily unavailable).
 
 ### Azure OAuth Setup
 
@@ -186,7 +232,7 @@ AZURE_PASSWORD=your-service-user-password
 | "All Azure OAuth fields must be set together or none" | Partial Azure configuration | Ensure all five fields are set: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_USERNAME`, `AZURE_PASSWORD` |
 | "Token request failed: AADSTS..." | Azure authentication error | Check credentials, verify ROPC is enabled, confirm user permissions |
 | "Invalid JSON in MCP config file" | Malformed `.kiln/mcp.json` | Validate JSON syntax (check for trailing commas, missing quotes) |
-| "MCP server 'X' is missing 'command' field" | Incomplete server definition | Each server needs at minimum a `command` field |
+| "MCP server 'X' is missing 'command' field (local server)" | Incomplete local server definition | Local servers need a `command` field; remote servers need a `url` field |
 | MCP server not receiving token | Placeholder typo | Ensure exact match: `${AZURE_BEARER_TOKEN}` (case-sensitive) |
 
 **Token behavior:**
