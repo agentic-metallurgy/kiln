@@ -374,3 +374,80 @@ class TestInstallClaudeResources:
 
         # Command should still be installed
         assert (fake_home / ".claude" / "commands" / "kiln-implement_github.md").exists()
+
+
+@pytest.mark.unit
+class TestCmdRun:
+    """Tests for cmd_run function."""
+
+    def test_cmd_run_validates_working_directory(self, tmp_path, monkeypatch):
+        """Test that cmd_run validates working directory before proceeding."""
+        from argparse import Namespace
+
+        from src.cli import cmd_run
+
+        # Mock Path.home() to return a controlled path
+        mock_home = tmp_path / "mockhome"
+        mock_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        # Change to home directory (which is restricted)
+        monkeypatch.chdir(mock_home)
+
+        # cmd_run should exit with error when in home directory
+        args = Namespace(daemon=False)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_run(args)
+
+        assert exc_info.value.code == 1
+
+    def test_cmd_run_allows_valid_directory(self, tmp_path, monkeypatch, capsys):
+        """Test that cmd_run proceeds for valid directories."""
+        from argparse import Namespace
+
+        from src.cli import cmd_run
+
+        # Mock Path.home() to return a controlled path
+        mock_home = tmp_path / "mockhome"
+        mock_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        # Create a valid subdirectory
+        valid_dir = mock_home / "projects"
+        valid_dir.mkdir()
+
+        # Change to valid directory
+        monkeypatch.chdir(valid_dir)
+
+        # cmd_run should proceed (will call init_kiln since no config exists)
+        args = Namespace(daemon=False)
+        cmd_run(args)
+
+        # init_kiln should have been called - check for its output
+        captured = capsys.readouterr()
+        assert ".kiln/" in captured.out or "Created:" in captured.out
+
+    def test_cmd_run_error_message_includes_recommendation(self, tmp_path, monkeypatch, capsys):
+        """Test that error message includes recommendation when in restricted directory."""
+        from argparse import Namespace
+
+        from src.cli import cmd_run
+
+        # Mock Path.home()
+        mock_home = tmp_path / "mockhome"
+        mock_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        # Change to home directory
+        monkeypatch.chdir(mock_home)
+
+        args = Namespace(daemon=False)
+
+        with pytest.raises(SystemExit):
+            cmd_run(args)
+
+        captured = capsys.readouterr()
+        # Error should include recommendation
+        assert "mkdir" in captured.err
+        assert "kiln-workspace" in captured.err

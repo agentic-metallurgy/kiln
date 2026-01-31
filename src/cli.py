@@ -554,6 +554,15 @@ def cmd_logs(args: argparse.Namespace) -> None:
 
 def cmd_run(args: argparse.Namespace) -> None:
     """Handle the 'run' subcommand (default daemon behavior)."""
+    from src.setup import SetupError, validate_working_directory
+
+    # Validate working directory before any other operations
+    try:
+        validate_working_directory()
+    except SetupError as e:
+        print(f"\n{e}", file=sys.stderr)
+        sys.exit(1)
+
     kiln_dir = get_kiln_dir()
     config_path = kiln_dir / CONFIG_FILE
 
