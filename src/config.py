@@ -176,24 +176,26 @@ def load_config_from_file(config_path: Path) -> Config:
             "Kiln operates against either github.com OR a GitHub Enterprise Server, not both."
         )
 
-    # Validate GHES token requires GHES host
-    if github_enterprise_token and not github_enterprise_host:
-        raise ValueError(
-            "GITHUB_ENTERPRISE_TOKEN requires GITHUB_ENTERPRISE_HOST. "
-            "Please set the hostname of your GitHub Enterprise Server."
-        )
-
     # Parse GHES version (e.g., "3.14")
     github_enterprise_version = data.get("GITHUB_ENTERPRISE_VERSION")
     if not github_enterprise_version:
         github_enterprise_version = None
 
-    # Validate GHES version requires GHES host and token
-    if github_enterprise_version and not (github_enterprise_host and github_enterprise_token):
-        raise ValueError(
-            "GITHUB_ENTERPRISE_VERSION requires GITHUB_ENTERPRISE_HOST and GITHUB_ENTERPRISE_TOKEN. "
-            "Please configure all GitHub Enterprise Server settings."
-        )
+    # Validate GitHub authentication - need either GITHUB_TOKEN or full GHES config
+    if not github_token:
+        # No github.com token - check GHES configuration
+        has_any_ghes = github_enterprise_host or github_enterprise_token or github_enterprise_version
+        if has_any_ghes:
+            # Attempting GHES - need all three vars
+            if not github_enterprise_host:
+                missing_vars.append("GITHUB_ENTERPRISE_HOST")
+            if not github_enterprise_token:
+                missing_vars.append("GITHUB_ENTERPRISE_TOKEN")
+            if not github_enterprise_version:
+                missing_vars.append("GITHUB_ENTERPRISE_VERSION")
+        else:
+            # No auth configured at all
+            missing_vars.append("GITHUB_TOKEN")
 
     # Set tokens in environment so Claude subprocesses can use gh CLI
     if github_token:
@@ -385,24 +387,26 @@ def load_config_from_env() -> Config:
             "Kiln operates against either github.com OR a GitHub Enterprise Server, not both."
         )
 
-    # Validate GHES token requires GHES host
-    if github_enterprise_token and not github_enterprise_host:
-        raise ValueError(
-            "GITHUB_ENTERPRISE_TOKEN requires GITHUB_ENTERPRISE_HOST. "
-            "Please set the hostname of your GitHub Enterprise Server."
-        )
-
     # Parse GHES version (e.g., "3.14")
     github_enterprise_version = os.environ.get("GITHUB_ENTERPRISE_VERSION")
     if not github_enterprise_version:
         github_enterprise_version = None
 
-    # Validate GHES version requires GHES host and token
-    if github_enterprise_version and not (github_enterprise_host and github_enterprise_token):
-        raise ValueError(
-            "GITHUB_ENTERPRISE_VERSION requires GITHUB_ENTERPRISE_HOST and GITHUB_ENTERPRISE_TOKEN. "
-            "Please configure all GitHub Enterprise Server settings."
-        )
+    # Validate GitHub authentication - need either GITHUB_TOKEN or full GHES config
+    if not github_token:
+        # No github.com token - check GHES configuration
+        has_any_ghes = github_enterprise_host or github_enterprise_token or github_enterprise_version
+        if has_any_ghes:
+            # Attempting GHES - need all three vars
+            if not github_enterprise_host:
+                missing_vars.append("GITHUB_ENTERPRISE_HOST")
+            if not github_enterprise_token:
+                missing_vars.append("GITHUB_ENTERPRISE_TOKEN")
+            if not github_enterprise_version:
+                missing_vars.append("GITHUB_ENTERPRISE_VERSION")
+        else:
+            # No auth configured at all
+            missing_vars.append("GITHUB_TOKEN")
 
     # Set tokens in environment so Claude subprocesses can use gh CLI
     if github_token:
