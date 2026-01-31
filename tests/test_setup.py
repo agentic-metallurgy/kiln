@@ -10,12 +10,161 @@ from src.setup.checks import (
     check_required_tools,
     configure_git_credential_helper,
     get_hostnames_from_project_urls,
+    is_restricted_directory,
+    validate_working_directory,
 )
 from src.setup.project import (
     REQUIRED_COLUMN_NAMES,
     ValidationResult,
     validate_project_columns,
 )
+
+
+@pytest.mark.unit
+class TestIsRestrictedDirectory:
+    """Tests for is_restricted_directory()."""
+
+    def test_root_directory_is_restricted(self, tmp_path):
+        """Test that root directory (/) is restricted."""
+        from pathlib import Path
+
+        assert is_restricted_directory(Path("/")) is True
+
+    def test_users_directory_is_restricted(self):
+        """Test that /Users/ is restricted."""
+        from pathlib import Path
+
+        assert is_restricted_directory(Path("/Users")) is True
+        assert is_restricted_directory(Path("/Users/")) is True
+
+    def test_home_directory_linux_is_restricted(self, tmp_path, monkeypatch):
+        """Test that /home/<user> directory is restricted (Linux-style)."""
+        from pathlib import Path
+
+        # On macOS, /home resolves to /System/Volumes/Data/home which doesn't
+        # match our pattern. We test the Linux-style home by mocking Path.home().
+        # The key behavior is that the user's home directory is restricted,
+        # regardless of whether it's /Users/<user> or /home/<user>.
+        mock_home = tmp_path / "home" / "testuser"
+        mock_home.mkdir(parents=True)
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        # User's home directory should be restricted
+        assert is_restricted_directory(mock_home) is True
+
+        # Subdirectory of home should be allowed
+        subdir = mock_home / "projects"
+        subdir.mkdir()
+        assert is_restricted_directory(subdir) is False
+
+    def test_user_home_directory_is_restricted(self, tmp_path, monkeypatch):
+        """Test that user's home directory is restricted."""
+        from pathlib import Path
+
+        # Mock Path.home() to return a controlled path
+        mock_home = tmp_path / "mockhome"
+        mock_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        assert is_restricted_directory(mock_home) is True
+
+    def test_subdirectory_of_home_is_allowed(self, tmp_path, monkeypatch):
+        """Test that subdirectories of home are allowed."""
+        from pathlib import Path
+
+        # Mock Path.home() to return a controlled path
+        mock_home = tmp_path / "mockhome"
+        mock_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        subdir = mock_home / "projects"
+        subdir.mkdir()
+
+        assert is_restricted_directory(subdir) is False
+
+    def test_deeply_nested_directory_is_allowed(self, tmp_path, monkeypatch):
+        """Test that deeply nested directories are allowed."""
+        from pathlib import Path
+
+        mock_home = tmp_path / "mockhome"
+        mock_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        deep_dir = mock_home / "projects" / "kiln" / "workspace"
+        deep_dir.mkdir(parents=True)
+
+        assert is_restricted_directory(deep_dir) is False
+
+    def test_uses_cwd_when_no_directory_provided(self, tmp_path, monkeypatch):
+        """Test that current working directory is used when none provided."""
+        monkeypatch.chdir(tmp_path)
+        # tmp_path is not a restricted directory
+        assert is_restricted_directory() is False
+
+    def test_non_home_top_level_directory_is_allowed(self):
+        """Test that non-restricted top-level directories are allowed."""
+        from pathlib import Path
+
+        # /tmp, /var, etc. should be allowed
+        assert is_restricted_directory(Path("/tmp")) is False
+        assert is_restricted_directory(Path("/var")) is False
+
+
+@pytest.mark.unit
+class TestValidateWorkingDirectory:
+    """Tests for validate_working_directory()."""
+
+    def test_raises_for_root_directory(self):
+        """Test that SetupError is raised for root directory."""
+        from pathlib import Path
+
+        with pytest.raises(SetupError) as exc_info:
+            validate_working_directory(Path("/"))
+
+        error = str(exc_info.value)
+        assert "Cannot run kiln" in error
+        assert "not allowed" in error
+        assert "mkdir" in error
+
+    def test_raises_for_home_directory(self, tmp_path, monkeypatch):
+        """Test that SetupError is raised for home directory."""
+        from pathlib import Path
+
+        mock_home = tmp_path / "mockhome"
+        mock_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        with pytest.raises(SetupError) as exc_info:
+            validate_working_directory(mock_home)
+
+        error = str(exc_info.value)
+        assert "Cannot run kiln" in error
+        assert str(mock_home) in error
+
+    def test_no_error_for_valid_directory(self, tmp_path, monkeypatch):
+        """Test that no error is raised for valid directory."""
+        from pathlib import Path
+
+        mock_home = tmp_path / "mockhome"
+        mock_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        valid_dir = mock_home / "projects"
+        valid_dir.mkdir()
+
+        # Should not raise
+        validate_working_directory(valid_dir)
+
+    def test_error_includes_recommendation(self):
+        """Test that error message includes recommendation to create directory."""
+        from pathlib import Path
+
+        with pytest.raises(SetupError) as exc_info:
+            validate_working_directory(Path("/"))
+
+        error = str(exc_info.value)
+        assert "mkdir" in error
+        assert "kiln-workspace" in error
 
 
 @pytest.mark.unit

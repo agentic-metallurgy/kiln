@@ -1,6 +1,9 @@
 """Pre-flight checks for required CLI tools."""
 
+from __future__ import annotations
+
 import subprocess
+from pathlib import Path
 
 from src.logger import get_logger
 
@@ -11,6 +14,68 @@ class SetupError(Exception):
     """Raised when setup validation fails."""
 
     pass
+
+
+def is_restricted_directory(directory: Path | None = None) -> bool:
+    """Check if a directory is a restricted location (root or home directory).
+
+    Kiln should not run in:
+    - Root directory (/)
+    - Users directory (/Users/ on macOS, /home/ on Linux)
+    - User's home directory (/Users/<username>/ or /home/<username>/)
+
+    Args:
+        directory: The directory to check. Defaults to current working directory.
+
+    Returns:
+        True if the directory is restricted, False otherwise.
+    """
+    if directory is None:
+        directory = Path.cwd()
+
+    # Resolve to absolute path
+    resolved = directory.resolve()
+
+    # Check for root directory
+    if resolved == Path("/"):
+        return True
+
+    # Get parts of the path (e.g., ('/', 'Users', 'username') for /Users/username)
+    parts = resolved.parts
+
+    # Check for /Users/ or /home/ (users directory itself)
+    if len(parts) == 2 and parts[1] in ("Users", "home"):
+        return True
+
+    # Check for user's home directory (/Users/<username>/ or /home/<username>/)
+    # This catches the home directory exactly (not subdirectories)
+    home = Path.home().resolve()
+    return resolved == home
+
+
+def validate_working_directory(directory: Path | None = None) -> None:
+    """Validate that the working directory is not a restricted location.
+
+    Raises SetupError if running in root, users directory, or home directory.
+
+    Args:
+        directory: The directory to validate. Defaults to current working directory.
+
+    Raises:
+        SetupError: If the directory is a restricted location.
+    """
+    if directory is None:
+        directory = Path.cwd()
+
+    resolved = directory.resolve()
+
+    if is_restricted_directory(resolved):
+        raise SetupError(
+            f"Cannot run kiln in '{resolved}'.\n"
+            "Running kiln in root or home directory is not allowed.\n"
+            "Please create a dedicated directory and run kiln from there:\n"
+            "  mkdir ~/kiln-workspace && cd ~/kiln-workspace && kiln"
+        )
 
 
 def check_required_tools() -> None:

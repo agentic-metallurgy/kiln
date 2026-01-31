@@ -11,6 +11,8 @@ from src.setup.checks import (
     check_required_tools,
     configure_git_credential_helper,
     get_hostnames_from_project_urls,
+    is_restricted_directory,
+    validate_working_directory,
 )
 from src.setup.project import validate_project_columns
 
@@ -18,6 +20,8 @@ __all__ = [
     "check_required_tools",
     "configure_git_credential_helper",
     "get_hostnames_from_project_urls",
+    "is_restricted_directory",
     "validate_project_columns",
+    "validate_working_directory",
     "SetupError",
 ]

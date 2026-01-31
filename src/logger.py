@@ -5,6 +5,8 @@ Provides a simple interface to configure and retrieve loggers using Python's
 built-in logging module.
 """
 
+from __future__ import annotations
+
 import contextvars
 import logging
 import os
