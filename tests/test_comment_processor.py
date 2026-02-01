@@ -267,6 +267,7 @@ class TestCommentProcessorAllowlist:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_ensure_worktree_exists", return_value="/workspaces/repo-issue-42"),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -364,6 +365,7 @@ class TestCommentProcessorAllowlist:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_ensure_worktree_exists", return_value="/workspaces/repo-issue-42"),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -554,6 +556,7 @@ class TestCommentProcessorSkipBacklog:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_ensure_worktree_exists", return_value="/workspaces/repo-issue-42"),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -619,6 +622,7 @@ class TestCommentProcessorSkipBacklog:
         with (
             patch.object(processor, "_get_target_type", return_value="plan"),
             patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_ensure_worktree_exists", return_value="/workspaces/repo-issue-42"),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -699,6 +703,7 @@ class TestCommentProcessorSlackNotification:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_ensure_worktree_exists", return_value="/workspaces/repo-issue-42"),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -770,6 +775,7 @@ class TestCommentProcessorSlackNotification:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_ensure_worktree_exists", return_value="/workspaces/repo-issue-42"),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
