@@ -186,7 +186,6 @@ class CommentProcessor:
                 c
                 for c in new_comments
                 if c.author == self.username_self  # Must be from allowed username
-                and c.author not in self.BOT_USERNAMES
                 and not self._is_kiln_post(c.body, all_markers)
                 and not self._is_kiln_response(c.body)
                 and not c.is_processed  # Skip already-processed comments
