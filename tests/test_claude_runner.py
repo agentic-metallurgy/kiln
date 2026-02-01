@@ -231,6 +231,37 @@ class TestRunClaude:
         with pytest.raises(ClaudeRunnerError, match="failed with exit code 1"):
             run_claude("Prompt", str(tmp_path))
 
+    def test_run_claude_nonzero_exit_with_nonjson_stdout(self, mock_claude_subprocess, tmp_path):
+        """Test run_claude captures non-JSON stdout in error when process fails."""
+        # Simulate Claude outputting an error message before JSON stream
+        mock_process = self._create_mock_process(
+            ["Error: Something went wrong before JSON output\n"],
+            return_code=1,
+            stderr_output="",
+        )
+        mock_claude_subprocess.return_value = mock_process
+
+        with pytest.raises(ClaudeRunnerError, match="Something went wrong before JSON output"):
+            run_claude("Prompt", str(tmp_path))
+
+    def test_run_claude_nonzero_exit_combines_stderr_and_nonjson_stdout(
+        self, mock_claude_subprocess, tmp_path
+    ):
+        """Test run_claude combines stderr and non-JSON stdout in error message."""
+        mock_process = self._create_mock_process(
+            ["CLI startup error\n"],
+            return_code=1,
+            stderr_output="stderr content",
+        )
+        mock_claude_subprocess.return_value = mock_process
+
+        with pytest.raises(ClaudeRunnerError) as exc_info:
+            run_claude("Prompt", str(tmp_path))
+
+        error_msg = str(exc_info.value)
+        assert "stderr content" in error_msg
+        assert "CLI startup error" in error_msg
+
     def test_run_claude_error_event(self, mock_claude_subprocess, tmp_path):
         """Test run_claude raises ClaudeRunnerError when error event is received."""
         error_event = json.dumps({"type": "error", "message": "Rate limit exceeded"})
