@@ -247,10 +247,20 @@ class ImplementWorkflow:
         while True:  # Loop controlled by exit conditions, not iteration count
             iteration += 1
 
-            # Get current PR state
-            pr_info = self._get_pr_for_issue(ctx.repo, ctx.issue_number)
+            # Get current PR state (with retry for transient network errors)
+            try:
+                pr_info = _retry_with_backoff(
+                    lambda: self._get_pr_for_issue(ctx.repo, ctx.issue_number),
+                    max_attempts=3,
+                    description=f"PR lookup for {issue_url}",
+                )
+            except NetworkError as e:
+                raise RuntimeError(
+                    f"Failed to reach GitHub after 3 retry attempts while looking up PR for {issue_url}: {e}"
+                ) from e
+
             if not pr_info:
-                raise RuntimeError(f"PR disappeared for {key}")
+                raise RuntimeError(f"PR disappeared for {issue_url}")
 
             pr_body = pr_info.get("body", "")
             total_tasks, completed_tasks = count_checkboxes(pr_body)
