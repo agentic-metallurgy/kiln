@@ -1,9 +1,16 @@
 """Pytest configuration and shared fixtures."""
 
+import os
 import tempfile
 from unittest.mock import patch
 
 import pytest
+from hypothesis import settings
+
+# Configure Hypothesis profiles for different environments
+settings.register_profile("ci", max_examples=100, deadline=None)
+settings.register_profile("dev", max_examples=50, deadline=None)
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "dev"))
 
 
 def pytest_configure(config):
@@ -11,6 +18,10 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "skip_auto_mock_validation: skip the autouse mock_validate_connection fixture",
+    )
+    config.addinivalue_line(
+        "markers",
+        "hypothesis: marks property-based tests using Hypothesis",
     )
 
 

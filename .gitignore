@@ -38,6 +38,7 @@ build/
 
 # Test cache
 .pytest_cache/
+.hypothesis/
 .tox/
 .coverage
 .coverage.*
