@@ -17,9 +17,11 @@ from src.database import Database
 from src.interfaces import Comment, TicketClient, TicketItem
 from src.labels import Labels
 from src.logger import clear_issue_context, get_logger, set_issue_context
+from src.slack import send_comment_processed_notification
 from src.workflows import ProcessCommentsWorkflow, WorkflowContext
 
 if TYPE_CHECKING:
+    from src.config import Config
     from src.daemon import WorkflowRunner
 
 logger = get_logger(__name__)
@@ -59,6 +61,7 @@ class CommentProcessor:
         database: Database,
         runner: "WorkflowRunner",
         workspace_dir: str,
+        config: "Config",
         username_self: str | None = None,
         team_usernames: list[str] | None = None,
     ) -> None:
@@ -69,6 +72,7 @@ class CommentProcessor:
             database: Database for tracking processed comments
             runner: WorkflowRunner for executing Claude workflows
             workspace_dir: Base directory for worktrees
+            config: Application configuration
             username_self: Username allowed to trigger comment processing
             team_usernames: List of team member usernames (logged at DEBUG, not WARNING)
         """
@@ -76,6 +80,7 @@ class CommentProcessor:
         self.database = database
         self.runner = runner
         self.workspace_dir = workspace_dir
+        self.config = config
         self.username_self = username_self
         self.team_usernames = team_usernames or []
         logger.debug("CommentProcessor initialized")
@@ -296,6 +301,15 @@ Processed feedback for **{target_type}**. No textual changes detected (may have 
                     project_url=item.board_url,
                 )
                 logger.info(f"Processed {len(user_comments)} comment(s)")
+
+                # Send Slack notification if enabled
+                if self.config.slack_dm_on_comment:
+                    comment_url = f"https://{item.repo}/issues/{item.ticket_id}#issuecomment-{response_comment.database_id}"
+                    send_comment_processed_notification(
+                        issue_number=item.ticket_id,
+                        issue_title=item.title,
+                        comment_url=comment_url,
+                    )
             except Exception as e:
                 logger.error(f"Failed to process comments: {e}")
             finally:

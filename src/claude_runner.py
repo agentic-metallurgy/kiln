@@ -148,6 +148,7 @@ def run_claude(
         start_time = time.time()
         last_activity_time = time.time()
         response_parts = []
+        non_json_output = []  # Capture non-JSON output for error reporting
         llm_metrics: LLMMetrics | None = None
 
         # Read stdout line by line
@@ -245,8 +246,9 @@ def run_claude(
                         raise ClaudeRunnerError(f"Claude error: {error_msg}")
 
             except json.JSONDecodeError as e:
-                # Handle partial or malformed JSON gracefully
+                # Capture non-JSON output for error reporting (e.g., early CLI errors)
                 logger.warning(f"Failed to parse JSON line: {line[:100]}... Error: {e}")
+                non_json_output.append(line.strip())
                 # Continue processing, don't fail on partial JSON
                 continue
 
@@ -273,8 +275,18 @@ def run_claude(
             logger.error(f"Claude process exited with code {return_code}")
             if stderr_output:
                 logger.error(f"Stderr: {stderr_output}")
+            if non_json_output:
+                logger.error(f"Non-JSON stdout: {non_json_output}")
+            # Combine stderr and non-JSON stdout for complete error context
+            error_details = stderr_output.strip()
+            if non_json_output:
+                non_json_str = "\n".join(non_json_output)
+                if error_details:
+                    error_details = f"{error_details}\nStdout: {non_json_str}"
+                else:
+                    error_details = non_json_str
             raise ClaudeRunnerError(
-                f"Claude process failed with exit code {return_code}: {stderr_output}"
+                f"Claude process failed with exit code {return_code}: {error_details}"
             )
 
         # Combine response parts

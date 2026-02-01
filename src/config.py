@@ -64,6 +64,7 @@ class Config:
     pagerduty_routing_key: str | None = None  # PagerDuty Events API v2 routing key
     slack_bot_token: str | None = None  # Slack Bot OAuth token (xoxb-...)
     slack_user_id: str | None = None  # Slack user ID to DM (U...)
+    slack_dm_on_comment: bool = True  # Send DM when comment is processed
     # Azure OAuth 2.0 ROPC configuration for MCP authentication
     azure_tenant_id: str | None = None
     azure_client_id: str | None = None
@@ -286,6 +287,7 @@ def load_config_from_file(config_path: Path) -> Config:
     slack_user_id = data.get("SLACK_USER_ID")
     if not slack_user_id:
         slack_user_id = None
+    slack_dm_on_comment = data.get("SLACK_DM_ON_COMMENT", "1") == "1"
 
     # Azure OAuth settings
     azure_tenant_id = data.get("AZURE_TENANT_ID")
@@ -346,6 +348,7 @@ def load_config_from_file(config_path: Path) -> Config:
         pagerduty_routing_key=pagerduty_routing_key,
         slack_bot_token=slack_bot_token,
         slack_user_id=slack_user_id,
+        slack_dm_on_comment=slack_dm_on_comment,
         azure_tenant_id=azure_tenant_id,
         azure_client_id=azure_client_id,
         azure_username=azure_username,
@@ -493,6 +496,7 @@ def load_config_from_env() -> Config:
     slack_user_id = os.environ.get("SLACK_USER_ID")
     if not slack_user_id:
         slack_user_id = None
+    slack_dm_on_comment = os.environ.get("SLACK_DM_ON_COMMENT", "1") == "1"
 
     # Azure OAuth settings
     azure_tenant_id = os.environ.get("AZURE_TENANT_ID")
@@ -555,6 +559,7 @@ def load_config_from_env() -> Config:
         pagerduty_routing_key=pagerduty_routing_key,
         slack_bot_token=slack_bot_token,
         slack_user_id=slack_user_id,
+        slack_dm_on_comment=slack_dm_on_comment,
         azure_tenant_id=azure_tenant_id,
         azure_client_id=azure_client_id,
         azure_username=azure_username,

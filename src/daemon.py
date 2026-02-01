@@ -304,6 +304,7 @@ class Daemon:
             self.database,
             self.runner,
             config.workspace_dir,
+            config=config,
             username_self=config.username_self,
             team_usernames=config.team_usernames,
         )
@@ -1906,6 +1907,21 @@ class Daemon:
                     issue_title=item.title,
                     issue_number=item.ticket_id,
                 )
+
+            # Post completion comment to GitHub issue when Implement phase completes
+            if moved_to_validate:
+                try:
+                    pr_info = self._get_pr_for_issue(item.repo, item.ticket_id)
+                    if pr_info:
+                        pr_number = pr_info.get("number")
+                        if pr_number:
+                            # Construct PR URL from repo and PR number
+                            pr_url = f"https://{item.repo}/pull/{pr_number}"
+                            comment_body = f"Implementation complete! PR ready for review: {pr_url}"
+                            self.ticket_client.add_comment(item.repo, item.ticket_id, comment_body)
+                            logger.info(f"Posted completion comment to {item.repo}#{item.ticket_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to post completion comment: {e}")
 
             # After workflow completes, update last_processed_comment timestamp to skip
             # any comments posted during the workflow (prevents daemon from treating
