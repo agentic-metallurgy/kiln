@@ -3,7 +3,11 @@
 import json
 import re
 import subprocess
-from typing import TYPE_CHECKING, Any
+import time
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, TypeVar
+
+from tenacity import wait_exponential
 
 from src.claude_runner import run_claude
 from src.logger import get_logger, log_message
@@ -61,6 +65,64 @@ NETWORK_ERROR_PATTERNS = [
     "(503)",
     "(504)",
 ]
+
+T = TypeVar("T")
+
+
+class _BackoffState:
+    """Minimal state object for tenacity's wait_exponential.
+
+    Tenacity's wait functions expect a RetryCallState with an attempt_number.
+    This provides a lightweight alternative to avoid importing the full class.
+    """
+
+    def __init__(self, attempt_number: int):
+        self.attempt_number = attempt_number
+
+
+def _retry_with_backoff(
+    func: Callable[[], T],
+    max_attempts: int = 3,
+    initial_delay: float = 70.0,
+    max_delay: float = 120.0,
+    description: str = "operation",
+) -> T:
+    """Retry a function with exponential backoff on NetworkError.
+
+    Args:
+        func: Zero-argument callable to retry
+        max_attempts: Maximum number of attempts (default 3)
+        initial_delay: Starting delay between retries (default 70s for GitHub ALB TTL)
+        max_delay: Maximum delay between retries (default 120s)
+        description: Description for log messages
+
+    Returns:
+        The function result
+
+    Raises:
+        NetworkError: After exhausting retry attempts
+    """
+    backoff = wait_exponential(multiplier=1, min=initial_delay, max=max_delay)
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return func()
+        except NetworkError as e:
+            if attempt >= max_attempts:
+                raise NetworkError(
+                    f"{description} failed after {attempt} attempts: {e}"
+                ) from e
+
+            delay = backoff(_BackoffState(attempt))  # type: ignore[arg-type]
+
+            logger.warning(
+                f"{description} failed (attempt {attempt}/{max_attempts}): {e}. "
+                f"Retrying in {delay:.0f}s..."
+            )
+            time.sleep(delay)
+
+    # This should never be reached, but satisfies type checker
+    raise RuntimeError("Unexpected: retry loop exhausted without raising")
 
 
 def count_tasks(markdown_text: str) -> int:
