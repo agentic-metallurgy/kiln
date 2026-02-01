@@ -689,3 +689,214 @@ class TestWrapDiffLineProperties:
         line = prefix + content
         # Should not raise any exception
         processor._wrap_diff_line(line, width=70)
+
+
+# =============================================================================
+# Comment Filtering Property Tests
+# =============================================================================
+
+# Strategy for whitespace (spaces, tabs, newlines)
+whitespace_strategy = st.text(
+    alphabet=" \t\n",
+    min_size=0,
+    max_size=20,
+)
+
+
+@pytest.mark.unit
+@pytest.mark.hypothesis
+class TestIsKilnPostProperties:
+    """Property-based tests for _is_kiln_post."""
+
+    @given(
+        marker=st.sampled_from([
+            "<!-- kiln:research -->",
+            "<!-- kiln:plan -->",
+            "## Research",
+            "## Plan",
+            "---",
+        ]),
+        leading_whitespace=whitespace_strategy,
+        trailing_content=st.text(max_size=200),
+    )
+    @example(marker="<!-- kiln:research -->", leading_whitespace="", trailing_content="")
+    @example(marker="## Research", leading_whitespace="  \n\t", trailing_content="some content")
+    @example(marker="---", leading_whitespace="\n\n\n", trailing_content="")
+    def test_whitespace_invariance(
+        self, marker: str, leading_whitespace: str, trailing_content: str
+    ):
+        """Property: Leading whitespace doesn't affect detection."""
+        processor = _create_comment_processor()
+        markers = (
+            "<!-- kiln:research -->",
+            "<!-- kiln:plan -->",
+            "## Research",
+            "## Plan",
+            "---",
+        )
+
+        body_with_ws = leading_whitespace + marker + trailing_content
+        body_without_ws = marker + trailing_content
+
+        result_with_ws = processor._is_kiln_post(body_with_ws, markers)
+        result_without_ws = processor._is_kiln_post(body_without_ws, markers)
+
+        assert result_with_ws == result_without_ws
+
+    @given(
+        marker=st.sampled_from([
+            "<!-- kiln:research -->",
+            "<!-- kiln:plan -->",
+        ]),
+        leading_whitespace=whitespace_strategy,
+    )
+    @example(marker="<!-- kiln:research -->", leading_whitespace="")
+    @example(marker="<!-- kiln:plan -->", leading_whitespace="  ")
+    def test_kiln_markers_always_detected(
+        self, marker: str, leading_whitespace: str
+    ):
+        """Property: Valid kiln markers are always detected regardless of whitespace."""
+        processor = _create_comment_processor()
+        markers = ("<!-- kiln:research -->", "<!-- kiln:plan -->")
+
+        body = leading_whitespace + marker
+        result = processor._is_kiln_post(body, markers)
+
+        assert result is True
+
+    @given(
+        text=st.text(max_size=300).filter(
+            lambda x: not any(
+                x.lstrip().startswith(m)
+                for m in [
+                    "<!-- kiln:research -->",
+                    "<!-- kiln:plan -->",
+                    "## Research",
+                    "## Plan",
+                    "---",
+                ]
+            )
+        )
+    )
+    @example(text="regular comment")
+    @example(text="   not a marker")
+    @example(text="Research without ##")
+    @example(text="Plan without ##")
+    def test_non_kiln_content_not_detected(self, text: str):
+        """Property: Non-kiln content is never detected as kiln post."""
+        processor = _create_comment_processor()
+        markers = (
+            "<!-- kiln:research -->",
+            "<!-- kiln:plan -->",
+            "## Research",
+            "## Plan",
+            "---",
+        )
+
+        result = processor._is_kiln_post(text, markers)
+        assert result is False
+
+    @given(
+        marker=st.sampled_from([
+            "<!-- kiln:research -->",
+            "<!-- kiln:plan -->",
+        ]),
+        spaces_count=st.integers(min_value=1, max_value=10),
+        tabs_count=st.integers(min_value=0, max_value=5),
+        newlines_count=st.integers(min_value=0, max_value=5),
+    )
+    @example(marker="<!-- kiln:research -->", spaces_count=5, tabs_count=0, newlines_count=0)
+    @example(marker="<!-- kiln:plan -->", spaces_count=0, tabs_count=3, newlines_count=2)
+    def test_various_whitespace_prefixes(
+        self, marker: str, spaces_count: int, tabs_count: int, newlines_count: int
+    ):
+        """Property: Various combinations of whitespace don't affect detection."""
+        processor = _create_comment_processor()
+        markers = ("<!-- kiln:research -->", "<!-- kiln:plan -->")
+
+        # Build whitespace prefix with various combinations
+        ws_prefix = " " * spaces_count + "\t" * tabs_count + "\n" * newlines_count
+        body = ws_prefix + marker + "\nsome content"
+
+        result = processor._is_kiln_post(body, markers)
+        assert result is True
+
+
+@pytest.mark.unit
+@pytest.mark.hypothesis
+class TestIsKilnResponseProperties:
+    """Property-based tests for _is_kiln_response."""
+
+    @given(leading_whitespace=whitespace_strategy)
+    @example(leading_whitespace="")
+    @example(leading_whitespace="   ")
+    @example(leading_whitespace="\n\t  ")
+    def test_response_marker_always_detected(self, leading_whitespace: str):
+        """Property: Response marker is detected with any leading whitespace."""
+        processor = _create_comment_processor()
+        body = leading_whitespace + "<!-- kiln:response -->" + "\nsome diff content"
+
+        result = processor._is_kiln_response(body)
+        assert result is True
+
+    @given(
+        text=st.text(max_size=500).filter(
+            lambda x: not x.lstrip().startswith("<!-- kiln:response -->")
+        )
+    )
+    @example(text="")
+    @example(text="regular comment")
+    @example(text="<!-- not kiln -->")
+    @example(text="<!-- kiln:research -->")
+    @example(text="kiln:response without comment syntax")
+    @example(text="✅ Applied successfully")
+    def test_no_false_positives(self, text: str):
+        """Property: Only actual response markers return True."""
+        processor = _create_comment_processor()
+        result = processor._is_kiln_response(text)
+        assert result is False
+
+    @given(
+        spaces_count=st.integers(min_value=0, max_value=10),
+        tabs_count=st.integers(min_value=0, max_value=5),
+        newlines_count=st.integers(min_value=0, max_value=5),
+        trailing_content=st.text(max_size=200),
+    )
+    @example(spaces_count=0, tabs_count=0, newlines_count=0, trailing_content="")
+    @example(spaces_count=3, tabs_count=2, newlines_count=1, trailing_content="diff here")
+    def test_whitespace_invariance(
+        self, spaces_count: int, tabs_count: int, newlines_count: int, trailing_content: str
+    ):
+        """Property: Leading whitespace doesn't affect response detection."""
+        processor = _create_comment_processor()
+
+        ws_prefix = " " * spaces_count + "\t" * tabs_count + "\n" * newlines_count
+        body_with_ws = ws_prefix + "<!-- kiln:response -->" + trailing_content
+        body_without_ws = "<!-- kiln:response -->" + trailing_content
+
+        result_with_ws = processor._is_kiln_response(body_with_ws)
+        result_without_ws = processor._is_kiln_response(body_without_ws)
+
+        assert result_with_ws is True
+        assert result_without_ws is True
+
+    @given(
+        prefix=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cc", "Cs", "Zs"),  # Exclude control, surrogates, whitespace
+            ),
+            min_size=1,
+            max_size=50,
+        )
+    )
+    @example(prefix="x")
+    @example(prefix="comment: ")
+    @example(prefix="123")
+    def test_non_whitespace_prefix_prevents_detection(self, prefix: str):
+        """Property: Non-whitespace before marker prevents detection."""
+        processor = _create_comment_processor()
+        # Non-whitespace prefix should prevent detection
+        body = prefix + "<!-- kiln:response -->"
+
+        result = processor._is_kiln_response(body)
+        assert result is False
