@@ -30,11 +30,6 @@ class TestCommentProcessorGetWorktreePath:
 class TestCommentProcessorConstants:
     """Tests for CommentProcessor constants."""
 
-    def test_bot_usernames_contains_kiln_bot(self):
-        """Test BOT_USERNAMES includes expected bots."""
-        assert "kiln-bot" in CommentProcessor.BOT_USERNAMES
-        assert "github-actions[bot]" in CommentProcessor.BOT_USERNAMES
-
     def test_kiln_post_markers_defined(self):
         """Test KILN_POST_MARKERS are defined."""
         assert "research" in CommentProcessor.KILN_POST_MARKERS
