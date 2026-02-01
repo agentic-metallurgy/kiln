@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from src import pagerduty
+from src.integrations import pagerduty
 
 
 @pytest.fixture(autouse=True)
@@ -73,7 +73,7 @@ class TestTriggerHibernationAlert:
         """Test trigger_hibernation_alert() makes correct API call."""
         pagerduty.init_pagerduty("test-routing-key")
 
-        with patch("src.pagerduty.requests.post") as mock_post:
+        with patch("src.integrations.pagerduty.requests.post") as mock_post:
             mock_response = MagicMock()
             mock_response.raise_for_status = MagicMock()
             mock_post.return_value = mock_response
@@ -108,7 +108,7 @@ class TestTriggerHibernationAlert:
         """Test trigger_hibernation_alert() handles timeout gracefully."""
         pagerduty.init_pagerduty("test-routing-key")
 
-        with patch("src.pagerduty.requests.post") as mock_post:
+        with patch("src.integrations.pagerduty.requests.post") as mock_post:
             mock_post.side_effect = requests.Timeout("Connection timed out")
 
             result = pagerduty.trigger_hibernation_alert(
@@ -121,7 +121,7 @@ class TestTriggerHibernationAlert:
         """Test trigger_hibernation_alert() handles connection error gracefully."""
         pagerduty.init_pagerduty("test-routing-key")
 
-        with patch("src.pagerduty.requests.post") as mock_post:
+        with patch("src.integrations.pagerduty.requests.post") as mock_post:
             mock_post.side_effect = requests.ConnectionError("Connection refused")
 
             result = pagerduty.trigger_hibernation_alert(
@@ -134,7 +134,7 @@ class TestTriggerHibernationAlert:
         """Test trigger_hibernation_alert() handles 4xx HTTP errors gracefully."""
         pagerduty.init_pagerduty("test-routing-key")
 
-        with patch("src.pagerduty.requests.post") as mock_post:
+        with patch("src.integrations.pagerduty.requests.post") as mock_post:
             mock_response = MagicMock()
             mock_response.raise_for_status.side_effect = requests.HTTPError(
                 "400 Bad Request"
@@ -151,7 +151,7 @@ class TestTriggerHibernationAlert:
         """Test trigger_hibernation_alert() handles 5xx HTTP errors gracefully."""
         pagerduty.init_pagerduty("test-routing-key")
 
-        with patch("src.pagerduty.requests.post") as mock_post:
+        with patch("src.integrations.pagerduty.requests.post") as mock_post:
             mock_response = MagicMock()
             mock_response.raise_for_status.side_effect = requests.HTTPError(
                 "500 Internal Server Error"
@@ -168,7 +168,7 @@ class TestTriggerHibernationAlert:
         """Test trigger_hibernation_alert() with multiple project URLs."""
         pagerduty.init_pagerduty("test-routing-key")
 
-        with patch("src.pagerduty.requests.post") as mock_post:
+        with patch("src.integrations.pagerduty.requests.post") as mock_post:
             mock_response = MagicMock()
             mock_response.raise_for_status = MagicMock()
             mock_post.return_value = mock_response
@@ -201,7 +201,7 @@ class TestResolveHibernationAlert:
         """Test resolve_hibernation_alert() makes correct API call."""
         pagerduty.init_pagerduty("test-routing-key")
 
-        with patch("src.pagerduty.requests.post") as mock_post:
+        with patch("src.integrations.pagerduty.requests.post") as mock_post:
             mock_response = MagicMock()
             mock_response.raise_for_status = MagicMock()
             mock_post.return_value = mock_response
@@ -227,7 +227,7 @@ class TestResolveHibernationAlert:
         """Test resolve_hibernation_alert() handles timeout gracefully."""
         pagerduty.init_pagerduty("test-routing-key")
 
-        with patch("src.pagerduty.requests.post") as mock_post:
+        with patch("src.integrations.pagerduty.requests.post") as mock_post:
             mock_post.side_effect = requests.Timeout("Connection timed out")
 
             result = pagerduty.resolve_hibernation_alert()
@@ -238,7 +238,7 @@ class TestResolveHibernationAlert:
         """Test resolve_hibernation_alert() handles connection error gracefully."""
         pagerduty.init_pagerduty("test-routing-key")
 
-        with patch("src.pagerduty.requests.post") as mock_post:
+        with patch("src.integrations.pagerduty.requests.post") as mock_post:
             mock_post.side_effect = requests.ConnectionError("Connection refused")
 
             result = pagerduty.resolve_hibernation_alert()
@@ -249,7 +249,7 @@ class TestResolveHibernationAlert:
         """Test resolve_hibernation_alert() handles 4xx HTTP errors gracefully."""
         pagerduty.init_pagerduty("test-routing-key")
 
-        with patch("src.pagerduty.requests.post") as mock_post:
+        with patch("src.integrations.pagerduty.requests.post") as mock_post:
             mock_response = MagicMock()
             mock_response.raise_for_status.side_effect = requests.HTTPError(
                 "400 Bad Request"
@@ -264,7 +264,7 @@ class TestResolveHibernationAlert:
         """Test resolve_hibernation_alert() handles 5xx HTTP errors gracefully."""
         pagerduty.init_pagerduty("test-routing-key")
 
-        with patch("src.pagerduty.requests.post") as mock_post:
+        with patch("src.integrations.pagerduty.requests.post") as mock_post:
             mock_response = MagicMock()
             mock_response.raise_for_status.side_effect = requests.HTTPError(
                 "500 Internal Server Error"
