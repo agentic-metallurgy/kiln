@@ -68,6 +68,35 @@ Check for plan section (between `<!-- kiln:plan -->` and `<!-- /kiln:plan -->`):
 
 Keep it simple in the scenario where there's no plan provided: 2-4 tasks max. Do NOT explore the codebase in-depth.
 
+### Step 2.5: Collapse Plan Section in Issue Description
+
+After extracting the plan, collapse the plan section in the **issue description** to reduce clutter:
+
+1. Get the current issue body:
+   ```bash
+   gh issue view <issue_url> --json body --jq '.body'
+   ```
+
+2. **Collapse the plan section**: If the body contains a plan section (`<!-- kiln:plan -->` ... `<!-- /kiln:plan -->`), wrap it in `<details>` tags:
+   ```html
+   <details>
+   <summary><h2>Implementation Plan</h2></summary>
+
+   <!-- kiln:plan -->
+   [existing plan content here]
+   <!-- /kiln:plan -->
+
+   </details>
+   ```
+   **Important**: GitHub requires a blank line after `<summary>` and before `</details>` for markdown to render properly inside.
+
+3. Update the issue description with the collapsed plan:
+   ```bash
+   gh issue edit <issue_url> --body "..."
+   ```
+
+**Note**: The plan stays expanded in the PR body for reference during implementation. Only the issue description gets the collapsed version.
+
 ### Step 3: Create Empty Commit and Draft PR
 
 1. Create an empty commit:
@@ -113,7 +142,30 @@ Keep it simple in the scenario where there's no plan provided: 2-4 tasks max. Do
    )"
    ```
 
-### Step 4: Report Completion
+### Step 4: Handle Network Errors
+
+If any `gh` command fails, check the error message:
+
+**Network errors (retry these)**:
+- `tls handshake timeout`
+- `connection refused`
+- `connection timeout`
+- `error connecting to`
+- `i/o timeout`
+- `http 5` (covers 500, 502, 503, 504)
+
+**Retry strategy**:
+1. Wait 70 seconds (accounts for GitHub ALB TTL ~60s)
+2. Retry the command (up to 3 total attempts)
+3. Log each retry: `echo "Retrying gh command (attempt X/3) after 70s..."`
+4. Only fail after all 3 attempts are exhausted
+
+**Non-network errors (fail immediately)**:
+- Authentication errors (`gh auth login`)
+- Permission errors (`HTTP 401`, `HTTP 403`)
+- Invalid input errors (`GraphQL: Could not resolve`)
+
+### Step 5: Report Completion
 
 ```
 Done - Draft PR created: <pr_url>
