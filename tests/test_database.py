@@ -197,6 +197,45 @@ class TestDatabase:
         assert second_state.last_updated > first_state.last_updated
         assert second_state.status == "Plan"
 
+    def test_get_all_issue_states_returns_all(self, temp_db):
+        """Test that get_all_issue_states returns all tracked issues."""
+        temp_db.update_issue_state("github.com/owner/repo1", 1, "Research")
+        temp_db.update_issue_state("github.com/owner/repo2", 2, "Plan")
+        temp_db.update_issue_state("github.com/owner/repo1", 3, "Implement")
+
+        states = temp_db.get_all_issue_states()
+        assert len(states) == 3
+
+    def test_get_all_issue_states_ordered_by_last_updated(self, temp_db):
+        """Test that get_all_issue_states returns issues ordered by last_updated DESC."""
+        import time
+
+        temp_db.update_issue_state("github.com/owner/repo", 1, "Research")
+        time.sleep(0.01)
+        temp_db.update_issue_state("github.com/owner/repo", 2, "Plan")
+        time.sleep(0.01)
+        temp_db.update_issue_state("github.com/owner/repo", 3, "Implement")
+
+        states = temp_db.get_all_issue_states()
+        assert len(states) == 3
+        # Most recently updated should be first
+        assert states[0].issue_number == 3
+        assert states[1].issue_number == 2
+        assert states[2].issue_number == 1
+
+    def test_get_all_issue_states_respects_limit(self, temp_db):
+        """Test that get_all_issue_states respects the limit parameter."""
+        for i in range(5):
+            temp_db.update_issue_state("github.com/owner/repo", i, "Research")
+
+        states = temp_db.get_all_issue_states(limit=2)
+        assert len(states) == 2
+
+    def test_get_all_issue_states_empty_database(self, temp_db):
+        """Test that get_all_issue_states returns empty list for empty database."""
+        states = temp_db.get_all_issue_states()
+        assert states == []
+
 
 @pytest.mark.unit
 class TestIssueState:

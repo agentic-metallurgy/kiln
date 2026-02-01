@@ -96,6 +96,7 @@ class TestDaemonResponseComments:
         # Mock section extraction (before and after)
         with (
             patch.object(daemon.comment_processor, "_extract_section_content") as mock_extract,
+            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
             patch.object(daemon.runner, "run"),
         ):
             mock_extract.side_effect = ["Before content", "After content"]
@@ -151,6 +152,7 @@ class TestDaemonResponseComments:
 
         with (
             patch.object(daemon.comment_processor, "_extract_section_content") as mock_extract,
+            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
             patch.object(daemon.runner, "run"),
         ):
             mock_extract.side_effect = ["Old plan", "Updated plan"]
@@ -199,6 +201,7 @@ class TestDaemonResponseComments:
 
         with (
             patch.object(daemon.comment_processor, "_extract_section_content") as mock_extract,
+            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
             patch.object(daemon.runner, "run"),
         ):
             # Simulate a diff where the content contains HTML that could break the details block
@@ -258,6 +261,7 @@ class TestDaemonResponseComments:
 
         with (
             patch.object(daemon.comment_processor, "_extract_section_content") as mock_extract,
+            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
             patch.object(daemon.runner, "run"),
         ):
             mock_extract.side_effect = ["Before", "After"]
@@ -299,7 +303,10 @@ class TestDaemonResponseComments:
 
         daemon.ticket_client.get_comments_since.return_value = [response_comment]
 
-        with patch.object(daemon.runner, "run") as mock_run:
+        with (
+            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(daemon.runner, "run") as mock_run,
+        ):
             daemon.comment_processor.process(item)
 
             # Workflow should NOT be run (response comment filtered out)
@@ -346,6 +353,7 @@ class TestDaemonResponseComments:
         # Same content before and after (no diff)
         with (
             patch.object(daemon.comment_processor, "_extract_section_content") as mock_extract,
+            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
             patch.object(daemon.runner, "run"),
         ):
             mock_extract.side_effect = ["Same content", "Same content"]
@@ -666,7 +674,10 @@ class TestDaemonProcessCommentsForItem:
         daemon.ticket_client.get_comments_since.return_value = [user_comment]
         daemon.ticket_client.find_kiln_comment.return_value = None
 
-        with patch.object(daemon.runner, "run") as mock_run:
+        with (
+            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(daemon.runner, "run") as mock_run,
+        ):
             daemon.comment_processor.process(item)
 
             # Should have run the workflow
@@ -721,6 +732,7 @@ class TestDaemonProcessCommentsForItem:
 
         with (
             patch.object(daemon.comment_processor, "_extract_section_content") as mock_extract,
+            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
             patch.object(daemon.runner, "run"),
         ):
             mock_extract.side_effect = ["Before", "After"]
@@ -784,7 +796,10 @@ class TestDaemonProcessCommentsForItem:
         daemon.ticket_client.get_comments_since.return_value = comments
         daemon.ticket_client.find_kiln_comment.return_value = MagicMock(body="<!-- kiln:plan -->")
 
-        with patch.object(daemon.runner, "run") as mock_run:
+        with (
+            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(daemon.runner, "run") as mock_run,
+        ):
             daemon.comment_processor.process(item)
 
             # Should only process the ONE comment without thumbs up
@@ -839,7 +854,10 @@ class TestDaemonProcessCommentsForItem:
 
         daemon.ticket_client.get_comments_since.return_value = comments
 
-        with patch.object(daemon.runner, "run") as mock_run:
+        with (
+            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(daemon.runner, "run") as mock_run,
+        ):
             daemon.comment_processor.process(item)
 
             # Should NOT run any workflow
@@ -899,7 +917,10 @@ class TestDaemonProcessCommentsForItem:
             body="<!-- kiln:research -->"
         )
 
-        with patch.object(daemon.runner, "run") as mock_run:
+        with (
+            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(daemon.runner, "run") as mock_run,
+        ):
             daemon.comment_processor.process(item)
 
             # Should run workflow once (only for the comment without eyes)
@@ -953,7 +974,10 @@ class TestDaemonProcessCommentsForItem:
 
         daemon.ticket_client.get_comments_since.return_value = comments
 
-        with patch.object(daemon.runner, "run") as mock_run:
+        with (
+            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(daemon.runner, "run") as mock_run,
+        ):
             daemon.comment_processor.process(item)
 
             # Should NOT run any workflow
@@ -1002,7 +1026,10 @@ class TestDaemonProcessCommentsForItem:
         daemon.ticket_client.get_comments_since.return_value = comments
         daemon.ticket_client.find_kiln_comment.return_value = MagicMock(body="<!-- kiln:plan -->")
 
-        with patch.object(daemon.runner, "run") as mock_run:
+        with (
+            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(daemon.runner, "run") as mock_run,
+        ):
             daemon.comment_processor.process(item)
 
             # Should run workflow once with merged comments

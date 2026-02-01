@@ -17,6 +17,10 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.database import Database
 
 # Version is set during build
 __version__ = "1.1.0"
@@ -27,10 +31,10 @@ CONFIG_FILE = "config"
 # ANSI escape codes for startup message colors
 RESET = "\033[0m"
 STARTUP_COLORS = {
-    "glow": "\033[38;2;250;204;21m",   # #FACC15 - Phase 1 (brightest)
+    "glow": "\033[38;2;250;204;21m",  # #FACC15 - Phase 1 (brightest)
     "ember": "\033[38;2;245;158;11m",  # #F59E0B - Phase 2
-    "fire": "\033[38;2;249;115;22m",   # #F97316 - Phase 3
-    "heat": "\033[38;2;239;98;52m",    # #EF6234 - Phase 4+ (hottest)
+    "fire": "\033[38;2;249;115;22m",  # #F97316 - Phase 3
+    "heat": "\033[38;2;239;98;52m",  # #EF6234 - Phase 4+ (hottest)
 }
 
 
@@ -219,8 +223,6 @@ def install_claude_resources() -> None:
         logger.info(f"Installed {installed_count} kiln resource(s) to {claude_home}")
     else:
         logger.warning(f"No kiln resources installed - check {kiln_dir}")
-
-
 
 
 def print_banner() -> None:
@@ -467,6 +469,114 @@ def format_outcome(outcome: str | None) -> str:
         return f"? {outcome}"
 
 
+def _determine_state(labels: set[str], board_status: str) -> str:
+    """Determine display state from labels, falling back to board status.
+
+    Args:
+        labels: Set of label names from the issue
+        board_status: Current status from the database
+
+    Returns:
+        Display state string
+    """
+    # Priority order: running labels > failure labels > complete labels > board status
+    label_priority = [
+        "preparing",
+        "researching",
+        "planning",
+        "implementing",
+        "reviewing",
+        "editing",
+        "implementation_failed",
+        "research_failed",
+        "yolo_failed",
+        "research_ready",
+        "plan_ready",
+    ]
+    for label in label_priority:
+        if label in labels:
+            return label
+    return board_status.lower()
+
+
+def cmd_logs_summary(db: Database) -> None:
+    """Show summary of all tracked issues.
+
+    Args:
+        db: Database instance
+    """
+    from src.config import load_config
+    from src.ticket_clients import get_github_client
+
+    # Get all issues from database
+    issues = db.get_all_issue_states()
+    if not issues:
+        print("No tracked issues found.")
+        return
+
+    # Build GitHub client for live data
+    config = load_config()
+    tokens: dict[str, str] = {}
+    if config.github_enterprise_host and config.github_enterprise_token:
+        tokens[config.github_enterprise_host] = config.github_enterprise_token
+    elif config.github_token:
+        tokens["github.com"] = config.github_token
+
+    client = get_github_client(
+        tokens=tokens,
+        enterprise_version=config.github_enterprise_version,
+    )
+
+    # Print header
+    print(f"\n{'Identifier':<25} {'Branch':<30} {'PR':<30} {'State'}")
+    print("-" * 95)
+
+    for issue in issues:
+        # Format identifier as owner/repo#42 (strip hostname prefix)
+        repo_parts = issue.repo.split("/")
+        if len(repo_parts) == 3:
+            # hostname/owner/repo -> owner/repo
+            identifier = f"{repo_parts[1]}/{repo_parts[2]}#{issue.issue_number}"
+        else:
+            identifier = f"{issue.repo}#{issue.issue_number}"
+
+        # Fetch labels for YOLO detection and state
+        labels = client.get_ticket_labels(issue.repo, issue.issue_number)
+        is_yolo = "yolo" in labels
+
+        # Determine state from labels (most specific first)
+        state = _determine_state(labels, issue.status)
+        if is_yolo:
+            state = f"{state} (yolo)"
+
+        # Fetch PR info
+        prs = client.get_linked_prs(issue.repo, issue.issue_number)
+        open_pr = next((pr for pr in prs if pr.state == "OPEN"), None)
+
+        # Format branch name (truncate if needed)
+        if open_pr and open_pr.branch_name:
+            branch = (
+                open_pr.branch_name[:27] + "..."
+                if len(open_pr.branch_name) > 30
+                else open_pr.branch_name
+            )
+        else:
+            branch = "-"
+
+        # Format PR display (truncate title if needed)
+        if open_pr and open_pr.title:
+            title = open_pr.title
+            if len(title) > 20:
+                title = title[:20] + "..."
+            pr_display = f"#{open_pr.number}: {title}"
+        elif open_pr:
+            pr_display = f"#{open_pr.number}"
+        else:
+            pr_display = "-"
+
+        print(f"{identifier:<25} {branch:<30} {pr_display:<30} {state}")
+
+
 def cmd_logs(args: argparse.Namespace) -> None:
     """Handle the 'logs' subcommand."""
     from src.database import Database
@@ -479,6 +589,11 @@ def cmd_logs(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     db = Database(str(db_path))
+
+    # Summary view when no issue specified
+    if args.issue is None:
+        cmd_logs_summary(db)
+        return
 
     try:
         repo, issue_number = parse_issue_arg(args.issue)
@@ -507,7 +622,9 @@ def cmd_logs(args: argparse.Namespace) -> None:
             print(f"Log file not found: {record.log_path}", file=sys.stderr)
             sys.exit(1)
 
-        print(f"=== Log for run {args.view}: {record.workflow} @ {record.started_at.strftime('%Y-%m-%d %H:%M')} ===\n")
+        print(
+            f"=== Log for run {args.view}: {record.workflow} @ {record.started_at.strftime('%Y-%m-%d %H:%M')} ===\n"
+        )
         print(log_file.read_text())
         return
 
@@ -627,7 +744,9 @@ def main() -> None:
     )
     logs_parser.add_argument(
         "issue",
-        help="Issue identifier (e.g., owner/repo#42 or hostname/owner/repo#42)",
+        nargs="?",
+        default=None,
+        help="Issue identifier (e.g., owner/repo#42). If omitted, shows all issues.",
     )
     logs_parser.add_argument(
         "--list",

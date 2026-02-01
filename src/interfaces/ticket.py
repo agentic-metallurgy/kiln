@@ -75,6 +75,7 @@ class LinkedPullRequest:
         state: PR state (OPEN, CLOSED, MERGED)
         merged: Whether the PR has been merged
         branch_name: Name of the PR's head branch (for cleanup operations)
+        title: PR title for display purposes
     """
 
     number: int
@@ -83,6 +84,7 @@ class LinkedPullRequest:
     state: str
     merged: bool
     branch_name: str | None = None
+    title: str | None = None
 
 
 @runtime_checkable

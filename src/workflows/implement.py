@@ -3,10 +3,19 @@
 import json
 import re
 import subprocess
-from typing import TYPE_CHECKING, Any
+import time
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, TypeVar
+
+from tenacity import wait_exponential
 
 from src.claude_runner import run_claude
 from src.logger import get_logger, log_message
+from src.integrations.slack import (
+    send_implementation_beginning_notification,
+    send_ready_for_validation_notification,
+)
+from src.ticket_clients.base import NetworkError
 from src.workflows.base import WorkflowContext
 
 if TYPE_CHECKING:
@@ -38,6 +47,86 @@ class ImplementationIncompleteError(Exception):
 # Constants for the implementation loop
 DEFAULT_MAX_ITERATIONS = 8  # Fallback if no TASKs detected
 MAX_STALL_COUNT = 2  # Stop after 2 iterations with no progress
+
+# Network error patterns to detect transient failures
+# These are checked case-insensitively against stderr output
+NETWORK_ERROR_PATTERNS = [
+    "tls handshake timeout",
+    "connection timeout",
+    "network error",
+    "connection refused",
+    "temporary failure",
+    "i/o timeout",
+    "dial tcp",
+    "no such host",
+    "error connecting to",
+    "http 500",
+    "http 502",
+    "http 503",
+    "http 504",
+    "(500)",
+    "(502)",
+    "(503)",
+    "(504)",
+]
+
+T = TypeVar("T")
+
+
+class _BackoffState:
+    """Minimal state object for tenacity's wait_exponential.
+
+    Tenacity's wait functions expect a RetryCallState with an attempt_number.
+    This provides a lightweight alternative to avoid importing the full class.
+    """
+
+    def __init__(self, attempt_number: int):
+        self.attempt_number = attempt_number
+
+
+def _retry_with_backoff(
+    func: Callable[[], T],
+    max_attempts: int = 3,
+    initial_delay: float = 70.0,
+    max_delay: float = 120.0,
+    description: str = "operation",
+) -> T:
+    """Retry a function with exponential backoff on NetworkError.
+
+    Args:
+        func: Zero-argument callable to retry
+        max_attempts: Maximum number of attempts (default 3)
+        initial_delay: Starting delay between retries (default 70s for GitHub ALB TTL)
+        max_delay: Maximum delay between retries (default 120s)
+        description: Description for log messages
+
+    Returns:
+        The function result
+
+    Raises:
+        NetworkError: After exhausting retry attempts
+    """
+    backoff = wait_exponential(multiplier=1, min=initial_delay, max=max_delay)
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return func()
+        except NetworkError as e:
+            if attempt >= max_attempts:
+                raise NetworkError(
+                    f"{description} failed after {attempt} attempts: {e}"
+                ) from e
+
+            delay = backoff(_BackoffState(attempt))  # type: ignore[arg-type]
+
+            logger.warning(
+                f"{description} failed (attempt {attempt}/{max_attempts}): {e}. "
+                f"Retrying in {delay:.0f}s..."
+            )
+            time.sleep(delay)
+
+    # This should never be reached, but satisfies type checker
+    raise RuntimeError("Unexpected: retry loop exhausted without raising")
 
 
 def count_tasks(markdown_text: str) -> int:
@@ -134,13 +223,16 @@ class ImplementWorkflow:
                 # Check for PR
                 pr_info = self._get_pr_for_issue(ctx.repo, ctx.issue_number)
                 if pr_info:
-                    logger.info(f"PR created for {key}: #{pr_info['number']}")
+                    pr_number = pr_info['number']
+                    pr_url = f"https://{ctx.repo}/pull/{pr_number}"
+                    send_implementation_beginning_notification(pr_url, pr_number)
+                    logger.info(f"PR created for {key}: #{pr_number}")
                     break
 
             if not pr_info:
                 # Failed after 2 attempts - this will be caught by daemon to add failed label
                 raise RuntimeError(
-                    f"Failed to create PR for {key} after 2 attempts. "
+                    f"Failed to create PR for {issue_url} after 2 attempts. "
                     "Check /prepare_implementation_github output."
                 )
 
@@ -162,10 +254,20 @@ class ImplementWorkflow:
         while True:  # Loop controlled by exit conditions, not iteration count
             iteration += 1
 
-            # Get current PR state
-            pr_info = self._get_pr_for_issue(ctx.repo, ctx.issue_number)
+            # Get current PR state (with retry for transient network errors)
+            try:
+                pr_info = _retry_with_backoff(
+                    lambda: self._get_pr_for_issue(ctx.repo, ctx.issue_number),
+                    max_attempts=3,
+                    description=f"PR lookup for {issue_url}",
+                )
+            except NetworkError as e:
+                raise RuntimeError(
+                    f"Failed to reach GitHub after 3 retry attempts while looking up PR for {issue_url}: {e}"
+                ) from e
+
             if not pr_info:
-                raise RuntimeError(f"PR disappeared for {key}")
+                raise RuntimeError(f"PR disappeared for {issue_url}")
 
             pr_body = pr_info.get("body", "")
             total_tasks, completed_tasks = count_checkboxes(pr_body)
@@ -250,6 +352,8 @@ class ImplementWorkflow:
             pr_number = pr_info.get("number")
             if total_tasks > 0 and completed_tasks == total_tasks and pr_number:
                 self._mark_pr_ready(ctx.repo, pr_number)
+                pr_url = f"https://{ctx.repo}/pull/{pr_number}"
+                send_ready_for_validation_notification(pr_url, pr_number)
             elif iteration >= max_iterations_estimate:
                 # Hit max iterations without completing all tasks
                 logger.warning(f"Hit max iterations ({max_iterations_estimate}) for {key}")
@@ -359,6 +463,11 @@ class ImplementWorkflow:
             return None
 
         except subprocess.CalledProcessError as e:
+            error_output = (e.stderr or "").lower()
+            if any(pattern in error_output for pattern in NETWORK_ERROR_PATTERNS):
+                raise NetworkError(
+                    f"Network error getting PR for issue #{issue_number}: {e.stderr}"
+                ) from e
             logger.warning(f"Failed to get PR for issue #{issue_number}: {e.stderr}")
             return None
         except json.JSONDecodeError as e:

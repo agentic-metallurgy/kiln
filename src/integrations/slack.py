@@ -18,6 +18,9 @@ _user_id: str | None = None
 # Slack API endpoint for posting messages
 SLACK_API_URL = "https://slack.com/api/chat.postMessage"
 
+# Emoji mapping for phase completion notifications
+PHASE_EMOJIS = {"Research": "🧪", "Plan": "🗺️"}
+
 
 def init_slack(bot_token: str | None, user_id: str | None) -> None:
     """Initialize Slack integration with the given credentials.
@@ -59,19 +62,25 @@ def send_phase_completion_notification(
 
     Args:
         issue_url: Full URL to the GitHub issue
-        phase: The completed phase (e.g., "Research", "Plan", "Implement")
-        issue_title: Title of the issue
+        phase: The completed phase (e.g., "Research", "Plan")
+        issue_title: Title of the issue (kept for backwards compatibility)
         issue_number: Issue number
 
     Returns:
         True if notification was sent successfully, False otherwise.
-        Returns False without error if Slack is not initialized.
+        Returns False without error if Slack is not initialized or phase
+        is not in PHASE_EMOJIS (e.g., "Implement" is handled separately).
     """
     if not _initialized or not _bot_token or not _user_id:
         return False
 
-    # Build the notification message
-    message = f"Issue #{issue_number} has completed {phase}\n{issue_title}\n{issue_url}"
+    # Get emoji for this phase, return False if not supported
+    emoji = PHASE_EMOJIS.get(phase)
+    if not emoji:
+        return False
+
+    # Build the notification message with emoji and Slack mrkdwn link
+    message = f"{emoji} {phase} complete: <{issue_url}|Issue #{issue_number}>"
 
     payload = {
         "channel": _user_id,
@@ -103,6 +112,108 @@ def send_phase_completion_notification(
         return True
     except requests.RequestException as e:
         logger.error(f"Failed to send Slack notification: {e}")
+        return False
+
+
+def send_implementation_beginning_notification(pr_url: str, pr_number: int) -> bool:
+    """Send a Slack DM notification when implementation begins.
+
+    Sends a direct message to the configured Slack user indicating that
+    implementation has started and a draft PR has been created.
+
+    Args:
+        pr_url: Full URL to the pull request
+        pr_number: Pull request number
+
+    Returns:
+        True if notification was sent successfully, False otherwise.
+        Returns False without error if Slack is not initialized.
+    """
+    if not _initialized or not _bot_token or not _user_id:
+        return False
+
+    message = f"🔥 Firing implementation: <{pr_url}|PR #{pr_number}>"
+
+    payload = {
+        "channel": _user_id,
+        "text": message,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {_bot_token}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(
+            SLACK_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        response_data = response.json()
+        if not response_data.get("ok"):
+            error = response_data.get("error", "unknown error")
+            logger.error(f"Slack API error sending implementation beginning notification: {error}")
+            return False
+
+        logger.info(f"Slack notification sent for implementation beginning PR #{pr_number}")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Failed to send Slack implementation beginning notification: {e}")
+        return False
+
+
+def send_ready_for_validation_notification(pr_url: str, pr_number: int) -> bool:
+    """Send a Slack DM notification when PR is ready for validation.
+
+    Sends a direct message to the configured Slack user indicating that
+    implementation is complete and the PR is ready for review.
+
+    Args:
+        pr_url: Full URL to the pull request
+        pr_number: Pull request number
+
+    Returns:
+        True if notification was sent successfully, False otherwise.
+        Returns False without error if Slack is not initialized.
+    """
+    if not _initialized or not _bot_token or not _user_id:
+        return False
+
+    message = f"☑️ Ready for validation: <{pr_url}|PR #{pr_number}>"
+
+    payload = {
+        "channel": _user_id,
+        "text": message,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {_bot_token}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(
+            SLACK_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        response_data = response.json()
+        if not response_data.get("ok"):
+            error = response_data.get("error", "unknown error")
+            logger.error(f"Slack API error sending ready for validation notification: {error}")
+            return False
+
+        logger.info(f"Slack notification sent for ready for validation PR #{pr_number}")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Failed to send Slack ready for validation notification: {e}")
         return False
 
 
@@ -175,7 +286,7 @@ def send_comment_processed_notification(
     if not _initialized or not _bot_token or not _user_id:
         return False
 
-    message = f"Comment processed for issue `#{issue_number} - {issue_title}` -- <{comment_url}|read here>"
+    message = f"💬 Comment processed: <{comment_url}|issue #{issue_number}>"
 
     payload = {
         "channel": _user_id,

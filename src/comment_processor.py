@@ -9,16 +9,19 @@ This module handles processing user comments on GitHub issues, including:
 import difflib
 import html
 import json
+import os
 import subprocess
 import textwrap
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from src.database import Database
+from src.frontmatter import parse_issue_frontmatter
 from src.interfaces import Comment, TicketClient, TicketItem
 from src.labels import Labels
 from src.logger import clear_issue_context, get_logger, set_issue_context
 from src.integrations.slack import send_comment_processed_notification
-from src.workflows import ProcessCommentsWorkflow, WorkflowContext
+from src.workflows import PrepareWorkflow, ProcessCommentsWorkflow, WorkflowContext
 
 if TYPE_CHECKING:
     from src.config import Config
@@ -97,6 +100,60 @@ class CommentProcessor:
         """
         repo_name = repo.split("/")[-1] if "/" in repo else repo
         return f"{self.workspace_dir}/{repo_name}-issue-{issue_number}"
+
+    def _ensure_worktree_exists(self, item: TicketItem) -> str:
+        """Ensure a worktree exists for the issue, creating it if needed.
+
+        If the worktree doesn't exist, runs PrepareWorkflow to create it.
+        This enables proper session resumption via Claude's .claude/projects folder.
+
+        Note: This simplified version doesn't detect parent PRs for branching.
+        The worktree will be created from main/default branch. This is acceptable
+        for comment processing since the main workflow would have already set up
+        proper branching if needed.
+
+        Args:
+            item: The project item to ensure worktree for
+
+        Returns:
+            Path to the worktree directory
+        """
+        worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
+
+        if os.path.isdir(worktree_path):
+            return worktree_path
+
+        logger.info(f"Worktree not found at {worktree_path}, running Prepare workflow")
+
+        # Pre-fetch issue body for PrepareWorkflow
+        issue_body = self.ticket_client.get_ticket_body(item.repo, item.ticket_id)
+
+        # Parse frontmatter for explicit feature_branch setting
+        frontmatter = parse_issue_frontmatter(issue_body)
+        feature_branch = frontmatter.get("feature_branch")
+
+        # Use feature_branch from frontmatter if specified, otherwise branch from main
+        parent_branch = feature_branch if feature_branch else None
+        if parent_branch:
+            logger.info(f"Using explicit feature_branch '{parent_branch}' from issue frontmatter")
+
+        # Run PrepareWorkflow
+        workflow = PrepareWorkflow()
+        abs_workspace_path = str(Path(self.workspace_dir).resolve())
+        ctx = WorkflowContext(
+            repo=item.repo,
+            issue_number=item.ticket_id,
+            issue_title=item.title,
+            workspace_path=abs_workspace_path,  # Prepare runs in workspace root
+            project_url=item.board_url,
+            issue_body=issue_body,
+            parent_branch=parent_branch,
+        )
+        self.runner.run(workflow, ctx, "Prepare")
+
+        logger.info("Auto-prepared worktree for comment processing")
+
+        return worktree_path
 
     def process(self, item: TicketItem) -> None:
         """Process unprocessed user comments for a single issue.
@@ -234,7 +291,8 @@ class CommentProcessor:
                 )
                 logger.info(f"Merged {len(user_comments)} comments")
 
-            workspace_path = self._get_worktree_path(item.repo, item.ticket_id)
+            # Ensure worktree exists (creates it via Prepare if missing)
+            workspace_path = self._ensure_worktree_exists(item)
 
             # Capture BEFORE state of the target section
             before_content = self._extract_section_content(item.repo, item.ticket_id, target_type)
