@@ -402,6 +402,41 @@ class TestLoadConfig:
         config = load_config_from_env()
         assert config.ghes_logs_mask is True
 
+    # Tests for SLACK_DM_ON_COMMENT
+
+    def test_load_config_slack_dm_on_comment_default(self, monkeypatch):
+        """Test slack_dm_on_comment defaults to True when not specified."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.delenv("SLACK_DM_ON_COMMENT", raising=False)
+
+        config = load_config_from_env()
+
+        assert config.slack_dm_on_comment is True
+
+    def test_load_config_slack_dm_on_comment_enabled(self, monkeypatch):
+        """Test slack_dm_on_comment parses '1' as True."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("SLACK_DM_ON_COMMENT", "1")
+
+        config = load_config_from_env()
+
+        assert config.slack_dm_on_comment is True
+
+    def test_load_config_slack_dm_on_comment_disabled(self, monkeypatch):
+        """Test slack_dm_on_comment parses '0' as False."""
+        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+        monkeypatch.setenv("SLACK_DM_ON_COMMENT", "0")
+
+        config = load_config_from_env()
+
+        assert config.slack_dm_on_comment is False
+
     # Tests for USERNAME_SELF
 
     def test_load_config_missing_username_self(self, monkeypatch):
@@ -803,6 +838,33 @@ class TestLoadConfigFromFile:
         config_file = self._write_minimal_config(tmp_path, "GHES_LOGS_MASK=False")
         config = load_config_from_file(config_file)
         assert config.ghes_logs_mask is False
+
+    def test_load_config_from_file_slack_dm_on_comment_default(self, tmp_path, monkeypatch):
+        """Test slack_dm_on_comment defaults to True when not specified in file."""
+        config_file = self._write_minimal_config(tmp_path)
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.slack_dm_on_comment is True
+
+    def test_load_config_from_file_slack_dm_on_comment_enabled(self, tmp_path, monkeypatch):
+        """Test SLACK_DM_ON_COMMENT=1 parsing from config file."""
+        config_file = self._write_minimal_config(tmp_path, "SLACK_DM_ON_COMMENT=1")
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.slack_dm_on_comment is True
+
+    def test_load_config_from_file_slack_dm_on_comment_disabled(self, tmp_path, monkeypatch):
+        """Test SLACK_DM_ON_COMMENT=0 parsing from config file."""
+        config_file = self._write_minimal_config(tmp_path, "SLACK_DM_ON_COMMENT=0")
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        config = load_config_from_file(config_file)
+
+        assert config.slack_dm_on_comment is False
 
 
 @pytest.mark.unit
