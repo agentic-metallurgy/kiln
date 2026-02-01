@@ -142,7 +142,30 @@ After extracting the plan, collapse the plan section in the **issue description*
    )"
    ```
 
-### Step 4: Report Completion
+### Step 4: Handle Network Errors
+
+If any `gh` command fails, check the error message:
+
+**Network errors (retry these)**:
+- `tls handshake timeout`
+- `connection refused`
+- `connection timeout`
+- `error connecting to`
+- `i/o timeout`
+- `http 5` (covers 500, 502, 503, 504)
+
+**Retry strategy**:
+1. Wait 70 seconds (accounts for GitHub ALB TTL ~60s)
+2. Retry the command (up to 3 total attempts)
+3. Log each retry: `echo "Retrying gh command (attempt X/3) after 70s..."`
+4. Only fail after all 3 attempts are exhausted
+
+**Non-network errors (fail immediately)**:
+- Authentication errors (`gh auth login`)
+- Permission errors (`HTTP 401`, `HTTP 403`)
+- Invalid input errors (`GraphQL: Could not resolve`)
+
+### Step 5: Report Completion
 
 ```
 Done - Draft PR created: <pr_url>
