@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass
 
 from src.logger import get_logger, log_message
-from src.telemetry import LLMMetrics
+from src.integrations.telemetry import LLMMetrics
 
 logger = get_logger(__name__)
 

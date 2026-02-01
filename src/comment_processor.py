@@ -17,7 +17,7 @@ from src.database import Database
 from src.interfaces import Comment, TicketClient, TicketItem
 from src.labels import Labels
 from src.logger import clear_issue_context, get_logger, set_issue_context
-from src.slack import send_comment_processed_notification
+from src.integrations.slack import send_comment_processed_notification
 from src.workflows import ProcessCommentsWorkflow, WorkflowContext
 
 if TYPE_CHECKING:

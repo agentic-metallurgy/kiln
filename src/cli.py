@@ -282,7 +282,7 @@ def run_daemon(daemon_mode: bool = False) -> None:
         get_hostnames_from_project_urls,
         validate_project_columns,
     )
-    from src.telemetry import get_git_version, init_telemetry
+    from src.integrations.telemetry import get_git_version, init_telemetry
     from src.ticket_clients.github import GitHubTicketClient
 
     print_banner()
@@ -376,12 +376,12 @@ def run_daemon(daemon_mode: bool = False) -> None:
 
         # Initialize PagerDuty if configured
         if config.pagerduty_routing_key:
-            from src.pagerduty import init_pagerduty
+            from src.integrations.pagerduty import init_pagerduty
 
             init_pagerduty(config.pagerduty_routing_key)
 
         # Initialize Slack if configured
-        from src.slack import init_slack, send_startup_ping
+        from src.integrations.slack import init_slack, send_startup_ping
 
         init_slack(config.slack_bot_token, config.slack_user_id)
         send_startup_ping()

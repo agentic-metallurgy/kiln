@@ -21,12 +21,17 @@ from typing import Any, TypedDict
 
 from tenacity import wait_exponential
 
-from src.azure_oauth import AzureOAuthClient
 from src.claude_runner import run_claude
 from src.comment_processor import CommentProcessor
 from src.config import Config, load_config
 from src.database import Database, ProjectMetadata, RunRecord
 from src.frontmatter import parse_issue_frontmatter
+from src.integrations.azure_oauth import AzureOAuthClient
+from src.integrations.mcp_client import check_all_mcp_servers
+from src.integrations.mcp_config import MCPConfigManager
+from src.integrations.pagerduty import init_pagerduty, resolve_hibernation_alert, trigger_hibernation_alert
+from src.integrations.slack import init_slack, send_phase_completion_notification, send_startup_ping
+from src.integrations.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.interfaces import TicketItem
 from src.labels import REQUIRED_LABELS, Labels
 from src.logger import (
@@ -39,12 +44,7 @@ from src.logger import (
     set_issue_context,
     setup_logging,
 )
-from src.mcp_client import check_all_mcp_servers
-from src.mcp_config import MCPConfigManager
-from src.pagerduty import init_pagerduty, resolve_hibernation_alert, trigger_hibernation_alert
 from src.security import ActorCategory, check_actor_allowed
-from src.slack import init_slack, send_phase_completion_notification, send_startup_ping
-from src.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
 from src.ticket_clients import get_github_client
 from src.workflows import (
     ImplementWorkflow,
