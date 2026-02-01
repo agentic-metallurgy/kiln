@@ -6,12 +6,14 @@ filtering, and label operations.
 """
 
 import tempfile
+from pathlib import Path
 
 import pytest
 from hypothesis import assume, example, given
 from hypothesis import strategies as st
 
 from src.cli import parse_issue_arg
+from src.config import parse_config_file
 from src.logger import _extract_org_from_url
 from src.workspace import WorkspaceManager
 
@@ -228,3 +230,236 @@ class TestExtractRepoNameProperties:
             url = f"https://{hostname}/{org}/{repo}.git"
             result = manager._extract_repo_name(url)
             assert result == repo
+
+
+# =============================================================================
+# Config Parsing Property Tests
+# =============================================================================
+
+# Strategy for valid config keys (alphanumeric and underscore, not starting with #)
+config_key_strategy = st.from_regex(r"[A-Z][A-Z0-9_]{0,49}", fullmatch=True)
+
+
+@pytest.mark.unit
+@pytest.mark.hypothesis
+class TestConfigParsingProperties:
+    """Property-based tests for parse_config_file."""
+
+    @given(
+        key=config_key_strategy,
+        value=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cc", "Cs"),  # Exclude control chars and surrogates
+                blacklist_characters='\n\r"\'',
+            ),
+            min_size=0,
+            max_size=100,
+        ),
+    )
+    @example(key="MY_KEY", value="simple_value")
+    @example(key="API_TOKEN", value="abc123")
+    @example(key="A", value="")
+    def test_key_value_parsing_roundtrip(self, key: str, value: str):
+        """Property: Written key=value pairs parse back with stripped values."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_file = Path(tmp_dir) / "config"
+            config_file.write_text(f"{key}={value}")
+            result = parse_config_file(config_file)
+            assert key in result
+            # The parser strips whitespace from values
+            assert result[key] == value.strip()
+
+    @given(
+        key=config_key_strategy,
+        value=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cc", "Cs"),  # Exclude control chars and surrogates
+                blacklist_characters='\n\r"',
+            ),
+            min_size=0,
+            max_size=100,
+        ),
+    )
+    @example(key="QUOTED_VAL", value="hello world")
+    @example(key="DB_URL", value="postgres://user:pass@host/db")
+    @example(key="EMPTY_QUOTED", value="")
+    def test_double_quoted_values_stripped(self, key: str, value: str):
+        """Property: Double-quoted values have quotes stripped."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_file = Path(tmp_dir) / "config"
+            config_file.write_text(f'{key}="{value}"')
+            result = parse_config_file(config_file)
+            assert key in result
+            assert result[key] == value
+
+    @given(
+        key=config_key_strategy,
+        value=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cc", "Cs"),  # Exclude control chars and surrogates
+                blacklist_characters="\n\r'",
+            ),
+            min_size=0,
+            max_size=100,
+        ),
+    )
+    @example(key="SINGLE_QUOTED", value="value with spaces")
+    def test_single_quoted_values_stripped(self, key: str, value: str):
+        """Property: Single-quoted values have quotes stripped."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_file = Path(tmp_dir) / "config"
+            config_file.write_text(f"{key}='{value}'")
+            result = parse_config_file(config_file)
+            assert key in result
+            assert result[key] == value
+
+    @given(
+        key=config_key_strategy,
+        value=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cc", "Cs"),  # Exclude control chars and surrogates
+                blacklist_characters='\n\r"\'',
+            ),
+            min_size=1,
+            max_size=50,
+        ),
+        leading_spaces=st.integers(min_value=0, max_value=5),
+        trailing_spaces=st.integers(min_value=0, max_value=5),
+    )
+    @example(key="SPACED", value="test", leading_spaces=2, trailing_spaces=3)
+    @example(key="TABS", value="value", leading_spaces=0, trailing_spaces=0)
+    def test_whitespace_around_line_stripped(
+        self, key: str, value: str, leading_spaces: int, trailing_spaces: int
+    ):
+        """Property: Whitespace around lines is stripped."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_file = Path(tmp_dir) / "config"
+            line = " " * leading_spaces + f"{key}={value}" + " " * trailing_spaces
+            config_file.write_text(line)
+            result = parse_config_file(config_file)
+            assert key in result
+            # The parser strips the entire line, so value should match
+            assert result[key] == value
+
+    @given(
+        key=config_key_strategy,
+        value=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cc", "Cs"),  # Exclude control chars and surrogates
+                blacklist_characters='\n\r"\'',
+            ),
+            min_size=1,
+            max_size=50,
+        ),
+        key_trailing_spaces=st.integers(min_value=0, max_value=5),
+        value_leading_spaces=st.integers(min_value=0, max_value=5),
+    )
+    @example(key="SPACED_KEY", value="val", key_trailing_spaces=2, value_leading_spaces=2)
+    def test_whitespace_around_equals_stripped(
+        self, key: str, value: str, key_trailing_spaces: int, value_leading_spaces: int
+    ):
+        """Property: Whitespace around = sign is stripped from key and value."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_file = Path(tmp_dir) / "config"
+            # Format: KEY   =   value
+            line = key + " " * key_trailing_spaces + "=" + " " * value_leading_spaces + value
+            config_file.write_text(line)
+            result = parse_config_file(config_file)
+            assert key in result
+            assert result[key] == value
+
+    @given(
+        comment=st.text(
+            alphabet=st.characters(blacklist_categories=("Cc", "Cs")),  # Exclude control and surrogates
+            max_size=100,
+        ).filter(lambda x: "\n" not in x and "\r" not in x)
+    )
+    @example(comment="This is a comment")
+    @example(comment="")
+    def test_comment_lines_ignored(self, comment: str):
+        """Property: Lines starting with # are ignored."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_file = Path(tmp_dir) / "config"
+            config_file.write_text(f"# {comment}\nVALID_KEY=valid_value")
+            result = parse_config_file(config_file)
+            # Comment should not be parsed as a key
+            assert f"# {comment}" not in result
+            # Valid key should still be present
+            assert result.get("VALID_KEY") == "valid_value"
+
+    @given(num_empty_lines=st.integers(min_value=1, max_value=5))
+    @example(num_empty_lines=1)
+    @example(num_empty_lines=3)
+    def test_empty_lines_ignored(self, num_empty_lines: int):
+        """Property: Empty lines are ignored."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_file = Path(tmp_dir) / "config"
+            content = "\n" * num_empty_lines + "KEY=value" + "\n" * num_empty_lines
+            config_file.write_text(content)
+            result = parse_config_file(config_file)
+            assert result.get("KEY") == "value"
+            assert len(result) == 1
+
+    @given(
+        keys=st.lists(
+            config_key_strategy,
+            min_size=2,
+            max_size=5,
+            unique=True,
+        ),
+        values=st.lists(
+            st.text(
+                alphabet=st.characters(
+                    blacklist_categories=("Cc", "Cs"),  # Exclude control chars and surrogates
+                    blacklist_characters='\n\r"\'',
+                ),
+                min_size=1,
+                max_size=30,
+            ),
+            min_size=2,
+            max_size=5,
+        ),
+    )
+    def test_multiple_keys_all_parsed(self, keys: list, values: list):
+        """Property: All key-value pairs in a file are parsed."""
+        # Ensure we have same number of keys and values
+        min_len = min(len(keys), len(values))
+        keys = keys[:min_len]
+        values = values[:min_len]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_file = Path(tmp_dir) / "config"
+            lines = [f"{k}={v}" for k, v in zip(keys, values, strict=True)]
+            config_file.write_text("\n".join(lines))
+
+            result = parse_config_file(config_file)
+            for k, v in zip(keys, values, strict=True):
+                assert k in result
+                # The parser strips whitespace from values
+                assert result[k] == v.strip()
+
+    @given(
+        key=config_key_strategy,
+        value=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cc", "Cs", "Zs"),  # Exclude control, surrogates, and space separators
+                blacklist_characters='\n\r"\'',
+            ),
+            min_size=1,
+            max_size=50,
+        ),
+    )
+    @example(key="URL", value="https://example.com/path?query=value")
+    @example(key="MATH", value="1+1=2")
+    def test_values_with_equals_preserved(self, key: str, value: str):
+        """Property: Values containing = are preserved correctly."""
+        # The parser uses partition which only splits on first =
+        # Note: The parser strips whitespace (including Unicode whitespace like \xa0)
+        # from values, so we test with non-whitespace characters only
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_file = Path(tmp_dir) / "config"
+            full_value = f"{value}=extra"
+            config_file.write_text(f"{key}={full_value}")
+            result = parse_config_file(config_file)
+            assert key in result
+            assert result[key] == full_value
