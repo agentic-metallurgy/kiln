@@ -468,6 +468,7 @@ class TestRunDaemonSlackInitialization:
     def test_run_daemon_imports_slack_functions(self):
         """Test that run_daemon() imports init_slack and send_startup_ping."""
         import inspect
+
         from src.cli import run_daemon
 
         source = inspect.getsource(run_daemon)
@@ -479,6 +480,7 @@ class TestRunDaemonSlackInitialization:
     def test_run_daemon_calls_init_slack(self):
         """Test that run_daemon() calls init_slack with config values."""
         import inspect
+
         from src.cli import run_daemon
 
         source = inspect.getsource(run_daemon)
@@ -490,6 +492,7 @@ class TestRunDaemonSlackInitialization:
     def test_run_daemon_calls_send_startup_ping(self):
         """Test that run_daemon() calls send_startup_ping()."""
         import inspect
+
         from src.cli import run_daemon
 
         source = inspect.getsource(run_daemon)
@@ -501,6 +504,7 @@ class TestRunDaemonSlackInitialization:
     def test_run_daemon_calls_slack_init_before_daemon_run(self):
         """Test that Slack initialization happens before daemon.run()."""
         import inspect
+
         from src.cli import run_daemon
 
         source = inspect.getsource(run_daemon)
@@ -519,3 +523,65 @@ class TestRunDaemonSlackInitialization:
             "init_slack must be called before send_startup_ping"
         assert send_startup_ping_pos < daemon_run_pos, \
             "send_startup_ping must be called before daemon.run()"
+
+
+@pytest.mark.unit
+class TestRunDaemonPagerDutyInitialization:
+    """Tests to verify run_daemon() initializes PagerDuty correctly.
+
+    These tests prevent regression of the bug where cli.py's run_daemon()
+    was missing PagerDuty initialization.
+    """
+
+    def test_run_daemon_imports_pagerduty_init(self):
+        """Test that run_daemon() imports init_pagerduty."""
+        import inspect
+
+        from src.cli import run_daemon
+
+        source = inspect.getsource(run_daemon)
+        assert "from src.pagerduty import init_pagerduty" in source, \
+            "run_daemon() must import init_pagerduty from src.pagerduty"
+
+    def test_run_daemon_calls_init_pagerduty(self):
+        """Test that run_daemon() calls init_pagerduty with config value."""
+        import inspect
+
+        from src.cli import run_daemon
+
+        source = inspect.getsource(run_daemon)
+        assert "init_pagerduty(config.pagerduty_routing_key)" in source, \
+            "run_daemon() must call init_pagerduty(config.pagerduty_routing_key)"
+
+    def test_run_daemon_pagerduty_init_is_conditional(self):
+        """Test that PagerDuty init only happens if routing key is configured."""
+        import inspect
+
+        from src.cli import run_daemon
+
+        source = inspect.getsource(run_daemon)
+        # Find the conditional check
+        assert "if config.pagerduty_routing_key:" in source, \
+            "PagerDuty initialization must be conditional on routing key"
+
+    def test_run_daemon_pagerduty_init_order(self):
+        """Test that PagerDuty init happens between telemetry and Slack init."""
+        import inspect
+
+        from src.cli import run_daemon
+
+        source = inspect.getsource(run_daemon)
+
+        # Find positions of key initializations
+        telemetry_pos = source.find("init_telemetry(")
+        pagerduty_pos = source.find("init_pagerduty(config.pagerduty_routing_key)")
+        slack_pos = source.find("init_slack(config.slack_bot_token")
+
+        assert telemetry_pos != -1, "init_telemetry call not found"
+        assert pagerduty_pos != -1, "init_pagerduty call not found"
+        assert slack_pos != -1, "init_slack call not found"
+
+        assert telemetry_pos < pagerduty_pos, \
+            "init_pagerduty must be called after init_telemetry"
+        assert pagerduty_pos < slack_pos, \
+            "init_pagerduty must be called before init_slack"

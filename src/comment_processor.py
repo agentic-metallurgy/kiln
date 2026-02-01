@@ -34,9 +34,6 @@ class CommentProcessor:
     by running Claude workflows to apply requested changes and posting diffs.
     """
 
-    # Bot usernames to skip when processing comments
-    BOT_USERNAMES = {"kiln-bot", "github-actions[bot]"}
-
     # HTML comment markers for kiln posts (guaranteed idempotent identification)
     KILN_POST_MARKERS = {
         "research": "<!-- kiln:research -->",
@@ -158,7 +155,7 @@ class CommentProcessor:
             # Determine target type: try plan first, then research, fallback to description
             target_type = self._get_target_type(item)
 
-            # Filter out bot comments, kiln posts, kiln responses, already-processed comments (thumbs up),
+            # Filter out kiln posts, kiln responses, already-processed comments (thumbs up),
             # comments being processed by another thread (eyes reaction), and non-allowed users
             # Check for both new HTML markers and legacy visible markers
             all_markers = tuple(self.KILN_POST_MARKERS.values()) + tuple(
@@ -171,7 +168,7 @@ class CommentProcessor:
             team_authors: set[str] = set()
             blocked_authors: set[str] = set()
             for c in new_comments:
-                if c.author not in self.BOT_USERNAMES and c.author != self.username_self:
+                if c.author != self.username_self:
                     if c.author in self.team_usernames:
                         team_authors.add(c.author)
                     else:
@@ -191,7 +188,6 @@ class CommentProcessor:
                 c
                 for c in new_comments
                 if c.author == self.username_self  # Must be from allowed username
-                and c.author not in self.BOT_USERNAMES
                 and not self._is_kiln_post(c.body, all_markers)
                 and not self._is_kiln_response(c.body)
                 and not c.is_processed  # Skip already-processed comments
