@@ -355,6 +355,392 @@ class TestRunRecordDatabase:
 
 
 @pytest.mark.unit
+class TestDetermineState:
+    """Tests for _determine_state helper function."""
+
+    def test_determine_state_running_label_first(self):
+        """Test that running labels take priority."""
+        from src.cli import _determine_state
+
+        labels = {"implementing", "plan_ready"}
+        state = _determine_state(labels, "Plan")
+        assert state == "implementing"
+
+    def test_determine_state_failure_label(self):
+        """Test that failure labels are recognized."""
+        from src.cli import _determine_state
+
+        labels = {"implementation_failed"}
+        state = _determine_state(labels, "Implement")
+        assert state == "implementation_failed"
+
+    def test_determine_state_complete_label(self):
+        """Test that completion labels are recognized."""
+        from src.cli import _determine_state
+
+        labels = {"research_ready"}
+        state = _determine_state(labels, "Research")
+        assert state == "research_ready"
+
+    def test_determine_state_fallback_to_board_status(self):
+        """Test fallback to board status when no matching labels."""
+        from src.cli import _determine_state
+
+        labels = {"some_other_label"}
+        state = _determine_state(labels, "Plan")
+        assert state == "plan"
+
+    def test_determine_state_empty_labels(self):
+        """Test fallback when no labels."""
+        from src.cli import _determine_state
+
+        labels = set()
+        state = _determine_state(labels, "Research")
+        assert state == "research"
+
+    def test_determine_state_priority_order(self):
+        """Test that running labels take priority over failure labels."""
+        from src.cli import _determine_state
+
+        # 'researching' should take priority over 'implementation_failed'
+        labels = {"researching", "implementation_failed", "research_ready"}
+        state = _determine_state(labels, "Validate")
+        assert state == "researching"
+
+
+@pytest.mark.unit
+class TestCmdLogsSummary:
+    """Tests for cmd_logs_summary function."""
+
+    def test_cmd_logs_summary_no_issues(self, tmp_path, capsys):
+        """Test summary view when no issues exist."""
+        from src.cli import cmd_logs_summary
+
+        # Create empty database
+        db_path = tmp_path / "test.db"
+        db = Database(str(db_path))
+
+        with patch("src.config.load_config") as mock_config:
+            mock_config.return_value = MagicMock(
+                github_token="fake-token",
+                github_enterprise_host=None,
+                github_enterprise_token=None,
+                github_enterprise_version=None,
+            )
+            cmd_logs_summary(db)
+
+        db.close()
+        captured = capsys.readouterr()
+        assert "No tracked issues found." in captured.out
+
+    def test_cmd_logs_summary_displays_table(self, tmp_path, capsys):
+        """Test summary view displays table with correct columns."""
+        from src.cli import cmd_logs_summary
+        from src.interfaces.ticket import LinkedPullRequest
+
+        # Create database with test data
+        db_path = tmp_path / "test.db"
+        db = Database(str(db_path))
+        db.update_issue_state("github.com/owner/repo", 42, "Research")
+
+        # Mock GitHub client
+        mock_client = MagicMock()
+        mock_client.get_ticket_labels.return_value = {"researching"}
+        mock_client.get_linked_prs.return_value = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="PR body",
+                state="OPEN",
+                merged=False,
+                branch_name="42-feature",
+                title="Add feature",
+            )
+        ]
+
+        with (
+            patch("src.config.load_config") as mock_config,
+            patch("src.ticket_clients.get_github_client", return_value=mock_client),
+        ):
+            mock_config.return_value = MagicMock(
+                github_token="fake-token",
+                github_enterprise_host=None,
+                github_enterprise_token=None,
+                github_enterprise_version=None,
+            )
+            cmd_logs_summary(db)
+
+        db.close()
+        captured = capsys.readouterr()
+
+        # Check header
+        assert "Identifier" in captured.out
+        assert "Branch" in captured.out
+        assert "PR" in captured.out
+        assert "State" in captured.out
+
+        # Check data row
+        assert "owner/repo#42" in captured.out
+        assert "42-feature" in captured.out
+        assert "#100: Add feature" in captured.out
+        assert "researching" in captured.out
+
+    def test_cmd_logs_summary_yolo_indicator(self, tmp_path, capsys):
+        """Test that yolo label is displayed with state."""
+        from src.cli import cmd_logs_summary
+
+        db_path = tmp_path / "test.db"
+        db = Database(str(db_path))
+        db.update_issue_state("github.com/owner/repo", 42, "Implement")
+
+        mock_client = MagicMock()
+        mock_client.get_ticket_labels.return_value = {"implementing", "yolo"}
+        mock_client.get_linked_prs.return_value = []
+
+        with (
+            patch("src.config.load_config") as mock_config,
+            patch("src.ticket_clients.get_github_client", return_value=mock_client),
+        ):
+            mock_config.return_value = MagicMock(
+                github_token="fake-token",
+                github_enterprise_host=None,
+                github_enterprise_token=None,
+                github_enterprise_version=None,
+            )
+            cmd_logs_summary(db)
+
+        db.close()
+        captured = capsys.readouterr()
+        assert "implementing (yolo)" in captured.out
+
+    def test_cmd_logs_summary_no_pr(self, tmp_path, capsys):
+        """Test summary view when issue has no linked PR."""
+        from src.cli import cmd_logs_summary
+
+        db_path = tmp_path / "test.db"
+        db = Database(str(db_path))
+        db.update_issue_state("github.com/owner/repo", 42, "Research")
+
+        mock_client = MagicMock()
+        mock_client.get_ticket_labels.return_value = set()
+        mock_client.get_linked_prs.return_value = []
+
+        with (
+            patch("src.config.load_config") as mock_config,
+            patch("src.ticket_clients.get_github_client", return_value=mock_client),
+        ):
+            mock_config.return_value = MagicMock(
+                github_token="fake-token",
+                github_enterprise_host=None,
+                github_enterprise_token=None,
+                github_enterprise_version=None,
+            )
+            cmd_logs_summary(db)
+
+        db.close()
+        captured = capsys.readouterr()
+        # Branch and PR should show "-" when not available
+        lines = captured.out.split("\n")
+        data_line = [line for line in lines if "owner/repo#42" in line][0]
+        assert data_line.count("-") >= 2  # At least branch and PR are "-"
+
+    def test_cmd_logs_summary_truncates_long_branch(self, tmp_path, capsys):
+        """Test that long branch names are truncated."""
+        from src.cli import cmd_logs_summary
+        from src.interfaces.ticket import LinkedPullRequest
+
+        db_path = tmp_path / "test.db"
+        db = Database(str(db_path))
+        db.update_issue_state("github.com/owner/repo", 42, "Research")
+
+        long_branch = "a" * 40  # Longer than 30 chars
+        mock_client = MagicMock()
+        mock_client.get_ticket_labels.return_value = set()
+        mock_client.get_linked_prs.return_value = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="",
+                state="OPEN",
+                merged=False,
+                branch_name=long_branch,
+                title="Test",
+            )
+        ]
+
+        with (
+            patch("src.config.load_config") as mock_config,
+            patch("src.ticket_clients.get_github_client", return_value=mock_client),
+        ):
+            mock_config.return_value = MagicMock(
+                github_token="fake-token",
+                github_enterprise_host=None,
+                github_enterprise_token=None,
+                github_enterprise_version=None,
+            )
+            cmd_logs_summary(db)
+
+        db.close()
+        captured = capsys.readouterr()
+        # Branch should be truncated with "..."
+        assert "aaa..." in captured.out
+
+    def test_cmd_logs_summary_truncates_long_title(self, tmp_path, capsys):
+        """Test that long PR titles are truncated."""
+        from src.cli import cmd_logs_summary
+        from src.interfaces.ticket import LinkedPullRequest
+
+        db_path = tmp_path / "test.db"
+        db = Database(str(db_path))
+        db.update_issue_state("github.com/owner/repo", 42, "Research")
+
+        long_title = "This is a very long PR title that exceeds the limit"
+        mock_client = MagicMock()
+        mock_client.get_ticket_labels.return_value = set()
+        mock_client.get_linked_prs.return_value = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="",
+                state="OPEN",
+                merged=False,
+                branch_name="feature",
+                title=long_title,
+            )
+        ]
+
+        with (
+            patch("src.config.load_config") as mock_config,
+            patch("src.ticket_clients.get_github_client", return_value=mock_client),
+        ):
+            mock_config.return_value = MagicMock(
+                github_token="fake-token",
+                github_enterprise_host=None,
+                github_enterprise_token=None,
+                github_enterprise_version=None,
+            )
+            cmd_logs_summary(db)
+
+        db.close()
+        captured = capsys.readouterr()
+        # Title should be truncated with "..."
+        assert "#100: This is a very long ..." in captured.out
+
+    def test_cmd_logs_summary_multiple_issues(self, tmp_path, capsys):
+        """Test summary view with multiple issues."""
+        from src.cli import cmd_logs_summary
+
+        db_path = tmp_path / "test.db"
+        db = Database(str(db_path))
+        db.update_issue_state("github.com/owner/repo1", 1, "Research")
+        db.update_issue_state("github.com/owner/repo2", 2, "Plan")
+        db.update_issue_state("github.com/owner/repo1", 3, "Implement")
+
+        mock_client = MagicMock()
+        mock_client.get_ticket_labels.return_value = set()
+        mock_client.get_linked_prs.return_value = []
+
+        with (
+            patch("src.config.load_config") as mock_config,
+            patch("src.ticket_clients.get_github_client", return_value=mock_client),
+        ):
+            mock_config.return_value = MagicMock(
+                github_token="fake-token",
+                github_enterprise_host=None,
+                github_enterprise_token=None,
+                github_enterprise_version=None,
+            )
+            cmd_logs_summary(db)
+
+        db.close()
+        captured = capsys.readouterr()
+        assert "owner/repo1#1" in captured.out
+        assert "owner/repo2#2" in captured.out
+        assert "owner/repo1#3" in captured.out
+
+
+@pytest.mark.unit
+class TestCmdLogsSummaryDispatch:
+    """Tests for cmd_logs dispatching to summary view."""
+
+    def test_cmd_logs_no_issue_calls_summary(self, tmp_path, capsys):
+        """Test that cmd_logs with no issue argument shows summary."""
+        from src.cli import cmd_logs
+
+        # Create database with test data
+        kiln_dir = tmp_path / ".kiln"
+        kiln_dir.mkdir()
+        db_path = kiln_dir / "kiln.db"
+        db = Database(str(db_path))
+        db.update_issue_state("github.com/owner/repo", 42, "Research")
+        db.close()
+
+        args = argparse.Namespace(
+            issue=None,
+            list=True,
+            view=None,
+            session=None,
+        )
+
+        mock_client = MagicMock()
+        mock_client.get_ticket_labels.return_value = set()
+        mock_client.get_linked_prs.return_value = []
+
+        with (
+            patch("src.cli.get_kiln_dir", return_value=tmp_path / ".kiln"),
+            patch("src.config.load_config") as mock_config,
+            patch("src.ticket_clients.get_github_client", return_value=mock_client),
+        ):
+            mock_config.return_value = MagicMock(
+                github_token="fake-token",
+                github_enterprise_host=None,
+                github_enterprise_token=None,
+                github_enterprise_version=None,
+            )
+            cmd_logs(args)
+
+        captured = capsys.readouterr()
+        # Should show summary table headers
+        assert "Identifier" in captured.out
+        assert "Branch" in captured.out
+        assert "State" in captured.out
+
+    def test_cmd_logs_with_issue_shows_history(self, tmp_path, capsys):
+        """Test that cmd_logs with issue argument shows run history."""
+        from src.cli import cmd_logs
+
+        # Create database with run record
+        kiln_dir = tmp_path / ".kiln"
+        kiln_dir.mkdir()
+        db_path = kiln_dir / "kiln.db"
+        db = Database(str(db_path))
+        record = RunRecord(
+            repo="github.com/owner/repo",
+            issue_number=42,
+            workflow="Research",
+            started_at=datetime.now(),
+        )
+        run_id = db.insert_run_record(record)
+        db.update_run_record(run_id, completed_at=datetime.now(), outcome="success")
+        db.close()
+
+        args = argparse.Namespace(
+            issue="owner/repo#42",
+            list=True,
+            view=None,
+            session=None,
+        )
+
+        with patch("src.cli.get_kiln_dir", return_value=tmp_path / ".kiln"):
+            cmd_logs(args)
+
+        captured = capsys.readouterr()
+        # Should show run history
+        assert "Run history for owner/repo#42" in captured.out
+        assert "Research" in captured.out
+
+
+@pytest.mark.unit
 class TestCliLogsCommand:
     """Tests for CLI logs command parsing and helpers."""
 
