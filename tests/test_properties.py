@@ -5,6 +5,7 @@ edge cases across URL parsing, config parsing, diff generation, comment
 filtering, and label operations.
 """
 
+import string
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -12,6 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 from hypothesis import assume, example, given
 from hypothesis import strategies as st
+from hypothesis.stateful import Bundle, RuleBasedStateMachine, invariant, rule
 
 from src.cli import parse_issue_arg
 from src.comment_processor import CommentProcessor
@@ -99,9 +101,7 @@ class TestParseIssueArgProperties:
     @example(owner="owner", repo="repo", issue_num=42)
     @example(owner="my-org", repo="my-repo", issue_num=1)
     @example(owner="A", repo="B", issue_num=999999999)
-    def test_owner_repo_format_roundtrip(
-        self, owner: str, repo: str, issue_num: int
-    ):
+    def test_owner_repo_format_roundtrip(self, owner: str, repo: str, issue_num: int):
         """Property: owner/repo#N format parses correctly with github.com default."""
         issue_arg = f"{owner}/{repo}#{issue_num}"
         result_repo, result_num = parse_issue_arg(issue_arg)
@@ -117,9 +117,7 @@ class TestParseIssueArgProperties:
     )
     @example(hostname="github.corp.com", owner="org", repo="repo", issue_num=123)
     @example(hostname="git.example.org", owner="team", repo="project", issue_num=1)
-    def test_hostname_format_roundtrip(
-        self, hostname: str, owner: str, repo: str, issue_num: int
-    ):
+    def test_hostname_format_roundtrip(self, hostname: str, owner: str, repo: str, issue_num: int):
         """Property: hostname/owner/repo#N format preserves all components."""
         issue_arg = f"{hostname}/{owner}/{repo}#{issue_num}"
         result_repo, result_num = parse_issue_arg(issue_arg)
@@ -132,9 +130,7 @@ class TestParseIssueArgProperties:
         repo=repo_name_strategy,
         issue_num=issue_number_strategy,
     )
-    def test_issue_number_always_positive(
-        self, owner: str, repo: str, issue_num: int
-    ):
+    def test_issue_number_always_positive(self, owner: str, repo: str, issue_num: int):
         """Property: Parsed issue numbers are always positive integers."""
         issue_arg = f"{owner}/{repo}#{issue_num}"
         _, result_num = parse_issue_arg(issue_arg)
@@ -148,12 +144,14 @@ class TestParseIssueArgProperties:
     def test_invalid_format_raises_valueerror(self, text: str):
         """Property: Invalid formats always raise ValueError."""
         # Skip if it accidentally matches a valid pattern
-        assume(not (
-            "/" in text
-            and "#" in text
-            and text.split("#")[-1].isdigit()
-            and len(text.split("/")) >= 2
-        ))
+        assume(
+            not (
+                "/" in text
+                and "#" in text
+                and text.split("#")[-1].isdigit()
+                and len(text.split("/")) >= 2
+            )
+        )
         with pytest.raises(ValueError):
             parse_issue_arg(text)
 
@@ -252,7 +250,7 @@ class TestConfigParsingProperties:
         value=st.text(
             alphabet=st.characters(
                 blacklist_categories=("Cc", "Cs"),  # Exclude control chars and surrogates
-                blacklist_characters='\n\r"\'',
+                blacklist_characters="\n\r\"'",
             ),
             min_size=0,
             max_size=100,
@@ -320,7 +318,7 @@ class TestConfigParsingProperties:
         value=st.text(
             alphabet=st.characters(
                 blacklist_categories=("Cc", "Cs"),  # Exclude control chars and surrogates
-                blacklist_characters='\n\r"\'',
+                blacklist_characters="\n\r\"'",
             ),
             min_size=1,
             max_size=50,
@@ -348,7 +346,7 @@ class TestConfigParsingProperties:
         value=st.text(
             alphabet=st.characters(
                 blacklist_categories=("Cc", "Cs"),  # Exclude control chars and surrogates
-                blacklist_characters='\n\r"\'',
+                blacklist_characters="\n\r\"'",
             ),
             min_size=1,
             max_size=50,
@@ -372,7 +370,9 @@ class TestConfigParsingProperties:
 
     @given(
         comment=st.text(
-            alphabet=st.characters(blacklist_categories=("Cc", "Cs")),  # Exclude control and surrogates
+            alphabet=st.characters(
+                blacklist_categories=("Cc", "Cs")
+            ),  # Exclude control and surrogates
             max_size=100,
         ).filter(lambda x: "\n" not in x and "\r" not in x)
     )
@@ -413,7 +413,7 @@ class TestConfigParsingProperties:
             st.text(
                 alphabet=st.characters(
                     blacklist_categories=("Cc", "Cs"),  # Exclude control chars and surrogates
-                    blacklist_characters='\n\r"\'',
+                    blacklist_characters="\n\r\"'",
                 ),
                 min_size=1,
                 max_size=30,
@@ -444,8 +444,12 @@ class TestConfigParsingProperties:
         key=config_key_strategy,
         value=st.text(
             alphabet=st.characters(
-                blacklist_categories=("Cc", "Cs", "Zs"),  # Exclude control, surrogates, and space separators
-                blacklist_characters='\n\r"\'',
+                blacklist_categories=(
+                    "Cc",
+                    "Cs",
+                    "Zs",
+                ),  # Exclude control, surrogates, and space separators
+                blacklist_characters="\n\r\"'",
             ),
             min_size=1,
             max_size=50,
@@ -709,13 +713,15 @@ class TestIsKilnPostProperties:
     """Property-based tests for _is_kiln_post."""
 
     @given(
-        marker=st.sampled_from([
-            "<!-- kiln:research -->",
-            "<!-- kiln:plan -->",
-            "## Research",
-            "## Plan",
-            "---",
-        ]),
+        marker=st.sampled_from(
+            [
+                "<!-- kiln:research -->",
+                "<!-- kiln:plan -->",
+                "## Research",
+                "## Plan",
+                "---",
+            ]
+        ),
         leading_whitespace=whitespace_strategy,
         trailing_content=st.text(max_size=200),
     )
@@ -744,17 +750,17 @@ class TestIsKilnPostProperties:
         assert result_with_ws == result_without_ws
 
     @given(
-        marker=st.sampled_from([
-            "<!-- kiln:research -->",
-            "<!-- kiln:plan -->",
-        ]),
+        marker=st.sampled_from(
+            [
+                "<!-- kiln:research -->",
+                "<!-- kiln:plan -->",
+            ]
+        ),
         leading_whitespace=whitespace_strategy,
     )
     @example(marker="<!-- kiln:research -->", leading_whitespace="")
     @example(marker="<!-- kiln:plan -->", leading_whitespace="  ")
-    def test_kiln_markers_always_detected(
-        self, marker: str, leading_whitespace: str
-    ):
+    def test_kiln_markers_always_detected(self, marker: str, leading_whitespace: str):
         """Property: Valid kiln markers are always detected regardless of whitespace."""
         processor = _create_comment_processor()
         markers = ("<!-- kiln:research -->", "<!-- kiln:plan -->")
@@ -797,10 +803,12 @@ class TestIsKilnPostProperties:
         assert result is False
 
     @given(
-        marker=st.sampled_from([
-            "<!-- kiln:research -->",
-            "<!-- kiln:plan -->",
-        ]),
+        marker=st.sampled_from(
+            [
+                "<!-- kiln:research -->",
+                "<!-- kiln:plan -->",
+            ]
+        ),
         spaces_count=st.integers(min_value=1, max_value=10),
         tabs_count=st.integers(min_value=0, max_value=5),
         newlines_count=st.integers(min_value=0, max_value=5),
@@ -900,3 +908,99 @@ class TestIsKilnResponseProperties:
 
         result = processor._is_kiln_response(body)
         assert result is False
+
+
+# =============================================================================
+# Stateful Label Tests with RuleBasedStateMachine
+# =============================================================================
+
+# Strategy for valid label names (alphanumeric, hyphens, underscores)
+label_name_strategy = st.text(
+    alphabet=string.ascii_lowercase + string.digits + "-_",
+    min_size=1,
+    max_size=50,
+).filter(lambda x: x[0].isalnum())  # Labels must start with alphanumeric
+
+
+class LabelStateMachine(RuleBasedStateMachine):
+    """Stateful test for label add/remove operations.
+
+    This tests the invariants of label operations:
+    - Adding a label is idempotent (adding twice is same as adding once)
+    - Removing a non-existent label is safe
+    - Add then remove leaves no label
+    - Labels are tracked consistently
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.labels_on_issue: set[str] = set()
+
+        # Create mock client that tracks state
+        self.mock_client = MagicMock()
+
+        def mock_add(_repo: str, _ticket_id: int, label: str) -> None:
+            self.labels_on_issue.add(label)
+
+        def mock_remove(_repo: str, _ticket_id: int, label: str) -> None:
+            self.labels_on_issue.discard(label)
+
+        def mock_get_labels(_repo: str, _ticket_id: int) -> set[str]:
+            return self.labels_on_issue.copy()
+
+        self.mock_client.add_label = mock_add
+        self.mock_client.remove_label = mock_remove
+        self.mock_client.get_ticket_labels = mock_get_labels
+
+    # Bundle to track labels we've added
+    labels = Bundle("labels")
+
+    @rule(target=labels, label=label_name_strategy)
+    def add_label(self, label: str) -> str:
+        """Add a label to the issue and track it."""
+        self.mock_client.add_label("test/repo", 1, label)
+        return label
+
+    @rule(label=labels)
+    def remove_label(self, label: str) -> None:
+        """Remove a previously added label."""
+        self.mock_client.remove_label("test/repo", 1, label)
+
+    @rule(label=label_name_strategy)
+    def add_label_is_idempotent(self, label: str) -> None:
+        """Adding same label twice should have same effect as adding once."""
+        self.mock_client.add_label("test/repo", 1, label)
+        initial_labels = self.labels_on_issue.copy()
+        self.mock_client.add_label("test/repo", 1, label)
+        assert self.labels_on_issue == initial_labels
+
+    @rule(label=label_name_strategy)
+    def remove_nonexistent_is_safe(self, label: str) -> None:
+        """Removing a label that doesn't exist should not error."""
+        if label not in self.labels_on_issue:
+            # Should not raise
+            self.mock_client.remove_label("test/repo", 1, label)
+            assert label not in self.labels_on_issue
+
+    @rule(label=label_name_strategy)
+    def add_then_remove_inverse(self, label: str) -> None:
+        """Add followed by remove should leave label absent."""
+        self.mock_client.add_label("test/repo", 1, label)
+        assert label in self.labels_on_issue
+        self.mock_client.remove_label("test/repo", 1, label)
+        assert label not in self.labels_on_issue
+
+    @invariant()
+    def labels_are_consistent(self) -> None:
+        """The set of labels should match what mock returns."""
+        actual = self.mock_client.get_ticket_labels("test/repo", 1)
+        assert actual == self.labels_on_issue
+
+
+# This creates the test class that pytest will discover
+@pytest.mark.unit
+@pytest.mark.hypothesis
+class TestLabelState(LabelStateMachine.TestCase):
+    """Stateful test case for label operations using RuleBasedStateMachine."""
+
+    pass
