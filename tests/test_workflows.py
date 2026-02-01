@@ -1,9 +1,17 @@
 """Unit tests for the workflows module."""
 
+import subprocess
+
 import pytest
 
+from src.ticket_clients.base import NetworkError
 from src.workflows.base import WorkflowContext
-from src.workflows.implement import ImplementWorkflow, count_checkboxes, count_tasks
+from src.workflows.implement import (
+    ImplementWorkflow,
+    _retry_with_backoff,
+    count_checkboxes,
+    count_tasks,
+)
 from src.workflows.plan import PlanWorkflow
 from src.workflows.prepare import PrepareWorkflow
 from src.workflows.process_comments import ProcessCommentsWorkflow
@@ -1548,3 +1556,128 @@ Some other content here.
         assert len(prepare_calls) == 1
         prepare_prompt = prepare_calls[0][0][0]
         assert "--base" not in prepare_prompt
+
+    def test_get_pr_for_issue_raises_network_error_on_tls_timeout(self):
+        """Test that _get_pr_for_issue raises NetworkError on TLS timeout."""
+        from unittest.mock import patch
+
+        workflow = ImplementWorkflow()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(
+                returncode=1,
+                cmd=["gh"],
+                stderr="net/http: TLS handshake timeout",
+            )
+            with pytest.raises(NetworkError, match="Network error getting PR"):
+                workflow._get_pr_for_issue("github.com/owner/repo", 123)
+
+    def test_get_pr_for_issue_raises_network_error_on_connection_refused(self):
+        """Test that _get_pr_for_issue raises NetworkError on connection refused."""
+        from unittest.mock import patch
+
+        workflow = ImplementWorkflow()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(
+                returncode=1,
+                cmd=["gh"],
+                stderr="dial tcp: connection refused",
+            )
+            with pytest.raises(NetworkError, match="Network error getting PR"):
+                workflow._get_pr_for_issue("github.com/owner/repo", 123)
+
+    def test_get_pr_for_issue_returns_none_on_non_network_error(self):
+        """Test that _get_pr_for_issue returns None on non-network subprocess errors."""
+        from unittest.mock import patch
+
+        workflow = ImplementWorkflow()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.CalledProcessError(
+                returncode=1,
+                cmd=["gh"],
+                stderr="GraphQL: Could not resolve to a Repository",
+            )
+            result = workflow._get_pr_for_issue("github.com/owner/repo", 123)
+
+        assert result is None
+
+    def test_retry_with_backoff_retries_on_network_error(self):
+        """Test that _retry_with_backoff retries when NetworkError is raised."""
+        from unittest.mock import patch
+
+        call_count = [0]
+
+        def mock_func():
+            call_count[0] += 1
+            if call_count[0] < 3:
+                raise NetworkError("Transient error")
+            return "success"
+
+        with patch("src.workflows.implement.time.sleep"):
+            result = _retry_with_backoff(mock_func, max_attempts=3)
+
+        assert result == "success"
+        assert call_count[0] == 3
+
+    def test_retry_with_backoff_raises_after_max_attempts(self):
+        """Test that _retry_with_backoff raises NetworkError after max attempts."""
+        from unittest.mock import patch
+
+        def always_fail():
+            raise NetworkError("Permanent failure")
+
+        with patch("src.workflows.implement.time.sleep"):
+            with pytest.raises(NetworkError, match="failed after 3 attempts"):
+                _retry_with_backoff(always_fail, max_attempts=3, description="test operation")
+
+    def test_execute_retries_pr_lookup_on_network_error(self, workflow_context):
+        """Test that execute() retries PR lookup on transient network errors."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import Config
+
+        workflow = ImplementWorkflow()
+
+        mock_config = MagicMock(spec=Config)
+        mock_config.stage_models = {"implement": "sonnet"}
+        mock_config.claude_code_enable_telemetry = False
+        mock_config.safety_allow_appended_tasks = 0
+
+        # Track calls to _get_pr_for_issue
+        call_count = [0]
+        pr_info = {
+            "number": 42,
+            "body": "Closes #42\n\n## TASK 1: Test\n- [x] Done",
+        }
+
+        def mock_get_pr(*_args, **_kwargs):
+            call_count[0] += 1
+            # First call (initial check) succeeds
+            if call_count[0] == 1:
+                return pr_info
+            # Second and third calls (in loop) fail with network error
+            if call_count[0] in (2, 3):
+                raise NetworkError("TLS handshake timeout")
+            # Fourth call succeeds (all tasks complete)
+            return pr_info
+
+        with (
+            patch.object(workflow, "_get_pr_for_issue", side_effect=mock_get_pr),
+            patch.object(workflow, "_run_prompt"),
+            patch.object(workflow, "_mark_pr_ready"),
+            patch("src.workflows.implement.time.sleep"),  # Speed up test
+        ):
+            # Should complete successfully after retrying
+            workflow.execute(workflow_context, mock_config)
+
+        # Initial check (1) + retry loop (2 failures + 1 success = 3 calls in retry) + final check (1)
+        # But since tasks are complete on first loop iteration, it exits immediately
+        # So: initial (1) + loop retry (3 calls in _retry_with_backoff) + final (1) = 5
+        # Actually, since all tasks are [x] Done, it detects completion on first loop iteration
+        # and doesn't run _run_prompt, so the sequence is:
+        # 1. Initial check -> returns pr_info
+        # 2-4. Loop iteration 1: _retry_with_backoff calls _get_pr_for_issue 3 times (2 fail, 1 success)
+        # 5. Final check after loop exits
+        assert call_count[0] >= 4  # At least: initial + retry calls + final
