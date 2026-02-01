@@ -170,8 +170,9 @@ class TestSendCommentProcessedNotification:
 
             payload = call_args[1]["json"]
             assert payload["channel"] == "U12345"
-            assert "Comment processed for issue `#166 - Test Issue Title`" in payload["text"]
-            assert "<https://github.com/org/repo/issues/166#issuecomment-123|read here>" in payload["text"]
+            assert "💬" in payload["text"]
+            assert "Comment processed:" in payload["text"]
+            assert "<https://github.com/org/repo/issues/166#issuecomment-123|issue #166>" in payload["text"]
 
             headers = call_args[1]["headers"]
             assert headers["Authorization"] == "Bearer xoxb-test-token"

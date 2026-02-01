@@ -286,7 +286,7 @@ def send_comment_processed_notification(
     if not _initialized or not _bot_token or not _user_id:
         return False
 
-    message = f"Comment processed for issue `#{issue_number} - {issue_title}` -- <{comment_url}|read here>"
+    message = f"💬 Comment processed: <{comment_url}|issue #{issue_number}>"
 
     payload = {
         "channel": _user_id,

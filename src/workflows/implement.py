@@ -11,6 +11,10 @@ from tenacity import wait_exponential
 
 from src.claude_runner import run_claude
 from src.logger import get_logger, log_message
+from src.slack import (
+    send_implementation_beginning_notification,
+    send_ready_for_validation_notification,
+)
 from src.ticket_clients.base import NetworkError
 from src.workflows.base import WorkflowContext
 
@@ -219,7 +223,10 @@ class ImplementWorkflow:
                 # Check for PR
                 pr_info = self._get_pr_for_issue(ctx.repo, ctx.issue_number)
                 if pr_info:
-                    logger.info(f"PR created for {key}: #{pr_info['number']}")
+                    pr_number = pr_info['number']
+                    pr_url = f"https://{ctx.repo}/pull/{pr_number}"
+                    send_implementation_beginning_notification(pr_url, pr_number)
+                    logger.info(f"PR created for {key}: #{pr_number}")
                     break
 
             if not pr_info:
@@ -345,6 +352,8 @@ class ImplementWorkflow:
             pr_number = pr_info.get("number")
             if total_tasks > 0 and completed_tasks == total_tasks and pr_number:
                 self._mark_pr_ready(ctx.repo, pr_number)
+                pr_url = f"https://{ctx.repo}/pull/{pr_number}"
+                send_ready_for_validation_notification(pr_url, pr_number)
             elif iteration >= max_iterations_estimate:
                 # Hit max iterations without completing all tasks
                 logger.warning(f"Hit max iterations ({max_iterations_estimate}) for {key}")
