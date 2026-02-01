@@ -1407,3 +1407,213 @@ class TestYoloLabelRemovalDuringWorkflow:
             daemon.ticket_client.add_label.assert_any_call(
                 "github.com/owner/repo", 42, Labels.YOLO_FAILED
             )
+
+
+# ============================================================================
+# Implementation Complete Comment Tests
+# ============================================================================
+
+
+@pytest.mark.integration
+class TestImplementationCompleteComment:
+    """Tests for posting a comment to the issue when implementation completes.
+
+    These tests verify that a comment with the PR link is posted to the issue
+    when the Implement workflow completes and moves to Validate.
+    """
+
+    @pytest.fixture
+    def daemon(self, temp_workspace_dir):
+        """Create a daemon instance for testing."""
+        import os
+
+        config = MagicMock()
+        config.poll_interval = 60
+        config.watched_statuses = ["Research", "Plan", "Implement"]
+        config.max_concurrent_workflows = 2
+        config.database_path = f"{temp_workspace_dir}/test.db"
+        config.workspace_dir = temp_workspace_dir
+        config.project_urls = ["https://github.com/orgs/test/projects/1"]
+        config.stage_models = {}
+        config.github_enterprise_version = None
+        config.ghes_logs_mask = False
+        config.github_enterprise_host = None
+        config.log_file = f"{temp_workspace_dir}/.kiln/logs/kiln.log"
+        config.username_self = "test-user"
+
+        # Create required directories
+        os.makedirs(f"{temp_workspace_dir}/.kiln/logs", exist_ok=True)
+
+        with patch("src.ticket_clients.github.GitHubTicketClient"):
+            daemon = Daemon(config)
+            daemon.ticket_client = MagicMock()
+            yield daemon
+            daemon.stop()
+
+    def test_completion_comment_posted_when_implement_finishes(self, daemon):
+        """Test that a comment with PR link is posted when Implement moves to Validate.
+
+        Scenario:
+        1. Issue is in Implement status with a linked PR
+        2. Workflow completes successfully and moves to Validate
+        3. A completion comment should be posted to the issue with the PR link
+        """
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="github.com/owner/repo",
+            status="Implement",
+            title="Test Implementation Issue",
+            labels=set(),
+        )
+
+        # Mock successful workflow completion
+        daemon._run_workflow = MagicMock(return_value="session-123")
+
+        # Mock get_pr_for_issue to return PR info with number
+        daemon._get_pr_for_issue = MagicMock(return_value={"number": 100, "body": "PR body"})
+
+        # Mock worktree path exists
+        with patch("pathlib.Path.exists", return_value=True):
+            # Mock get_ticket_body (not strictly needed but good for completeness)
+            daemon.ticket_client.get_ticket_body.return_value = "Issue body"
+
+            # Mock comments for timestamp update
+            daemon.ticket_client.get_comments.return_value = []
+
+            # Mock _should_notify_completion to return True (triggers the code path)
+            daemon._should_notify_completion = MagicMock(return_value=True)
+
+            # Mock send_phase_completion_notification
+            with patch("src.daemon.send_phase_completion_notification"):
+                daemon._process_item_workflow(item)
+
+        # Verify completion comment was posted
+        daemon.ticket_client.add_comment.assert_called_once()
+        call_args = daemon.ticket_client.add_comment.call_args
+        assert call_args[0][0] == "github.com/owner/repo"
+        assert call_args[0][1] == 42
+        assert "Implementation complete!" in call_args[0][2]
+        assert "https://github.com/owner/repo/pull/100" in call_args[0][2]
+
+    def test_completion_comment_not_posted_when_no_pr(self, daemon):
+        """Test that no comment is posted when there's no linked PR.
+
+        Scenario:
+        1. Issue is in Implement status but no PR is linked
+        2. Workflow completes and moves to Validate
+        3. No completion comment should be posted (can't link to PR)
+        """
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="github.com/owner/repo",
+            status="Implement",
+            title="Test Implementation Issue",
+            labels=set(),
+        )
+
+        # Mock successful workflow completion
+        daemon._run_workflow = MagicMock(return_value="session-123")
+
+        # Mock get_pr_for_issue to return None (no PR found)
+        daemon._get_pr_for_issue = MagicMock(return_value=None)
+
+        # Mock worktree path exists
+        with patch("pathlib.Path.exists", return_value=True):
+            daemon.ticket_client.get_ticket_body.return_value = "Issue body"
+            daemon.ticket_client.get_comments.return_value = []
+            daemon._should_notify_completion = MagicMock(return_value=True)
+
+            with patch("src.daemon.send_phase_completion_notification"):
+                daemon._process_item_workflow(item)
+
+        # Verify no comment was posted
+        daemon.ticket_client.add_comment.assert_not_called()
+
+    def test_completion_comment_not_posted_for_non_implement_status(self, daemon):
+        """Test that completion comment is only posted for Implement -> Validate.
+
+        Scenario:
+        1. Issue is in Research status
+        2. Workflow completes and moves to Plan
+        3. No completion comment should be posted (wrong status)
+        """
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="github.com/owner/repo",
+            status="Research",
+            title="Test Research Issue",
+            labels=set(),
+        )
+
+        # Mock successful workflow completion
+        daemon._run_workflow = MagicMock(return_value="session-123")
+
+        # Mock get_pr_for_issue
+        daemon._get_pr_for_issue = MagicMock(return_value={"number": 100, "body": "PR body"})
+
+        # Mock worktree path exists
+        with patch("pathlib.Path.exists", return_value=True):
+            # Mock get_ticket_body to return valid research block
+            daemon.ticket_client.get_ticket_body.return_value = (
+                "Issue body\n<!-- kiln:research -->\nResearch content\n<!-- /kiln:research -->"
+            )
+            daemon.ticket_client.get_comments.return_value = []
+            daemon._should_notify_completion = MagicMock(return_value=False)
+
+            with patch("src.daemon.send_phase_completion_notification"):
+                daemon._process_item_workflow(item)
+
+        # Verify no completion comment was posted (Research doesn't trigger it)
+        daemon.ticket_client.add_comment.assert_not_called()
+
+    def test_completion_comment_failure_does_not_break_workflow(self, daemon):
+        """Test that failing to post a comment does not break the workflow.
+
+        Scenario:
+        1. Issue is in Implement status with a linked PR
+        2. Workflow completes and moves to Validate
+        3. Comment posting fails with an exception
+        4. Workflow should complete normally (error is logged but not raised)
+        """
+        item = TicketItem(
+            item_id="PVI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="github.com/owner/repo",
+            status="Implement",
+            title="Test Implementation Issue",
+            labels=set(),
+        )
+
+        # Mock successful workflow completion
+        daemon._run_workflow = MagicMock(return_value="session-123")
+
+        # Mock get_pr_for_issue to return PR info
+        daemon._get_pr_for_issue = MagicMock(return_value={"number": 100, "body": "PR body"})
+
+        # Mock add_comment to raise an exception
+        daemon.ticket_client.add_comment.side_effect = Exception("GitHub API error")
+
+        # Mock worktree path exists
+        with patch("pathlib.Path.exists", return_value=True):
+            daemon.ticket_client.get_ticket_body.return_value = "Issue body"
+            daemon.ticket_client.get_comments.return_value = []
+            daemon._should_notify_completion = MagicMock(return_value=True)
+
+            with (
+                patch("src.daemon.send_phase_completion_notification"),
+                patch("src.daemon.logger") as mock_logger,
+            ):
+                # Should not raise an exception
+                daemon._process_item_workflow(item)
+
+                # Verify warning was logged
+                mock_logger.warning.assert_any_call(
+                    "Failed to post completion comment: GitHub API error"
+                )
