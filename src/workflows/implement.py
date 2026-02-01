@@ -225,7 +225,7 @@ class ImplementWorkflow:
             if not pr_info:
                 # Failed after 2 attempts - this will be caught by daemon to add failed label
                 raise RuntimeError(
-                    f"Failed to create PR for {key} after 2 attempts. "
+                    f"Failed to create PR for {issue_url} after 2 attempts. "
                     "Check /prepare_implementation_github output."
                 )
 
