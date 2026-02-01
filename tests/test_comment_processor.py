@@ -31,7 +31,7 @@ class TestCommentProcessorConstants:
     """Tests for CommentProcessor constants."""
 
     def test_bot_usernames_contains_kiln_bot(self):
-        """Test BOT_USERNAMES includes expected bots."""
+        """Test BOT_USERNAMES includes expected bots for logging categorization."""
         assert "kiln-bot" in CommentProcessor.BOT_USERNAMES
         assert "github-actions[bot]" in CommentProcessor.BOT_USERNAMES
 
