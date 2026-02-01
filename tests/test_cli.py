@@ -474,8 +474,8 @@ class TestRunDaemonSlackInitialization:
         source = inspect.getsource(run_daemon)
 
         # Verify the imports are present
-        assert "from src.slack import init_slack, send_startup_ping" in source, \
-            "run_daemon() must import init_slack and send_startup_ping from src.slack"
+        assert "from src.integrations.slack import init_slack, send_startup_ping" in source, \
+            "run_daemon() must import init_slack and send_startup_ping from src.integrations.slack"
 
     def test_run_daemon_calls_init_slack(self):
         """Test that run_daemon() calls init_slack with config values."""
@@ -540,8 +540,8 @@ class TestRunDaemonPagerDutyInitialization:
         from src.cli import run_daemon
 
         source = inspect.getsource(run_daemon)
-        assert "from src.pagerduty import init_pagerduty" in source, \
-            "run_daemon() must import init_pagerduty from src.pagerduty"
+        assert "from src.integrations.pagerduty import init_pagerduty" in source, \
+            "run_daemon() must import init_pagerduty from src.integrations.pagerduty"
 
     def test_run_daemon_calls_init_pagerduty(self):
         """Test that run_daemon() calls init_pagerduty with config value."""

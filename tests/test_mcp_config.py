@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.azure_oauth import AzureOAuthClient, AzureTokenRequestError
-from src.mcp_config import (
+from src.integrations.azure_oauth import AzureOAuthClient, AzureTokenRequestError
+from src.integrations.mcp_config import (
     MCP_CONFIG_PATH,
     TOKEN_PLACEHOLDER_PATTERN,
     WORKTREE_CONFIG_NAME,

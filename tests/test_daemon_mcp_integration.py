@@ -364,7 +364,7 @@ class TestDaemonMCPStartupLogging:
 
     def test_daemon_logs_successful_mcp_connections(self, base_config, mock_mcp_config):
         """Test that daemon logs per-server success with tool lists."""
-        from src.mcp_client import MCPTestResult
+        from src.integrations.mcp_client import MCPTestResult
 
         # Mock check_all_mcp_servers to return successful results
         mock_results = [
@@ -406,7 +406,7 @@ class TestDaemonMCPStartupLogging:
 
     def test_daemon_logs_failing_mcp_connections(self, base_config, mock_mcp_config):
         """Test that daemon logs per-server failures with error messages."""
-        from src.mcp_client import MCPTestResult
+        from src.integrations.mcp_client import MCPTestResult
 
         # Mock check_all_mcp_servers to return failure results
         mock_results = [
@@ -444,7 +444,7 @@ class TestDaemonMCPStartupLogging:
 
     def test_daemon_logs_mixed_mcp_results(self, base_config, mock_mcp_config):
         """Test that daemon correctly logs mix of successful and failing servers."""
-        from src.mcp_client import MCPTestResult
+        from src.integrations.mcp_client import MCPTestResult
 
         # Mock check_all_mcp_servers to return mixed results
         mock_results = [
@@ -502,7 +502,7 @@ class TestDaemonMCPStartupLogging:
 
     def test_daemon_logs_tools_as_comma_separated_list(self, base_config, mock_mcp_config):
         """Test that tool lists are formatted as comma-separated strings."""
-        from src.mcp_client import MCPTestResult
+        from src.integrations.mcp_client import MCPTestResult
 
         # Mock check_all_mcp_servers to return results with multiple tools
         mock_results = [
@@ -533,7 +533,7 @@ class TestDaemonMCPStartupLogging:
 
     def test_daemon_logs_none_when_no_tools(self, base_config, mock_mcp_config):
         """Test that 'none' is logged when server has no tools."""
-        from src.mcp_client import MCPTestResult
+        from src.integrations.mcp_client import MCPTestResult
 
         # Mock check_all_mcp_servers to return results with empty tools
         mock_results = [
@@ -561,7 +561,7 @@ class TestDaemonMCPStartupLogging:
 
     def test_daemon_continues_startup_on_mcp_failures(self, base_config, mock_mcp_config):
         """Test that daemon startup completes even when all MCP servers fail."""
-        from src.mcp_client import MCPTestResult
+        from src.integrations.mcp_client import MCPTestResult
 
         # Mock check_all_mcp_servers to return all failures
         mock_results = [
@@ -591,7 +591,7 @@ class TestDaemonMCPStartupLogging:
 
     def test_daemon_logs_mcp_server_count_before_details(self, base_config, mock_mcp_config):
         """Test that daemon logs total server count before per-server details."""
-        from src.mcp_client import MCPTestResult
+        from src.integrations.mcp_client import MCPTestResult
 
         mock_results = [
             MCPTestResult(server_name="server1", success=True, tools=["tool1"]),

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from src.azure_oauth import (
+from src.integrations.azure_oauth import (
     DEFAULT_SCOPE,
     EXPIRY_BUFFER_SECONDS,
     TOKEN_ENDPOINT,
@@ -107,7 +107,7 @@ class TestAzureOAuthClient:
 class TestAzureOAuthClientTokenRequest:
     """Tests for AzureOAuthClient token request functionality."""
 
-    @patch("src.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.requests.post")
     def test_get_token_success(self, mock_post):
         """Test successful token retrieval."""
         mock_response = MagicMock()
@@ -132,7 +132,7 @@ class TestAzureOAuthClientTokenRequest:
         assert client.has_token is True
         mock_post.assert_called_once()
 
-    @patch("src.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.requests.post")
     def test_get_token_uses_correct_endpoint(self, mock_post):
         """Test token request uses correct Azure endpoint."""
         mock_response = MagicMock()
@@ -157,7 +157,7 @@ class TestAzureOAuthClientTokenRequest:
         call_args = mock_post.call_args
         assert call_args[0][0] == expected_url
 
-    @patch("src.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.requests.post")
     def test_get_token_sends_correct_data(self, mock_post):
         """Test token request sends correct form data."""
         mock_response = MagicMock()
@@ -187,7 +187,7 @@ class TestAzureOAuthClientTokenRequest:
         assert data["password"] == "secret-password"
         assert data["scope"] == "https://api.example.com/.default"
 
-    @patch("src.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.requests.post")
     def test_get_token_caches_token(self, mock_post):
         """Test token is cached and reused."""
         mock_response = MagicMock()
@@ -215,8 +215,8 @@ class TestAzureOAuthClientTokenRequest:
         assert token2 == "cached_token"
         assert mock_post.call_count == 1  # Only one HTTP request
 
-    @patch("src.azure_oauth.requests.post")
-    @patch("src.azure_oauth.time.time")
+    @patch("src.integrations.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.time.time")
     def test_get_token_refreshes_when_expired(self, mock_time, mock_post):
         """Test token is refreshed when expired."""
         mock_response = MagicMock()
@@ -249,8 +249,8 @@ class TestAzureOAuthClientTokenRequest:
         assert token2 == "new_token"
         assert mock_post.call_count == 2  # Two HTTP requests
 
-    @patch("src.azure_oauth.requests.post")
-    @patch("src.azure_oauth.time.time")
+    @patch("src.integrations.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.time.time")
     def test_get_token_uses_cache_within_buffer(self, mock_time, mock_post):
         """Test token uses cache when not yet within expiry buffer."""
         mock_response = MagicMock()
@@ -288,7 +288,7 @@ class TestAzureOAuthClientTokenRequest:
 class TestAzureOAuthClientErrorHandling:
     """Tests for AzureOAuthClient error handling."""
 
-    @patch("src.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.requests.post")
     def test_get_token_network_error(self, mock_post):
         """Test handling of network errors."""
         mock_post.side_effect = requests.RequestException("Connection failed")
@@ -305,7 +305,7 @@ class TestAzureOAuthClientErrorHandling:
 
         assert "Network error" in str(exc_info.value)
 
-    @patch("src.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.requests.post")
     def test_get_token_http_error(self, mock_post):
         """Test handling of HTTP error responses."""
         mock_response = MagicMock()
@@ -330,7 +330,7 @@ class TestAzureOAuthClientErrorHandling:
         assert exc_info.value.error_code == "invalid_grant"
         assert "Invalid credentials" in str(exc_info.value)
 
-    @patch("src.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.requests.post")
     def test_get_token_http_error_non_json_response(self, mock_post):
         """Test handling of HTTP error with non-JSON response."""
         mock_response = MagicMock()
@@ -351,7 +351,7 @@ class TestAzureOAuthClientErrorHandling:
         assert exc_info.value.status_code == 500
         assert exc_info.value.error_code == "unknown_error"
 
-    @patch("src.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.requests.post")
     def test_get_token_invalid_json_response(self, mock_post):
         """Test handling of invalid JSON in success response."""
         mock_response = MagicMock()
@@ -371,7 +371,7 @@ class TestAzureOAuthClientErrorHandling:
 
         assert "Invalid JSON" in str(exc_info.value)
 
-    @patch("src.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.requests.post")
     def test_get_token_missing_access_token(self, mock_post):
         """Test handling of response missing access_token."""
         mock_response = MagicMock()
@@ -395,7 +395,7 @@ class TestAzureOAuthClientErrorHandling:
 
         assert "No access_token" in str(exc_info.value)
 
-    @patch("src.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.requests.post")
     def test_get_token_default_expires_in(self, mock_post):
         """Test default expires_in when not in response."""
         mock_response = MagicMock()
@@ -424,7 +424,7 @@ class TestAzureOAuthClientErrorHandling:
 class TestAzureOAuthClientClearToken:
     """Tests for AzureOAuthClient clear_token functionality."""
 
-    @patch("src.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.requests.post")
     def test_clear_token(self, mock_post):
         """Test clear_token removes cached token."""
         mock_response = MagicMock()
@@ -452,7 +452,7 @@ class TestAzureOAuthClientClearToken:
         assert client.has_token is False
         assert client.token_expires_at is None
 
-    @patch("src.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.requests.post")
     def test_clear_token_forces_refresh(self, mock_post):
         """Test clear_token forces a new token request on next get_token."""
         mock_response = MagicMock()
@@ -486,7 +486,7 @@ class TestAzureOAuthClientClearToken:
 class TestAzureOAuthClientThreadSafety:
     """Tests for AzureOAuthClient thread safety."""
 
-    @patch("src.azure_oauth.requests.post")
+    @patch("src.integrations.azure_oauth.requests.post")
     def test_concurrent_get_token_calls(self, mock_post):
         """Test concurrent get_token calls are thread-safe."""
         call_count = 0

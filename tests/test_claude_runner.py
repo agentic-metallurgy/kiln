@@ -11,7 +11,7 @@ from src.claude_runner import (
     ClaudeTimeoutError,
     run_claude,
 )
-from src.telemetry import LLMMetrics
+from src.integrations.telemetry import LLMMetrics
 
 
 @pytest.mark.unit

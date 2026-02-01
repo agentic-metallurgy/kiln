@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.mcp_client import (
+from src.integrations.mcp_client import (
     MCPTestResult,
     _is_remote_server,
     _test_http_server,
@@ -124,8 +124,8 @@ class TestTestStdioServer:
         mock_client_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (
-            patch("src.mcp_client.stdio_client", return_value=mock_client_cm),
-            patch("src.mcp_client.ClientSession", return_value=mock_session),
+            patch("src.integrations.mcp_client.stdio_client", return_value=mock_client_cm),
+            patch("src.integrations.mcp_client.ClientSession", return_value=mock_session),
         ):
             result = await _test_stdio_server("test-server", config, timeout=5.0)
 
@@ -145,7 +145,7 @@ class TestTestStdioServer:
         mock_client_cm.__aenter__ = slow_connect
         mock_client_cm.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("src.mcp_client.stdio_client", return_value=mock_client_cm):
+        with patch("src.integrations.mcp_client.stdio_client", return_value=mock_client_cm):
             result = await _test_stdio_server("slow-server", config, timeout=0.1)
 
         assert result.success is False
@@ -160,7 +160,7 @@ class TestTestStdioServer:
         mock_client_cm.__aenter__ = AsyncMock(side_effect=ConnectionError("refused"))
         mock_client_cm.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("src.mcp_client.stdio_client", return_value=mock_client_cm):
+        with patch("src.integrations.mcp_client.stdio_client", return_value=mock_client_cm):
             result = await _test_stdio_server("bad-server", config, timeout=5.0)
 
         assert result.success is False
@@ -207,8 +207,8 @@ class TestTestHttpServer:
         mock_client_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (
-            patch("src.mcp_client.streamablehttp_client", return_value=mock_client_cm),
-            patch("src.mcp_client.ClientSession", return_value=mock_session),
+            patch("src.integrations.mcp_client.streamablehttp_client", return_value=mock_client_cm),
+            patch("src.integrations.mcp_client.ClientSession", return_value=mock_session),
         ):
             result = await _test_http_server("http-server", config, timeout=5.0)
 
@@ -242,8 +242,8 @@ class TestTestHttpServer:
         mock_client_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (
-            patch("src.mcp_client.streamablehttp_client", return_value=mock_client_cm) as mock_http,
-            patch("src.mcp_client.ClientSession", return_value=mock_session),
+            patch("src.integrations.mcp_client.streamablehttp_client", return_value=mock_client_cm) as mock_http,
+            patch("src.integrations.mcp_client.ClientSession", return_value=mock_session),
         ):
             await _test_http_server("auth-server", config, timeout=5.0)
 
@@ -263,7 +263,7 @@ class TestTestHttpServer:
         mock_client_cm.__aenter__ = slow_connect
         mock_client_cm.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("src.mcp_client.streamablehttp_client", return_value=mock_client_cm):
+        with patch("src.integrations.mcp_client.streamablehttp_client", return_value=mock_client_cm):
             result = await _test_http_server("slow-server", config, timeout=0.1)
 
         assert result.success is False
@@ -279,7 +279,7 @@ class TestCheckMcpServer:
         """Test that remote servers are routed to HTTP handler."""
         config = {"url": "https://api.example.com/mcp"}
 
-        with patch("src.mcp_client._test_http_server") as mock_http:
+        with patch("src.integrations.mcp_client._test_http_server") as mock_http:
             mock_http.return_value = MCPTestResult(
                 server_name="test",
                 success=True,
@@ -296,7 +296,7 @@ class TestCheckMcpServer:
         """Test that local servers are routed to stdio handler."""
         config = {"command": "test-cmd"}
 
-        with patch("src.mcp_client._test_stdio_server") as mock_stdio:
+        with patch("src.integrations.mcp_client._test_stdio_server") as mock_stdio:
             mock_stdio.return_value = MCPTestResult(
                 server_name="test",
                 success=True,
@@ -340,7 +340,7 @@ class TestCheckAllMcpServers:
                 tools=[f"tool_{server_name}"],
             )
 
-        with patch("src.mcp_client.check_mcp_server", side_effect=mock_test):
+        with patch("src.integrations.mcp_client.check_mcp_server", side_effect=mock_test):
             results = await check_all_mcp_servers(servers)
 
         assert len(results) == 3
@@ -366,7 +366,7 @@ class TestCheckAllMcpServers:
                 tools=["tool1"],
             )
 
-        with patch("src.mcp_client.check_mcp_server", side_effect=mock_test):
+        with patch("src.integrations.mcp_client.check_mcp_server", side_effect=mock_test):
             results = await check_all_mcp_servers(servers)
 
         assert len(results) == 2
@@ -401,7 +401,7 @@ class TestCheckAllMcpServers:
                     error="command not found",
                 )
 
-        with patch("src.mcp_client.check_mcp_server", side_effect=mock_test):
+        with patch("src.integrations.mcp_client.check_mcp_server", side_effect=mock_test):
             results = await check_all_mcp_servers(servers)
 
         assert len(results) == 2
@@ -427,7 +427,7 @@ class TestCheckAllMcpServers:
             captured_timeout = timeout
             return MCPTestResult(server_name=server_name, success=True)
 
-        with patch("src.mcp_client.check_mcp_server", side_effect=mock_test):
+        with patch("src.integrations.mcp_client.check_mcp_server", side_effect=mock_test):
             await check_all_mcp_servers(servers, timeout=42.0)
 
         assert captured_timeout == 42.0
@@ -444,7 +444,7 @@ class TestCheckAllMcpServers:
             captured_timeout = timeout
             return MCPTestResult(server_name=server_name, success=True)
 
-        with patch("src.mcp_client.check_mcp_server", side_effect=mock_test):
+        with patch("src.integrations.mcp_client.check_mcp_server", side_effect=mock_test):
             await check_all_mcp_servers(servers)
 
         assert captured_timeout == 30.0

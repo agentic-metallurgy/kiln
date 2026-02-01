@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.telemetry import LLMMetrics
+from src.integrations.telemetry import LLMMetrics
 
 
 @pytest.mark.unit
@@ -64,7 +64,7 @@ class TestGetGitVersion:
 
     def test_returns_string(self):
         """Test get_git_version returns a non-empty string."""
-        from src.telemetry import get_git_version
+        from src.integrations.telemetry import get_git_version
 
         version = get_git_version()
         assert isinstance(version, str)
@@ -74,7 +74,7 @@ class TestGetGitVersion:
         """Test get_git_version returns 'unknown' when git command fails."""
         import subprocess
 
-        from src.telemetry import get_git_version
+        from src.integrations.telemetry import get_git_version
 
         def mock_run(*args, **kwargs):
             raise subprocess.CalledProcessError(1, "git")
@@ -86,7 +86,7 @@ class TestGetGitVersion:
         """Test get_git_version returns 'unknown' when git is not installed."""
         import subprocess
 
-        from src.telemetry import get_git_version
+        from src.integrations.telemetry import get_git_version
 
         def mock_run(*args, **kwargs):
             raise FileNotFoundError("git not found")
