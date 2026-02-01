@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from src.azure_oauth import AzureOAuthClient, AzureOAuthError
+from src.integrations.azure_oauth import AzureOAuthClient, AzureOAuthError
 
 logger = logging.getLogger(__name__)
 
