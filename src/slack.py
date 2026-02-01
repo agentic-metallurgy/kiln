@@ -153,6 +153,62 @@ def send_startup_ping() -> bool:
         return False
 
 
+def send_comment_processed_notification(
+    issue_number: int,
+    issue_title: str,
+    comment_url: str,
+) -> bool:
+    """Send a Slack DM notification when a comment has been processed.
+
+    Sends a direct message to the configured Slack user indicating that
+    their feedback has been applied and a response is ready.
+
+    Args:
+        issue_number: The issue number
+        issue_title: Title of the issue
+        comment_url: Full URL to the response comment
+
+    Returns:
+        True if notification was sent successfully, False otherwise.
+        Returns False without error if Slack is not initialized.
+    """
+    if not _initialized or not _bot_token or not _user_id:
+        return False
+
+    message = f"Comment processed for issue `#{issue_number} - {issue_title}` -- <{comment_url}|read here>"
+
+    payload = {
+        "channel": _user_id,
+        "text": message,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {_bot_token}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(
+            SLACK_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        response_data = response.json()
+        if not response_data.get("ok"):
+            error = response_data.get("error", "unknown error")
+            logger.error(f"Slack API error sending comment notification: {error}")
+            return False
+
+        logger.info(f"Slack notification sent for processed comment on issue #{issue_number}")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Failed to send Slack comment notification: {e}")
+        return False
+
+
 def reset_slack() -> None:
     """Reset Slack module state (for testing only).
 
