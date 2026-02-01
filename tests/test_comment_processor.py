@@ -9,19 +9,26 @@ from src.comment_processor import CommentProcessor
 from src.interfaces import Comment, TicketItem
 
 
+def _create_mock_config():
+    """Create a mock Config object for testing."""
+    config = Mock()
+    config.slack_dm_on_comment = True
+    return config
+
+
 @pytest.mark.unit
 class TestCommentProcessorGetWorktreePath:
     """Tests for _get_worktree_path method."""
 
     def test_get_worktree_path_with_owner_repo(self):
         """Test worktree path generation with owner/repo format."""
-        processor = CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
+        processor = CommentProcessor(Mock(), Mock(), Mock(), "/workspaces", config=_create_mock_config())
         path = processor._get_worktree_path("owner/repo", 42)
         assert path == "/workspaces/repo-issue-42"
 
     def test_get_worktree_path_without_owner(self):
         """Test worktree path generation with repo name only."""
-        processor = CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
+        processor = CommentProcessor(Mock(), Mock(), Mock(), "/workspaces", config=_create_mock_config())
         path = processor._get_worktree_path("repo", 123)
         assert path == "/workspaces/repo-issue-123"
 
@@ -52,7 +59,7 @@ class TestCommentProcessorIsKilnPost:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
+        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces", config=_create_mock_config())
 
     def test_is_kiln_post_with_research_marker(self, processor):
         """Test detection of research marker."""
@@ -92,7 +99,7 @@ class TestCommentProcessorIsKilnResponse:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
+        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces", config=_create_mock_config())
 
     def test_is_kiln_response_with_marker(self, processor):
         """Test detection of kiln response marker."""
@@ -117,7 +124,7 @@ class TestCommentProcessorGenerateDiff:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
+        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces", config=_create_mock_config())
 
     def test_generate_diff_with_additions(self, processor):
         """Test diff generation with added lines."""
@@ -147,7 +154,7 @@ class TestCommentProcessorGetTargetType:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
+        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces", config=_create_mock_config())
 
     def test_get_target_type_plan_status(self, processor):
         """Test target type for Plan status."""
@@ -172,7 +179,7 @@ class TestCommentProcessorInitializeCommentTimestamp:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
+        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces", config=_create_mock_config())
 
     def test_initialize_comment_timestamp_finds_kiln_post(self, processor):
         """Test initialization finds latest kiln post."""
@@ -219,7 +226,7 @@ class TestCommentProcessorAllowlist:
 
         # Create processor with username_self
         processor = CommentProcessor(
-            ticket_client, database, runner, "/workspaces", username_self="allowed_user"
+            ticket_client, database, runner, "/workspaces", config=_create_mock_config(), username_self="allowed_user"
         )
 
         # Mock database to return stored state with a timestamp
@@ -301,6 +308,7 @@ class TestCommentProcessorAllowlist:
             database,
             runner,
             "/workspaces",
+            config=_create_mock_config(),
             username_self="allowed_user",
             team_usernames=["teammate1", "teammate2"],
         )
@@ -393,7 +401,7 @@ class TestCommentProcessorWrapDiffLine:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
+        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces", config=_create_mock_config())
 
     def test_wrap_diff_line_short_line_unchanged(self, processor):
         """Test that short lines are returned unchanged."""
@@ -454,7 +462,7 @@ class TestCommentProcessorWrapDiff:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces")
+        return CommentProcessor(Mock(), Mock(), Mock(), "/workspaces", config=_create_mock_config())
 
     def test_wrap_diff_wraps_all_lines(self, processor):
         """Test that all lines in diff are wrapped."""
@@ -481,7 +489,7 @@ class TestCommentProcessorSkipBacklog:
         runner = Mock()
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/workspaces", username_self="allowed_user"
+            ticket_client, database, runner, "/workspaces", config=_create_mock_config(), username_self="allowed_user"
         )
 
         # Create a ticket item with Backlog status
@@ -514,7 +522,7 @@ class TestCommentProcessorSkipBacklog:
         runner = Mock()
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/workspaces", username_self="allowed_user"
+            ticket_client, database, runner, "/workspaces", config=_create_mock_config(), username_self="allowed_user"
         )
 
         # Mock database to return stored state with a timestamp
@@ -579,7 +587,7 @@ class TestCommentProcessorSkipBacklog:
         runner = Mock()
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/workspaces", username_self="allowed_user"
+            ticket_client, database, runner, "/workspaces", config=_create_mock_config(), username_self="allowed_user"
         )
 
         # Mock database to return stored state with a timestamp

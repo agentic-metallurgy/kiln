@@ -20,6 +20,7 @@ from src.logger import clear_issue_context, get_logger, set_issue_context
 from src.workflows import ProcessCommentsWorkflow, WorkflowContext
 
 if TYPE_CHECKING:
+    from src.config import Config
     from src.daemon import WorkflowRunner
 
 logger = get_logger(__name__)
@@ -62,6 +63,7 @@ class CommentProcessor:
         database: Database,
         runner: "WorkflowRunner",
         workspace_dir: str,
+        config: "Config",
         username_self: str | None = None,
         team_usernames: list[str] | None = None,
     ) -> None:
@@ -72,6 +74,7 @@ class CommentProcessor:
             database: Database for tracking processed comments
             runner: WorkflowRunner for executing Claude workflows
             workspace_dir: Base directory for worktrees
+            config: Application configuration
             username_self: Username allowed to trigger comment processing
             team_usernames: List of team member usernames (logged at DEBUG, not WARNING)
         """
@@ -79,6 +82,7 @@ class CommentProcessor:
         self.database = database
         self.runner = runner
         self.workspace_dir = workspace_dir
+        self.config = config
         self.username_self = username_self
         self.team_usernames = team_usernames or []
         logger.debug("CommentProcessor initialized")

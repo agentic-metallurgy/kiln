@@ -304,6 +304,7 @@ class Daemon:
             self.database,
             self.runner,
             config.workspace_dir,
+            config=config,
             username_self=config.username_self,
             team_usernames=config.team_usernames,
         )
