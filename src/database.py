@@ -268,6 +268,50 @@ class Database:
             )
         return None
 
+    def get_all_issue_states(self, limit: int = 100) -> list[IssueState]:
+        """
+        Get all tracked issue states, ordered by last_updated descending.
+
+        Args:
+            limit: Maximum number of records to return (default 100)
+
+        Returns:
+            List of IssueState objects, ordered by last_updated descending (newest first)
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT repo, issue_number, status, last_updated, branch_name, project_url,
+                   last_processed_comment_timestamp, last_known_comment_count,
+                   research_session_id, plan_session_id, implement_session_id, placement_status
+            FROM issue_states
+            ORDER BY last_updated DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+
+        states = []
+        for row in cursor.fetchall():
+            states.append(
+                IssueState(
+                    repo=row["repo"],
+                    issue_number=row["issue_number"],
+                    status=row["status"],
+                    last_updated=datetime.fromisoformat(row["last_updated"]),
+                    branch_name=row["branch_name"],
+                    project_url=row["project_url"],
+                    last_processed_comment_timestamp=row["last_processed_comment_timestamp"],
+                    last_known_comment_count=row["last_known_comment_count"],
+                    research_session_id=row["research_session_id"],
+                    plan_session_id=row["plan_session_id"],
+                    implement_session_id=row["implement_session_id"],
+                    placement_status=row["placement_status"],
+                )
+            )
+        return states
+
     def update_issue_state(
         self,
         repo: str,
