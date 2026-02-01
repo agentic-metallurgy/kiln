@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.claude_runner import run_claude
 from src.logger import get_logger, log_message
+from src.ticket_clients.base import NetworkError
 from src.workflows.base import WorkflowContext
 
 if TYPE_CHECKING:
@@ -38,6 +39,28 @@ class ImplementationIncompleteError(Exception):
 # Constants for the implementation loop
 DEFAULT_MAX_ITERATIONS = 8  # Fallback if no TASKs detected
 MAX_STALL_COUNT = 2  # Stop after 2 iterations with no progress
+
+# Network error patterns to detect transient failures
+# These are checked case-insensitively against stderr output
+NETWORK_ERROR_PATTERNS = [
+    "tls handshake timeout",
+    "connection timeout",
+    "network error",
+    "connection refused",
+    "temporary failure",
+    "i/o timeout",
+    "dial tcp",
+    "no such host",
+    "error connecting to",
+    "http 500",
+    "http 502",
+    "http 503",
+    "http 504",
+    "(500)",
+    "(502)",
+    "(503)",
+    "(504)",
+]
 
 
 def count_tasks(markdown_text: str) -> int:
@@ -359,6 +382,11 @@ class ImplementWorkflow:
             return None
 
         except subprocess.CalledProcessError as e:
+            error_output = (e.stderr or "").lower()
+            if any(pattern in error_output for pattern in NETWORK_ERROR_PATTERNS):
+                raise NetworkError(
+                    f"Network error getting PR for issue #{issue_number}: {e.stderr}"
+                ) from e
             logger.warning(f"Failed to get PR for issue #{issue_number}: {e.stderr}")
             return None
         except json.JSONDecodeError as e:
