@@ -166,6 +166,57 @@ def send_implementation_beginning_notification(pr_url: str, pr_number: int) -> b
         return False
 
 
+def send_ready_for_validation_notification(pr_url: str, pr_number: int) -> bool:
+    """Send a Slack DM notification when PR is ready for validation.
+
+    Sends a direct message to the configured Slack user indicating that
+    implementation is complete and the PR is ready for review.
+
+    Args:
+        pr_url: Full URL to the pull request
+        pr_number: Pull request number
+
+    Returns:
+        True if notification was sent successfully, False otherwise.
+        Returns False without error if Slack is not initialized.
+    """
+    if not _initialized or not _bot_token or not _user_id:
+        return False
+
+    message = f"☑️ Ready for validation: <{pr_url}|PR #{pr_number}>"
+
+    payload = {
+        "channel": _user_id,
+        "text": message,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {_bot_token}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(
+            SLACK_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        response_data = response.json()
+        if not response_data.get("ok"):
+            error = response_data.get("error", "unknown error")
+            logger.error(f"Slack API error sending ready for validation notification: {error}")
+            return False
+
+        logger.info(f"Slack notification sent for ready for validation PR #{pr_number}")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Failed to send Slack ready for validation notification: {e}")
+        return False
+
+
 def send_startup_ping() -> bool:
     """Send a startup notification DM to the configured Slack user.
 
