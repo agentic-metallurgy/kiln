@@ -17,6 +17,7 @@ from src.database import Database
 from src.interfaces import Comment, TicketClient, TicketItem
 from src.labels import Labels
 from src.logger import clear_issue_context, get_logger, set_issue_context
+from src.slack import send_comment_processed_notification
 from src.workflows import ProcessCommentsWorkflow, WorkflowContext
 
 if TYPE_CHECKING:
@@ -304,6 +305,15 @@ Processed feedback for **{target_type}**. No textual changes detected (may have 
                     project_url=item.board_url,
                 )
                 logger.info(f"Processed {len(user_comments)} comment(s)")
+
+                # Send Slack notification if enabled
+                if self.config.slack_dm_on_comment:
+                    comment_url = f"https://{item.repo}/issues/{item.ticket_id}#issuecomment-{response_comment.database_id}"
+                    send_comment_processed_notification(
+                        issue_number=item.ticket_id,
+                        issue_title=item.title,
+                        comment_url=comment_url,
+                    )
             except Exception as e:
                 logger.error(f"Failed to process comments: {e}")
             finally:
