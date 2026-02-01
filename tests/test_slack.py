@@ -224,3 +224,148 @@ class TestSendCommentProcessedNotification:
             )
 
             assert result is False
+
+
+@pytest.mark.unit
+class TestSendPhaseCompletionNotification:
+    """Tests for send_phase_completion_notification() function."""
+
+    def test_returns_false_when_not_initialized(self):
+        """Test send_phase_completion_notification() returns False when not initialized."""
+        result = slack.send_phase_completion_notification(
+            issue_url="https://github.com/org/repo/issues/42",
+            phase="Research",
+            issue_title="Test Issue",
+            issue_number=42,
+        )
+
+        assert result is False
+
+    def test_returns_false_for_implement_phase(self):
+        """Test send_phase_completion_notification() returns False for Implement phase."""
+        slack.init_slack("xoxb-test-token", "U12345")
+
+        result = slack.send_phase_completion_notification(
+            issue_url="https://github.com/org/repo/issues/42",
+            phase="Implement",
+            issue_title="Test Issue",
+            issue_number=42,
+        )
+
+        assert result is False
+
+    def test_returns_false_for_unknown_phase(self):
+        """Test send_phase_completion_notification() returns False for unknown phases."""
+        slack.init_slack("xoxb-test-token", "U12345")
+
+        result = slack.send_phase_completion_notification(
+            issue_url="https://github.com/org/repo/issues/42",
+            phase="Unknown",
+            issue_title="Test Issue",
+            issue_number=42,
+        )
+
+        assert result is False
+
+    def test_success_research_phase(self):
+        """Test send_phase_completion_notification() returns True for Research phase."""
+        slack.init_slack("xoxb-test-token", "U12345")
+
+        with patch("src.slack.requests.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.raise_for_status = MagicMock()
+            mock_response.json.return_value = {"ok": True}
+            mock_post.return_value = mock_response
+
+            result = slack.send_phase_completion_notification(
+                issue_url="https://github.com/org/repo/issues/42",
+                phase="Research",
+                issue_title="Test Issue",
+                issue_number=42,
+            )
+
+            assert result is True
+            mock_post.assert_called_once()
+
+            payload = mock_post.call_args[1]["json"]
+            assert payload["channel"] == "U12345"
+            assert "🧪" in payload["text"]
+            assert "Research complete:" in payload["text"]
+            assert "<https://github.com/org/repo/issues/42|Issue #42>" in payload["text"]
+
+    def test_success_plan_phase(self):
+        """Test send_phase_completion_notification() returns True for Plan phase."""
+        slack.init_slack("xoxb-test-token", "U12345")
+
+        with patch("src.slack.requests.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.raise_for_status = MagicMock()
+            mock_response.json.return_value = {"ok": True}
+            mock_post.return_value = mock_response
+
+            result = slack.send_phase_completion_notification(
+                issue_url="https://github.com/org/repo/issues/42",
+                phase="Plan",
+                issue_title="Test Issue",
+                issue_number=42,
+            )
+
+            assert result is True
+            mock_post.assert_called_once()
+
+            payload = mock_post.call_args[1]["json"]
+            assert payload["channel"] == "U12345"
+            assert "🗺️" in payload["text"]
+            assert "Plan complete:" in payload["text"]
+            assert "<https://github.com/org/repo/issues/42|Issue #42>" in payload["text"]
+
+    def test_handles_slack_api_error(self):
+        """Test send_phase_completion_notification() handles Slack API error gracefully."""
+        slack.init_slack("xoxb-test-token", "U12345")
+
+        with patch("src.slack.requests.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.raise_for_status = MagicMock()
+            mock_response.json.return_value = {"ok": False, "error": "channel_not_found"}
+            mock_post.return_value = mock_response
+
+            result = slack.send_phase_completion_notification(
+                issue_url="https://github.com/org/repo/issues/42",
+                phase="Research",
+                issue_title="Test Issue",
+                issue_number=42,
+            )
+
+            assert result is False
+
+    def test_handles_http_timeout_gracefully(self):
+        """Test send_phase_completion_notification() handles timeout gracefully."""
+        slack.init_slack("xoxb-test-token", "U12345")
+
+        with patch("src.slack.requests.post") as mock_post:
+            mock_post.side_effect = requests.Timeout("Connection timed out")
+
+            result = slack.send_phase_completion_notification(
+                issue_url="https://github.com/org/repo/issues/42",
+                phase="Research",
+                issue_title="Test Issue",
+                issue_number=42,
+            )
+
+            assert result is False
+
+    def test_handles_http_connection_error_gracefully(self):
+        """Test send_phase_completion_notification() handles connection error gracefully."""
+        slack.init_slack("xoxb-test-token", "U12345")
+
+        with patch("src.slack.requests.post") as mock_post:
+            mock_post.side_effect = requests.ConnectionError("Connection refused")
+
+            result = slack.send_phase_completion_notification(
+                issue_url="https://github.com/org/repo/issues/42",
+                phase="Research",
+                issue_title="Test Issue",
+                issue_number=42,
+            )
+
+            assert result is False

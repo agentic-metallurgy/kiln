@@ -18,6 +18,9 @@ _user_id: str | None = None
 # Slack API endpoint for posting messages
 SLACK_API_URL = "https://slack.com/api/chat.postMessage"
 
+# Emoji mapping for phase completion notifications
+PHASE_EMOJIS = {"Research": "🧪", "Plan": "🗺️"}
+
 
 def init_slack(bot_token: str | None, user_id: str | None) -> None:
     """Initialize Slack integration with the given credentials.
@@ -59,19 +62,25 @@ def send_phase_completion_notification(
 
     Args:
         issue_url: Full URL to the GitHub issue
-        phase: The completed phase (e.g., "Research", "Plan", "Implement")
-        issue_title: Title of the issue
+        phase: The completed phase (e.g., "Research", "Plan")
+        issue_title: Title of the issue (kept for backwards compatibility)
         issue_number: Issue number
 
     Returns:
         True if notification was sent successfully, False otherwise.
-        Returns False without error if Slack is not initialized.
+        Returns False without error if Slack is not initialized or phase
+        is not in PHASE_EMOJIS (e.g., "Implement" is handled separately).
     """
     if not _initialized or not _bot_token or not _user_id:
         return False
 
-    # Build the notification message
-    message = f"Issue #{issue_number} has completed {phase}\n{issue_title}\n{issue_url}"
+    # Get emoji for this phase, return False if not supported
+    emoji = PHASE_EMOJIS.get(phase)
+    if not emoji:
+        return False
+
+    # Build the notification message with emoji and Slack mrkdwn link
+    message = f"{emoji} {phase} complete: <{issue_url}|Issue #{issue_number}>"
 
     payload = {
         "channel": _user_id,
