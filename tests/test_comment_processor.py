@@ -644,3 +644,146 @@ class TestCommentProcessorSkipBacklog:
             reaction_types = [call[0][1] for call in reaction_calls]
             assert "EYES" in reaction_types, "EYES reaction should be added for Plan items"
             assert "THUMBS_UP" in reaction_types, "THUMBS_UP reaction should be added for Plan items"
+
+
+@pytest.mark.unit
+class TestCommentProcessorSlackNotification:
+    """Tests for Slack notification integration in CommentProcessor."""
+
+    def test_slack_notification_called_when_enabled(self):
+        """Test that Slack notification is sent when config.slack_dm_on_comment is True."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        config = Mock()
+        config.slack_dm_on_comment = True
+
+        processor = CommentProcessor(
+            ticket_client, database, runner, "/workspaces", config=config, username_self="allowed_user"
+        )
+
+        # Mock database to return stored state with a timestamp
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Create a comment from the allowed user
+        user_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="This is feedback",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="allowed_user",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [user_comment]
+
+        # Create a ticket item
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Research",
+            title="Test Issue",
+            comment_count=1,
+        )
+
+        response_comment = Comment(
+            id="IC_2",
+            database_id=456,
+            body="response",
+            created_at=datetime(2024, 1, 15, 12, 0, 0),
+            author="test-user",
+        )
+
+        with (
+            patch.object(processor, "_get_target_type", return_value="research"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_apply_comment_to_kiln_post"),
+            patch.object(processor, "_generate_diff", return_value="-old\n+new"),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+            patch("src.comment_processor.send_comment_processed_notification") as mock_notify,
+        ):
+            ticket_client.add_comment.return_value = response_comment
+
+            processor.process(item)
+
+            # Verify Slack notification was called with correct arguments
+            mock_notify.assert_called_once_with(
+                issue_number=42,
+                issue_title="Test Issue",
+                comment_url="https://owner/repo/issues/42#issuecomment-456",
+            )
+
+    def test_slack_notification_not_called_when_disabled(self):
+        """Test that Slack notification is NOT sent when config.slack_dm_on_comment is False."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        config = Mock()
+        config.slack_dm_on_comment = False
+
+        processor = CommentProcessor(
+            ticket_client, database, runner, "/workspaces", config=config, username_self="allowed_user"
+        )
+
+        # Mock database to return stored state with a timestamp
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Create a comment from the allowed user
+        user_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="This is feedback",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="allowed_user",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [user_comment]
+
+        # Create a ticket item
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Research",
+            title="Test Issue",
+            comment_count=1,
+        )
+
+        response_comment = Comment(
+            id="IC_2",
+            database_id=456,
+            body="response",
+            created_at=datetime(2024, 1, 15, 12, 0, 0),
+            author="test-user",
+        )
+
+        with (
+            patch.object(processor, "_get_target_type", return_value="research"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_apply_comment_to_kiln_post"),
+            patch.object(processor, "_generate_diff", return_value="-old\n+new"),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+            patch("src.comment_processor.send_comment_processed_notification") as mock_notify,
+        ):
+            ticket_client.add_comment.return_value = response_comment
+
+            processor.process(item)
+
+            # Verify Slack notification was NOT called
+            mock_notify.assert_not_called()
