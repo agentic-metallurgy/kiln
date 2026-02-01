@@ -115,6 +115,57 @@ def send_phase_completion_notification(
         return False
 
 
+def send_implementation_beginning_notification(pr_url: str, pr_number: int) -> bool:
+    """Send a Slack DM notification when implementation begins.
+
+    Sends a direct message to the configured Slack user indicating that
+    implementation has started and a draft PR has been created.
+
+    Args:
+        pr_url: Full URL to the pull request
+        pr_number: Pull request number
+
+    Returns:
+        True if notification was sent successfully, False otherwise.
+        Returns False without error if Slack is not initialized.
+    """
+    if not _initialized or not _bot_token or not _user_id:
+        return False
+
+    message = f"🔥 Firing implementation: <{pr_url}|PR #{pr_number}>"
+
+    payload = {
+        "channel": _user_id,
+        "text": message,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {_bot_token}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(
+            SLACK_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        response_data = response.json()
+        if not response_data.get("ok"):
+            error = response_data.get("error", "unknown error")
+            logger.error(f"Slack API error sending implementation beginning notification: {error}")
+            return False
+
+        logger.info(f"Slack notification sent for implementation beginning PR #{pr_number}")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"Failed to send Slack implementation beginning notification: {e}")
+        return False
+
+
 def send_startup_ping() -> bool:
     """Send a startup notification DM to the configured Slack user.
 

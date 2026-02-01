@@ -227,6 +227,98 @@ class TestSendCommentProcessedNotification:
 
 
 @pytest.mark.unit
+class TestSendImplementationBeginningNotification:
+    """Tests for send_implementation_beginning_notification() function."""
+
+    def test_returns_false_when_not_initialized(self):
+        """Test send_implementation_beginning_notification() returns False when not initialized."""
+        result = slack.send_implementation_beginning_notification(
+            pr_url="https://github.com/org/repo/pull/42",
+            pr_number=42,
+        )
+
+        assert result is False
+
+    def test_success(self):
+        """Test send_implementation_beginning_notification() returns True on success."""
+        slack.init_slack("xoxb-test-token", "U12345")
+
+        with patch("src.slack.requests.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.raise_for_status = MagicMock()
+            mock_response.json.return_value = {"ok": True}
+            mock_post.return_value = mock_response
+
+            result = slack.send_implementation_beginning_notification(
+                pr_url="https://github.com/org/repo/pull/42",
+                pr_number=42,
+            )
+
+            assert result is True
+            mock_post.assert_called_once()
+
+            # Verify the API call details
+            call_args = mock_post.call_args
+            assert call_args[0][0] == slack.SLACK_API_URL
+            assert call_args[1]["timeout"] == 10
+
+            payload = call_args[1]["json"]
+            assert payload["channel"] == "U12345"
+            assert "🔥" in payload["text"]
+            assert "Firing implementation:" in payload["text"]
+            assert "<https://github.com/org/repo/pull/42|PR #42>" in payload["text"]
+
+            headers = call_args[1]["headers"]
+            assert headers["Authorization"] == "Bearer xoxb-test-token"
+            assert headers["Content-Type"] == "application/json"
+
+    def test_handles_slack_api_error(self):
+        """Test send_implementation_beginning_notification() handles Slack API error gracefully."""
+        slack.init_slack("xoxb-test-token", "U12345")
+
+        with patch("src.slack.requests.post") as mock_post:
+            mock_response = MagicMock()
+            mock_response.raise_for_status = MagicMock()
+            mock_response.json.return_value = {"ok": False, "error": "channel_not_found"}
+            mock_post.return_value = mock_response
+
+            result = slack.send_implementation_beginning_notification(
+                pr_url="https://github.com/org/repo/pull/42",
+                pr_number=42,
+            )
+
+            assert result is False
+
+    def test_handles_http_timeout_gracefully(self):
+        """Test send_implementation_beginning_notification() handles timeout gracefully."""
+        slack.init_slack("xoxb-test-token", "U12345")
+
+        with patch("src.slack.requests.post") as mock_post:
+            mock_post.side_effect = requests.Timeout("Connection timed out")
+
+            result = slack.send_implementation_beginning_notification(
+                pr_url="https://github.com/org/repo/pull/42",
+                pr_number=42,
+            )
+
+            assert result is False
+
+    def test_handles_http_connection_error_gracefully(self):
+        """Test send_implementation_beginning_notification() handles connection error gracefully."""
+        slack.init_slack("xoxb-test-token", "U12345")
+
+        with patch("src.slack.requests.post") as mock_post:
+            mock_post.side_effect = requests.ConnectionError("Connection refused")
+
+            result = slack.send_implementation_beginning_notification(
+                pr_url="https://github.com/org/repo/pull/42",
+                pr_number=42,
+            )
+
+            assert result is False
+
+
+@pytest.mark.unit
 class TestSendPhaseCompletionNotification:
     """Tests for send_phase_completion_notification() function."""
 
