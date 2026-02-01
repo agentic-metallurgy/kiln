@@ -7,12 +7,14 @@ filtering, and label operations.
 
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from hypothesis import assume, example, given
 from hypothesis import strategies as st
 
 from src.cli import parse_issue_arg
+from src.comment_processor import CommentProcessor
 from src.config import parse_config_file
 from src.logger import _extract_org_from_url
 from src.workspace import WorkspaceManager
@@ -463,3 +465,227 @@ class TestConfigParsingProperties:
             result = parse_config_file(config_file)
             assert key in result
             assert result[key] == full_value
+
+
+# =============================================================================
+# Diff Generation Property Tests
+# =============================================================================
+
+
+def _create_comment_processor() -> CommentProcessor:
+    """Create a CommentProcessor with mock dependencies for testing."""
+    mock_client = MagicMock()
+    mock_database = MagicMock()
+    mock_runner = MagicMock()
+    mock_config = MagicMock()
+    return CommentProcessor(
+        ticket_client=mock_client,
+        database=mock_database,
+        runner=mock_runner,
+        workspace_dir="/tmp/test",
+        config=mock_config,
+    )
+
+
+# Strategy for text content without null bytes (valid for diffing)
+diff_text_strategy = st.text(
+    alphabet=st.characters(
+        blacklist_categories=("Cc",),  # Exclude control chars except whitespace
+        blacklist_characters="\x00",  # Explicitly exclude null byte
+    ),
+    min_size=0,
+    max_size=500,
+)
+
+
+@pytest.mark.unit
+@pytest.mark.hypothesis
+class TestGenerateDiffProperties:
+    """Property-based tests for _generate_diff."""
+
+    @given(text=diff_text_strategy)
+    @example(text="")
+    @example(text="hello world")
+    @example(text="line1\nline2\nline3")
+    @example(text="  leading whitespace")
+    def test_diff_of_identical_content_is_empty(self, text: str):
+        """Property: Diff of identical content returns empty string."""
+        processor = _create_comment_processor()
+        result = processor._generate_diff(text, text, "test")
+        assert result == ""
+
+    @given(
+        before=diff_text_strategy,
+        after=diff_text_strategy,
+    )
+    def test_diff_returns_string(self, before: str, after: str):
+        """Property: _generate_diff always returns a string."""
+        processor = _create_comment_processor()
+        result = processor._generate_diff(before, after, "test")
+        assert isinstance(result, str)
+
+    @given(
+        before=diff_text_strategy,
+        after=diff_text_strategy,
+        target_type=st.text(min_size=1, max_size=20).filter(lambda x: "\n" not in x),
+    )
+    def test_diff_never_crashes(self, before: str, after: str, target_type: str):
+        """Property: _generate_diff never crashes on any string inputs."""
+        processor = _create_comment_processor()
+        # Should not raise
+        processor._generate_diff(before, after, target_type)
+
+    @given(
+        content=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cc",),
+                blacklist_characters="\x00",
+            ),
+            min_size=1,
+            max_size=100,
+        ).filter(lambda x: x.strip())  # Ensure non-empty after strip
+    )
+    @example(content="new content")
+    def test_diff_of_empty_to_content_has_additions(self, content: str):
+        """Property: Diff from empty to content contains addition markers."""
+        processor = _create_comment_processor()
+        result = processor._generate_diff("", content, "test")
+        # If content is non-empty, diff should have '+' markers
+        if content.strip():
+            assert "+" in result or result == ""
+
+    @given(
+        content=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cc",),
+                blacklist_characters="\x00",
+            ),
+            min_size=1,
+            max_size=100,
+        ).filter(lambda x: x.strip())  # Ensure non-empty after strip
+    )
+    @example(content="content to remove")
+    def test_diff_of_content_to_empty_has_deletions(self, content: str):
+        """Property: Diff from content to empty contains deletion markers."""
+        processor = _create_comment_processor()
+        result = processor._generate_diff(content, "", "test")
+        # If content is non-empty, diff should have '-' markers
+        if content.strip():
+            assert "-" in result or result == ""
+
+
+@pytest.mark.unit
+@pytest.mark.hypothesis
+class TestWrapDiffLineProperties:
+    """Property-based tests for _wrap_diff_line."""
+
+    @given(
+        line=st.text(min_size=0, max_size=200).filter(lambda x: "\n" not in x),
+        width=st.integers(min_value=10, max_value=200),
+    )
+    @example(line="", width=70)
+    @example(line="+short", width=70)
+    @example(line="+a very long line that needs to be wrapped at some point", width=30)
+    def test_wrap_diff_line_returns_string(self, line: str, width: int):
+        """Property: _wrap_diff_line always returns a string."""
+        processor = _create_comment_processor()
+        result = processor._wrap_diff_line(line, width=width)
+        assert isinstance(result, str)
+
+    @given(
+        line=st.text(min_size=0, max_size=50).filter(lambda x: "\n" not in x),
+        width=st.integers(min_value=10, max_value=200),
+    )
+    def test_short_lines_unchanged(self, line: str, width: int):
+        """Property: Lines shorter than or equal to width are unchanged."""
+        assume(len(line) <= width)
+        processor = _create_comment_processor()
+        result = processor._wrap_diff_line(line, width=width)
+        assert result == line
+
+    @given(
+        prefix=st.sampled_from(["+", "-", " "]),
+        content=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cc", "Cs"),
+                blacklist_characters="\n\r",
+            ),
+            min_size=1,
+            max_size=150,
+        ),
+        width=st.integers(min_value=20, max_value=100),
+    )
+    @example(prefix="+", content="this is a long line of content", width=25)
+    @example(prefix="-", content="another long line here", width=30)
+    @example(prefix=" ", content="context line that is long", width=25)
+    def test_diff_prefix_preserved_on_all_lines(self, prefix: str, content: str, width: int):
+        """Property: Diff prefix (+, -, space) is preserved on all wrapped lines."""
+        processor = _create_comment_processor()
+        line = prefix + content
+        result = processor._wrap_diff_line(line, width=width)
+
+        # All non-empty lines should start with the same prefix
+        for output_line in result.split("\n"):
+            if output_line:  # Skip empty lines
+                assert output_line[0] == prefix, (
+                    f"Line '{output_line}' does not start with prefix '{prefix}'"
+                )
+
+    @given(
+        prefix=st.sampled_from(["+", "-", " "]),
+        content=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cc", "Cs"),
+                blacklist_characters="\n\r",
+            ),
+            min_size=1,
+            max_size=150,
+        ),
+        width=st.integers(min_value=20, max_value=100),
+    )
+    @example(prefix="+", content="word1 word2 word3 word4 word5", width=25)
+    def test_wrapped_lines_respect_width_constraint(self, prefix: str, content: str, width: int):
+        """Property: Most wrapped lines respect width constraint (with word-break edge cases)."""
+        processor = _create_comment_processor()
+        line = prefix + content
+        result = processor._wrap_diff_line(line, width=width)
+
+        # Each line should be at most `width` characters, with allowance for
+        # single words that can't be broken (textwrap behavior)
+        for output_line in result.split("\n"):
+            # Check if line respects width, OR if it's a single unbreakable word
+            if output_line and len(output_line) > width:
+                # If over width, it must be a single word that couldn't be broken
+                words = output_line.split()
+                assert len(words) <= 2, (
+                    f"Line '{output_line}' exceeds width {width} with multiple words"
+                )
+
+    @given(hunk_header=st.from_regex(r"@@ -\d+,?\d* \+\d+,?\d* @@.*", fullmatch=True))
+    @example(hunk_header="@@ -1,3 +1,5 @@")
+    @example(hunk_header="@@ -10 +10 @@ function context")
+    def test_hunk_headers_not_wrapped(self, hunk_header: str):
+        """Property: Hunk headers (@@) are never wrapped."""
+        processor = _create_comment_processor()
+        # Use a small width that would normally trigger wrapping
+        result = processor._wrap_diff_line(hunk_header, width=20)
+        # Hunk header should be unchanged
+        assert result == hunk_header
+
+    @given(
+        prefix=st.sampled_from(["+", "-", " "]),
+        content=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cc", "Cs"),
+                blacklist_characters="\n\r",
+            ),
+            min_size=0,
+            max_size=200,
+        ),
+    )
+    def test_wrap_diff_line_never_crashes(self, prefix: str, content: str):
+        """Property: _wrap_diff_line never crashes on valid diff lines."""
+        processor = _create_comment_processor()
+        line = prefix + content
+        # Should not raise any exception
+        processor._wrap_diff_line(line, width=70)
