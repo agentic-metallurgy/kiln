@@ -32,7 +32,7 @@ class CommentProcessor:
     by running Claude workflows to apply requested changes and posting diffs.
     """
 
-    # Bot usernames to skip when processing comments
+    # Bot usernames for logging categorization (not filtered - allowlist handles this)
     BOT_USERNAMES = {"kiln-bot", "github-actions[bot]"}
 
     # HTML comment markers for kiln posts (guaranteed idempotent identification)
