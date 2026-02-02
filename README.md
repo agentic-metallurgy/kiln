@@ -2,7 +2,7 @@
 
 Kiln orchestrates Claude Code instances on your local machine using GitHub projects as its control panel.
 
-When you move issues from one column to another, Kiln invokes Claude to run the corresponding /command.
+When you move issues from one column to another, Kiln invokes Claude to run the corresponding `/command`.
 
 Claude creates the worktrees, researches the codebase, creates and implements the plan.
 
