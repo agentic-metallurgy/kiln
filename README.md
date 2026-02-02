@@ -1,6 +1,21 @@
 # Kiln
 
-A polling-based daemon that monitors GitHub Project Kanban boards and orchestrates Claude-powered workflows for software development automation. It enables a human-in-the-loop development process where engineers move issues through kanban columns (Research → Plan → Implement) and Claude handles the execution.
+Kiln orchestrates Claude Code instances on your local machine using GitHub projects as its control panel.
+
+When you move issues from one column to another, Kiln invokes Claude to run the corresponding /command.
+
+Claude creates the worktrees, researches the codebase, creates and implements the plan.
+
+It's designed to be simple, requires very little setup:
+
+- **Use your existing Claude subscription** (no auth trickery, no API keys needed, runs locally)
+- **All context and state is on GitHub** (no markdown mess, no local DBs, easy recovery)
+- **Poll instead of webhooks/events** (no external attack surfaces, works behind VPN)
+- **Supports MCPs and anything else Claude can do**
+
+That's the heart of it and it works because… it's Claude :)
+
+![End-to-end demo](docs/end-to-end-flow.gif)
 
 ## Installation and How-To
 
@@ -21,35 +36,7 @@ See the [User Guide](docs/user-guide.md) for setup instructions.
 | Validate  | Nothing; Human review — merge PR when ready             | —                                       |
 | Done      | Worktree cleaned up automatically                       | cleaned_up                              |
 
-## Architecture
-
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  GitHub Project │────▶│     Daemon      │────▶│   SQLite DB     │
-│ (State Machine) │     │    (Poller)     │     │    (Cache)      │
-└─────────────────┘     └────────┬────────┘     └─────────────────┘
-                                 │
-                                 ▼
-                        ┌─────────────────┐
-                        │  WorkflowRunner │
-                        │  (Orchestrator) │
-                        └────────┬────────┘
-                                 │
-                 ┌───────────────┼───────────────┐
-                 ▼               ▼               ▼
-           ┌──────────┐    ┌──────────┐    ┌───────────┐
-           │ Research │    │   Plan   │    │ Implement │
-           │ Workflow │    │ Workflow │    │  Workflow │
-           └──────────┘    └──────────┘    └───────────┘
-                                 │
-                                 ▼
-                        ┌─────────────────┐
-                        │   Claude CLI    │
-                        │   (Executor)    │
-                        └─────────────────┘
-```
-
-## Capabilities
+## Design Principles
 
 ### 🔥 Claude CLI as Execution Engine
 
@@ -83,22 +70,6 @@ Use GitHub labels as the primary workflow state machine rather than database sta
 ### 🔥 Issues as Product Requirements Docs
 
 Research and plan outputs are written and iterated on in the issue description to keep a single source of truth with auditable progression.
-
-- **Single source**: All context in one place for implementation
-- **Editable**: Users can directly edit research/plan sections
-- **Structured**: HTML markers (`<!-- kiln:research -->`, `<!-- kiln:plan -->`) enable targeted updates
-- **Idempotent**: Markers prevent duplicate runs from creating duplicate content
-
-### 🔥 No Comment Iteration at Validation Stage
-
-Comment-based iteration is disabled once work reaches the PR/Validate stage.
-
-- **Prevents bloat**: Stops "vibe coding" via comments that adds unnecessary changes to PRs
-- **Token efficiency**: Avoids wasteful back-and-forth on already-implemented work
-- **Forces testing**: Developers must checkout the PR locally and test manually
-- **Keeps PRs clean**: Fixes are pushed directly rather than AI-appended
-
-**Trade-off**: No comment-driven iteration on PRs. If you prefer not to checkout the branch locally, merge the PR when it's "good enough" and open new issues for remaining fixes.
 
 ## Config
 
