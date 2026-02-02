@@ -263,6 +263,11 @@ class Daemon:
         self._running_labels: dict[str, str] = {}
         self._running_labels_lock = threading.Lock()
 
+        # Track running Claude subprocesses for termination on reset
+        # Maps "repo#issue_number" -> subprocess.Popen object
+        self._running_processes: dict[str, subprocess.Popen] = {}
+        self._running_processes_lock = threading.Lock()
+
         # Track repos that have had labels initialized
         self._repos_with_labels: set[str] = set()
 
@@ -773,6 +778,64 @@ class Daemon:
             except Exception as e:
                 # Don't fail shutdown if label removal fails
                 logger.warning(f"Failed to remove '{label}' label from {key} during shutdown: {e}")
+
+    def register_process(self, key: str, process: subprocess.Popen) -> None:
+        """Register a running Claude subprocess for an issue.
+
+        Tracks the subprocess so it can be terminated when the reset label
+        is applied to the issue.
+
+        Args:
+            key: Issue key in format "repo#issue_number"
+            process: The subprocess.Popen object to track
+        """
+        with self._running_processes_lock:
+            self._running_processes[key] = process
+        logger.debug(f"Registered subprocess for {key}")
+
+    def unregister_process(self, key: str) -> None:
+        """Unregister a subprocess when workflow completes.
+
+        Removes the subprocess from tracking after it has finished
+        (either successfully or due to failure).
+
+        Args:
+            key: Issue key in format "repo#issue_number"
+        """
+        with self._running_processes_lock:
+            self._running_processes.pop(key, None)
+        logger.debug(f"Unregistered subprocess for {key}")
+
+    def kill_process(self, key: str) -> bool:
+        """Kill and unregister a running subprocess for a specific issue.
+
+        SAFETY: Only affects the subprocess registered under this exact key.
+        Other processes remain unaffected.
+
+        Args:
+            key: Issue key in format "repo#issue_number"
+
+        Returns:
+            True if a process was found and killed, False otherwise
+        """
+        with self._running_processes_lock:
+            process = self._running_processes.pop(key, None)
+
+        if process is None:
+            return False
+
+        try:
+            process.kill()
+            process.wait(timeout=5)
+            logger.info(f"Killed subprocess for {key}")
+            return True
+        except ProcessLookupError:
+            # Process already dead
+            logger.debug(f"Subprocess for {key} already terminated")
+            return True
+        except OSError as e:
+            logger.warning(f"Error killing subprocess for {key}: {e}")
+            return False
 
     def _poll(self) -> None:
         """Poll GitHub for project items and handle status changes.
