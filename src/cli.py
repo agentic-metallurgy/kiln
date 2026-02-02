@@ -341,7 +341,7 @@ def run_daemon(daemon_mode: bool = False) -> None:
             if result.action == "ok":
                 startup_print(f"  ✓ {project_url}", "heat")
                 startup_print("      All required columns present and correctly ordered", "heat")
-            elif result.action in ("created", "reordered"):
+            elif result.action in ("created", "reordered", "replaced"):
                 startup_print(f"  ✓ {project_url}", "heat")
                 startup_print(f"      {result.message}", "heat")
         print()

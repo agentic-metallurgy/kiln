@@ -22,6 +22,9 @@ REQUIRED_COLUMNS = [
 
 REQUIRED_COLUMN_NAMES = [col["name"] for col in REQUIRED_COLUMNS]
 
+# GitHub's default Status field columns for new Project V2s
+GITHUB_DEFAULT_COLUMNS = frozenset({"Backlog", "Ready", "In Progress", "In Review", "Done"})
+
 
 @dataclass
 class ValidationResult:
@@ -30,6 +33,34 @@ class ValidationResult:
     project_url: str
     action: str  # "ok", "created", "reordered", "error"
     message: str
+
+
+def _migrate_items_to_backlog(
+    client: "GitHubTicketClient",
+    project_url: str,
+    deprecated_statuses: set[str],
+    hostname: str,
+) -> int:
+    """Migrate items from deprecated statuses to Backlog.
+
+    Args:
+        client: GitHubTicketClient instance
+        project_url: URL of the GitHub project
+        deprecated_statuses: Set of status names to migrate from
+        hostname: GitHub hostname for API calls
+
+    Returns:
+        Number of items migrated
+    """
+    items = client.get_board_items(project_url)
+    migrated_count = 0
+
+    for item in items:
+        if item.status in deprecated_statuses:
+            client.update_item_status(item.item_id, "Backlog", hostname=hostname)
+            migrated_count += 1
+
+    return migrated_count
 
 
 def _parse_project_url(url: str) -> tuple[str, str, int]:
@@ -102,8 +133,33 @@ def validate_project_columns(
             message=f"Created columns: {', '.join(created)}",
         )
 
-    # Case 2: All required columns exist
     existing_set = set(existing_names)
+
+    # Case 1.5: GitHub default columns - replace with Kiln columns
+    if existing_set == GITHUB_DEFAULT_COLUMNS:
+        # Migrate items from deprecated statuses to Backlog before replacing columns
+        deprecated_statuses = {"Ready", "In Progress", "In Review"}
+        migrated_count = _migrate_items_to_backlog(
+            client, project_url, deprecated_statuses, hostname
+        )
+
+        new_options = [
+            {"name": col["name"], "color": col["color"], "description": col["description"]}
+            for col in REQUIRED_COLUMNS
+        ]
+        client.update_status_field_options(status_field_id, new_options, hostname)
+
+        message = "Replaced GitHub default columns with Kiln workflow columns"
+        if migrated_count > 0:
+            message += f" ({migrated_count} item(s) moved to Backlog)"
+
+        return ValidationResult(
+            project_url=project_url,
+            action="replaced",
+            message=message,
+        )
+
+    # Case 2: All required columns exist
     required_set = set(REQUIRED_COLUMN_NAMES)
 
     if existing_set == required_set:
