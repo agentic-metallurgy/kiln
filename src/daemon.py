@@ -1508,6 +1508,10 @@ class Daemon:
         # Remove the reset label first
         self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.RESET)
 
+        # Kill any running subprocess for this issue (before worktree cleanup)
+        if self.kill_process(key):
+            logger.info(f"RESET: Killed running subprocess for {key}")
+
         # Clean up worktree if it exists (prevents rebase failures on subsequent Research runs)
         repo_name = item.repo.split("/")[-1]
         worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
