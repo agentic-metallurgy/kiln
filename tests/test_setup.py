@@ -542,8 +542,8 @@ class TestValidateProjectColumns:
             "status_options": {
                 "Backlog": "opt_1",
                 "Ready": "opt_2",
-                "In Progress": "opt_3",
-                "In Review": "opt_4",
+                "In progress": "opt_3",
+                "In review": "opt_4",
                 "Done": "opt_5",
             },
         }
@@ -570,8 +570,8 @@ class TestValidateProjectColumns:
             "status_options": {
                 "Backlog": "opt_1",
                 "Ready": "opt_2",
-                "In Progress": "opt_3",
-                "In Review": "opt_4",
+                "In progress": "opt_3",
+                "In review": "opt_4",
                 "Done": "opt_5",
             },
         }
@@ -595,7 +595,7 @@ class TestValidateProjectColumns:
                 board_url="https://github.com/orgs/test/projects/1",
                 ticket_id=2,
                 repo="github.com/test/repo",
-                status="In Progress",
+                status="In progress",
                 title="Test 2",
                 labels=set(),
                 state="OPEN",
@@ -630,7 +630,7 @@ class TestValidateProjectColumns:
             "status_options": {
                 "Backlog": "opt_1",
                 "Ready": "opt_2",
-                "In Progress": "opt_3",
+                "In progress": "opt_3",
                 "Done": "opt_5",
             },
         }
@@ -647,8 +647,8 @@ class TestValidateProjectColumns:
             "status_options": {
                 "Backlog": "opt_1",
                 "Ready": "opt_2",
-                "In Progress": "opt_3",
-                "In Review": "opt_4",
+                "In progress": "opt_3",
+                "In review": "opt_4",
                 "Done": "opt_5",
             },
         }
@@ -667,7 +667,7 @@ class TestValidateProjectColumns:
     def test_github_default_columns_constant(self):
         """Test that GITHUB_DEFAULT_COLUMNS has the correct values."""
         expected = frozenset(
-            {"Backlog", "Ready", "In Progress", "In Review", "Done"}
+            {"Backlog", "Ready", "In progress", "In review", "Done"}
         )
         assert expected == GITHUB_DEFAULT_COLUMNS
         assert isinstance(GITHUB_DEFAULT_COLUMNS, frozenset)

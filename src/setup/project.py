@@ -23,7 +23,7 @@ REQUIRED_COLUMNS = [
 REQUIRED_COLUMN_NAMES = [col["name"] for col in REQUIRED_COLUMNS]
 
 # GitHub's default Status field columns for new Project V2s
-GITHUB_DEFAULT_COLUMNS = frozenset({"Backlog", "Ready", "In Progress", "In Review", "Done"})
+GITHUB_DEFAULT_COLUMNS = frozenset({"Backlog", "Ready", "In progress", "In review", "Done"})
 
 
 @dataclass
@@ -138,7 +138,7 @@ def validate_project_columns(
     # Case 1.5: GitHub default columns - replace with Kiln columns
     if existing_set == GITHUB_DEFAULT_COLUMNS:
         # Migrate items from deprecated statuses to Backlog before replacing columns
-        deprecated_statuses = {"Ready", "In Progress", "In Review"}
+        deprecated_statuses = {"Ready", "In progress", "In review"}
         migrated_count = _migrate_items_to_backlog(
             client, project_url, deprecated_statuses, hostname
         )
