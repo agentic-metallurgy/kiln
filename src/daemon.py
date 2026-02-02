@@ -74,15 +74,22 @@ class _BackoffState:
 class WorkflowRunner:
     """Executes workflows by running prompts through Claude CLI."""
 
-    def __init__(self, config: Config, version: str | None = None) -> None:
+    def __init__(
+        self,
+        config: Config,
+        version: str | None = None,
+        daemon: "Daemon | None" = None,
+    ) -> None:
         """Initialize the workflow runner.
 
         Args:
             config: Application configuration
             version: Git version string for metrics attribution
+            daemon: Optional Daemon reference for process registration
         """
         self.config = config
         self.version = version
+        self.daemon = daemon
         logger.debug(f"WorkflowRunner initialized (version={version})")
 
     def run(
@@ -130,52 +137,67 @@ class WorkflowRunner:
 
             session_id: str | None = None
 
-            # Execute each prompt
-            for i, prompt in enumerate(prompts, 1):
-                with tracer.start_as_current_span(f"prompt.{i}"):
-                    logger.debug(
-                        f"Executing prompt {i}/{len(prompts)} for workflow '{workflow.name}'"
-                    )
-                    log_message(logger, "Prompt", prompt)
+            # Create issue key for process registration
+            issue_key = f"{ctx.repo}#{ctx.issue_number}"
 
-                    try:
-                        model = self.config.stage_models.get(workflow_name)
-                        issue_context = f"{ctx.repo}#{ctx.issue_number}"
-                        result = run_claude(
-                            prompt,
-                            ctx.workspace_path,
-                            model=model,
-                            issue_context=issue_context,
-                            resume_session=resume_session,
-                            enable_telemetry=self.config.claude_code_enable_telemetry,
-                            execution_stage=workflow_name.lower(),
-                            mcp_config_path=mcp_config_path,
+            # Create process registrar callback if daemon is available
+            process_registrar = None
+            if self.daemon is not None:
+                def process_registrar(process: subprocess.Popen) -> None:
+                    self.daemon.register_process(issue_key, process)  # type: ignore[union-attr]
+
+            try:
+                # Execute each prompt
+                for i, prompt in enumerate(prompts, 1):
+                    with tracer.start_as_current_span(f"prompt.{i}"):
+                        logger.debug(
+                            f"Executing prompt {i}/{len(prompts)} for workflow '{workflow.name}'"
                         )
-                        logger.debug(f"Prompt {i}/{len(prompts)} completed successfully")
-                        logger.debug(f"Response length: {len(result.response)} characters")
+                        log_message(logger, "Prompt", prompt)
 
-                        # Record LLM metrics
-                        if result.metrics:
-                            record_llm_metrics(
-                                result.metrics,
-                                ctx.repo,
-                                ctx.issue_number,
-                                workflow_name,
-                                model,
-                                version=self.version,
+                        try:
+                            model = self.config.stage_models.get(workflow_name)
+                            issue_context = f"{ctx.repo}#{ctx.issue_number}"
+                            result = run_claude(
+                                prompt,
+                                ctx.workspace_path,
+                                model=model,
+                                issue_context=issue_context,
+                                resume_session=resume_session,
+                                enable_telemetry=self.config.claude_code_enable_telemetry,
+                                execution_stage=workflow_name.lower(),
+                                mcp_config_path=mcp_config_path,
+                                process_registrar=process_registrar,
                             )
-                            # Capture session ID for subsequent prompts and return
-                            if result.metrics.session_id:
-                                session_id = result.metrics.session_id
-                                # Use this session for remaining prompts in this workflow
-                                resume_session = session_id
+                            logger.debug(f"Prompt {i}/{len(prompts)} completed successfully")
+                            logger.debug(f"Response length: {len(result.response)} characters")
 
-                    except Exception as e:
-                        logger.error(f"Failed to execute prompt {i}/{len(prompts)}: {e}")
-                        raise
+                            # Record LLM metrics
+                            if result.metrics:
+                                record_llm_metrics(
+                                    result.metrics,
+                                    ctx.repo,
+                                    ctx.issue_number,
+                                    workflow_name,
+                                    model,
+                                    version=self.version,
+                                )
+                                # Capture session ID for subsequent prompts and return
+                                if result.metrics.session_id:
+                                    session_id = result.metrics.session_id
+                                    # Use this session for remaining prompts in this workflow
+                                    resume_session = session_id
 
-            logger.info(f"Workflow '{workflow.name}' completed successfully")
-            return session_id
+                        except Exception as e:
+                            logger.error(f"Failed to execute prompt {i}/{len(prompts)}: {e}")
+                            raise
+
+                logger.info(f"Workflow '{workflow.name}' completed successfully")
+                return session_id
+            finally:
+                # Always unregister process when workflow completes (success or failure)
+                if self.daemon is not None:
+                    self.daemon.unregister_process(issue_key)
 
 
 class _WorkflowConfigEntry(TypedDict):
@@ -302,7 +324,7 @@ class Daemon:
         self.workspace_manager = WorkspaceManager(config.workspace_dir)
         logger.debug(f"Workspace manager initialized with dir: {config.workspace_dir}")
 
-        self.runner = WorkflowRunner(config, version=version)
+        self.runner = WorkflowRunner(config, version=version, daemon=self)
 
         self.comment_processor = CommentProcessor(
             self.ticket_client,
