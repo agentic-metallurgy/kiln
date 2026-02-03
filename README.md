@@ -19,6 +19,8 @@ That's the heart of it and it works because… it's Claude :)
 
 ![Research and Plan demo](https://media.githubusercontent.com/media/agentic-metallurgy/kiln-docs/main/src/assets/research-and-plan-1080p-30fps.gif)
 
+(sorry for the large gif)
+
 | ⚪ Backlog | 🔵 Research | 🟣 Plan | 🟠 Implement | 🟡 Validate | 🟢 Done |
 |-----------|-------------|---------|--------------|-------------|---------|
 | *new issues* | *codebase exploration* | *design tasks* | *write code* | *human review* | *complete* |
