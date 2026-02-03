@@ -2,34 +2,32 @@
 
 Kiln orchestrates Claude Code instances on your local machine using GitHub projects as its control panel.
 
-When you move issues from one column to another, Kiln invokes Claude to run the corresponding `/command`.
+When you move issues from one column to another, Kiln invokes Claude to run the corresponding /command.
 
 Claude creates the worktrees, researches the codebase, creates and implements the plan.
 
-It's designed to be simple, requires very little setup:
+It's designed to be simple, requires very little setup: https://kiln.bot/docs
+
+![Research and Plan demo](https://media.githubusercontent.com/media/agentic-metallurgy/kiln-docs/main/src/assets/ratio-math-research-ready.gif)
+
+## Design
+
+It's meant to be simple:
 
 - **Use your existing Claude subscription** (no auth trickery, no API keys needed, runs locally)
 - **All context and state is on GitHub** (no markdown mess, no local DBs, easy recovery)
 - **Poll instead of webhooks/events** (no external attack surfaces, works behind VPN)
 - **Supports MCPs and anything else Claude can do**
 
-That's the heart of it and it works because… it's Claude :)
+### 🔥 The Kanban Board
 
-## What it looks like
-
-![Research and Plan demo](https://media.githubusercontent.com/media/agentic-metallurgy/kiln-docs/main/src/assets/research-and-plan-1080p-30fps.gif)
-
-(sorry for the large gif)
+The control panel—you move Issues around on it and see labels get added/removed to indicate state. The setup will help you get this configured.
 
 | ⚪ Backlog | 🔵 Research | 🟣 Plan | 🟠 Implement | 🟡 Validate | 🟢 Done |
 |-----------|-------------|---------|--------------|-------------|---------|
 | *new issues* | *codebase exploration* | *design tasks* | *write code* | *human review* | *complete* |
 
-## Installation and How-To
-
-See https://kiln.bot/docs
-
-## Design Principles
+That's the heart of it and it works because… it's Claude :)
 
 ### 🔥 Claude CLI as Execution Engine
 
@@ -56,7 +54,3 @@ Use periodic polling instead of webhook-based event handling:
 - **Firewall-friendly**: Works behind VPNs without requiring publicly-accessible endpoints
 
 **Trade-off**: 30-second latency (configurable) vs. near-instant webhook response.
-
-## Documentation
-
-https://kiln.bot/docs
