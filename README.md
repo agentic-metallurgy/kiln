@@ -6,7 +6,7 @@ When you move issues from one column to another, Kiln invokes Claude to run the 
 
 Claude creates the worktrees, researches the codebase, creates and implements the plan.
 
-It's meant to be simple, and requires very little setup: https://kiln.bot/docs
+**Setup instructions**: https://kiln.bot/docs
 
 ![Research and Plan demo](https://media.githubusercontent.com/media/agentic-metallurgy/kiln-docs/main/src/assets/ratio-math-research-ready.gif)
 
