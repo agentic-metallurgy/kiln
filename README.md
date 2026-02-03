@@ -19,15 +19,15 @@ It's meant to be simple:
 - **Poll instead of webhooks/events** (no external attack surfaces, works behind VPN)
 - **Supports MCPs and anything else Claude can do**
 
+That's the heart of it and it works because… it's Claude :)
+
 ### 🔥 The Kanban Board
 
-The control panel—you move Issues around on it and see labels get added/removed to indicate state. The setup will help you get this configured.
+The control panel—you move Issues around on it and see labels get added/removed to indicate state. [Set up your board](https://kiln.bot/docs/project-board-setup/).
 
 | ⚪ Backlog | 🔵 Research | 🟣 Plan | 🟠 Implement | 🟡 Validate | 🟢 Done |
 |-----------|-------------|---------|--------------|-------------|---------|
 | *new issues* | *codebase exploration* | *design tasks* | *write code* | *human review* | *complete* |
-
-That's the heart of it and it works because… it's Claude :)
 
 ### 🔥 Claude CLI as Execution Engine
 
