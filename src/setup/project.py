@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from src.setup.checks import SetupError
 
 if TYPE_CHECKING:
-    from src.ticket_clients.github import GitHubTicketClient
+    from src.ticket_clients import GitHubClient
 
 
 # Required columns in order
@@ -36,7 +36,7 @@ class ValidationResult:
 
 
 def _migrate_items_to_backlog(
-    client: "GitHubTicketClient",
+    client: "GitHubClient",
     project_url: str,
     deprecated_statuses: set[str],
     hostname: str,
@@ -44,7 +44,7 @@ def _migrate_items_to_backlog(
     """Migrate items from deprecated statuses to Backlog.
 
     Args:
-        client: GitHubTicketClient instance
+        client: GitHubClient instance
         project_url: URL of the GitHub project
         deprecated_statuses: Set of status names to migrate from
         hostname: GitHub hostname for API calls
@@ -85,7 +85,7 @@ def _parse_project_url(url: str) -> tuple[str, str, int]:
 
 
 def validate_project_columns(
-    client: "GitHubTicketClient",
+    client: "GitHubClient",
     project_url: str,
 ) -> ValidationResult:
     """Validate and optionally fix project board columns.
@@ -97,7 +97,7 @@ def validate_project_columns(
     4. Otherwise -> error with instructions
 
     Args:
-        client: GitHubTicketClient instance
+        client: GitHubClient instance
         project_url: URL of the GitHub project
 
     Returns:

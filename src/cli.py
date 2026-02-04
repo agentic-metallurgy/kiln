@@ -276,6 +276,7 @@ def run_daemon(daemon_mode: bool = False) -> None:
     """
     from src.config import load_config
     from src.daemon import Daemon
+    from src.integrations.telemetry import get_git_version, init_telemetry
     from src.logger import _extract_org_from_url, get_logger, setup_logging
     from src.setup import (
         SetupError,
@@ -284,8 +285,7 @@ def run_daemon(daemon_mode: bool = False) -> None:
         get_hostnames_from_project_urls,
         validate_project_columns,
     )
-    from src.integrations.telemetry import get_git_version, init_telemetry
-    from src.ticket_clients.github import GitHubTicketClient
+    from src.ticket_clients import get_github_client
 
     print_banner()
 
@@ -334,7 +334,10 @@ def run_daemon(daemon_mode: bool = False) -> None:
         elif config.github_token:
             tokens["github.com"] = config.github_token
 
-        client = GitHubTicketClient(tokens)
+        client = get_github_client(
+            tokens=tokens,
+            enterprise_version=config.github_enterprise_version,
+        )
 
         for project_url in config.project_urls:
             result = validate_project_columns(client, project_url)
