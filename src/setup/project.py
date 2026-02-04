@@ -63,6 +63,71 @@ def _migrate_items_to_backlog(
     return migrated_count
 
 
+def _format_column_checklist(existing_names: list[str], project_url: str) -> str:
+    """Format a checklist showing which columns are correct and which need fixing.
+
+    Args:
+        existing_names: List of existing column names in current order
+        project_url: URL of the GitHub project
+
+    Returns:
+        Formatted checklist string
+    """
+    existing_set = set(existing_names)
+
+    lines = [
+        "",
+        "GitHub Enterprise 3.14 API doesn't support fixing the project board for you.",
+        "You need to manually configure the columns in the correct order and capitalization.",
+        "",
+        f"Project: {project_url}",
+        "",
+        "Required columns (in order):",
+    ]
+
+    # Show checklist with status for each required column
+    for i, col_name in enumerate(REQUIRED_COLUMN_NAMES, 1):
+        if col_name in existing_set:
+            # Check if it's in the right position
+            try:
+                actual_pos = existing_names.index(col_name) + 1
+                if actual_pos == i:
+                    lines.append(f"  [{chr(10003)}] {i}. {col_name}")
+                else:
+                    lines.append(f"  [!] {i}. {col_name} (currently at position {actual_pos})")
+            except ValueError:
+                lines.append(f"  [ ] {i}. {col_name} (missing)")
+        else:
+            lines.append(f"  [ ] {i}. {col_name} (missing)")
+
+    # Show extra columns that need to be removed
+    extra_cols = existing_set - set(REQUIRED_COLUMN_NAMES)
+    if extra_cols:
+        lines.append("")
+        lines.append("Extra columns to DELETE:")
+        for col in sorted(extra_cols):
+            lines.append(f"  [X] {col}")
+
+    lines.extend([
+        "",
+        "Steps to fix:",
+        "  1. Go to your project settings",
+        "  2. Delete all columns except 'Backlog'",
+        "  3. Create columns in THIS EXACT ORDER:",
+        "     - Backlog",
+        "     - Research",
+        "     - Plan",
+        "     - Implement",
+        "     - Validate",
+        "     - Done",
+        "",
+        "After fixing, run `kiln` again.",
+        "",
+    ])
+
+    return "\n".join(lines)
+
+
 def _parse_project_url(url: str) -> tuple[str, str, int]:
     """Parse project URL to extract hostname, login, and project number."""
     # Try org pattern: https://{hostname}/orgs/{org}/projects/{number}
@@ -120,6 +185,9 @@ def validate_project_columns(
 
     # Case 1: Only Backlog exists - create all other columns
     if existing_names == ["Backlog"]:
+        if not client.supports_column_management:
+            raise SetupError(_format_column_checklist(existing_names, project_url))
+
         new_options = [
             {"name": col["name"], "color": col["color"], "description": col["description"]}
             for col in REQUIRED_COLUMNS
@@ -137,6 +205,9 @@ def validate_project_columns(
 
     # Case 1.5: GitHub default columns - replace with Kiln columns
     if existing_set == GITHUB_DEFAULT_COLUMNS:
+        if not client.supports_column_management:
+            raise SetupError(_format_column_checklist(existing_names, project_url))
+
         # Migrate items from deprecated statuses to Backlog before replacing columns
         deprecated_statuses = {"Ready", "In progress", "In review"}
         migrated_count = _migrate_items_to_backlog(
@@ -173,6 +244,9 @@ def validate_project_columns(
             )
         else:
             # Need to reorder
+            if not client.supports_column_management:
+                raise SetupError(_format_column_checklist(existing_names, project_url))
+
             new_options = []
             for col in REQUIRED_COLUMNS:
                 new_options.append(
