@@ -21,7 +21,7 @@ You are running in **headless, non-interactive mode** as part of an automated wo
 You MUST NOT:
 - Write or edit any source files
 - Modify any code
-- Create new files (except via `gh` for issue editing)
+- Create new files
 - Use Write, Edit, or NotebookEdit tools
 - Make git commits or push changes
 
