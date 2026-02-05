@@ -4,6 +4,7 @@ import pytest
 
 from src.config import (
     Config,
+    determine_workspace_dir,
     load_config,
     load_config_from_env,
     load_config_from_file,
@@ -1667,3 +1668,39 @@ class TestAzureOAuthConfiguration:
         config = load_config_from_file(config_file)
 
         assert config.azure_password == "pass=word!@#$%"
+
+
+@pytest.mark.unit
+class TestDetermineWorkspaceDir:
+    """Tests for determine_workspace_dir() auto-detection logic."""
+
+    def test_fresh_install_uses_worktrees(self, tmp_path, monkeypatch):
+        """Test that fresh install (no existing directories) defaults to worktrees."""
+        monkeypatch.chdir(tmp_path)
+
+        assert determine_workspace_dir() == "worktrees"
+
+    def test_existing_workspaces_with_content_uses_workspaces(self, tmp_path, monkeypatch):
+        """Test that existing workspaces/ with content is preserved."""
+        monkeypatch.chdir(tmp_path)
+        workspaces = tmp_path / "workspaces"
+        workspaces.mkdir()
+        (workspaces / "test-worktree").mkdir()
+
+        assert determine_workspace_dir() == "workspaces"
+
+    def test_empty_workspaces_uses_worktrees(self, tmp_path, monkeypatch):
+        """Test that empty workspaces/ directory is ignored."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "workspaces").mkdir()
+
+        assert determine_workspace_dir() == "worktrees"
+
+    def test_workspaces_with_only_gitkeep_uses_worktrees(self, tmp_path, monkeypatch):
+        """Test that workspaces/ with only .gitkeep is ignored."""
+        monkeypatch.chdir(tmp_path)
+        workspaces = tmp_path / "workspaces"
+        workspaces.mkdir()
+        (workspaces / ".gitkeep").touch()
+
+        assert determine_workspace_dir() == "worktrees"
