@@ -12,8 +12,8 @@ import subprocess
 import time
 from dataclasses import dataclass
 
-from src.logger import get_logger, log_message
 from src.integrations.telemetry import LLMMetrics
+from src.logger import get_logger, log_message
 
 logger = get_logger(__name__)
 

@@ -8,6 +8,23 @@ You are running in **headless, non-interactive mode** as part of an automated wo
 - Do NOT explore the codebase or use Task agents
 - Keep it simple and fast
 
+**CRITICAL: DO NOT IMPLEMENT. DO NOT WRITE CODE. DO NOT USE WRITE/EDIT TOOLS. DO NOT MODIFY ANY SOURCE FILES.**
+
+**IT IS NOT YOUR JOB.** There are others who are tasked with those steps.
+
+**Your role is preparation ONLY — creating a draft PR with the plan.** You may:
+- Read the GitHub issue
+- Create an empty git commit
+- Push to remote
+- Create a draft PR via `gh`
+- Edit the issue description via `gh`
+
+You MUST NOT:
+- Write or edit any source files
+- Implement any code
+- Use Write, Edit, or NotebookEdit tools
+- Modify existing code files
+
 ## Arguments
 
 This command accepts the following arguments:

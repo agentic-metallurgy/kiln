@@ -3,7 +3,6 @@
 import pytest
 
 from src.ticket_clients import get_github_client
-from src.ticket_clients.github_enterprise_3_14 import GitHubEnterprise314Client
 from src.ticket_clients.github_enterprise_3_15 import GitHubEnterprise315Client
 
 

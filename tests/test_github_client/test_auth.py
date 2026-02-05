@@ -113,7 +113,6 @@ class TestValidateConnection:
 
     def test_validate_connection_subprocess_error(self, github_client):
         """Test that subprocess errors are converted to RuntimeError."""
-        import subprocess
 
         error = subprocess.CalledProcessError(1, "gh")
         error.stderr = "authentication required"
@@ -262,7 +261,6 @@ class TestGetTokenScopes:
 
     def test_get_token_scopes_api_error_returns_none(self, github_client):
         """Test that API errors return None."""
-        import subprocess
 
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = subprocess.CalledProcessError(1, "gh", stderr="API error")
@@ -373,7 +371,6 @@ class TestValidateScopes:
 
     def test_validate_scopes_api_error_raises(self, github_client):
         """Test that API errors raise RuntimeError (fail closed for security)."""
-        import subprocess
 
         with patch("subprocess.run") as mock_run:
             mock_run.side_effect = subprocess.CalledProcessError(1, "gh", stderr="API error")
@@ -465,7 +462,6 @@ class TestAuthenticationErrorHandling:
 
     def test_auth_error_gh_auth_login_simple(self, github_client):
         """Test that auth error produces simple message in non-debug mode."""
-        import subprocess
 
         error = subprocess.CalledProcessError(
             1, ["gh", "api"], stderr="To get started with GitHub CLI, please run:  gh auth login"
@@ -484,7 +480,6 @@ class TestAuthenticationErrorHandling:
 
     def test_auth_error_gh_auth_login_debug(self, github_client):
         """Test that auth error produces rich message in debug mode."""
-        import subprocess
 
         error = subprocess.CalledProcessError(
             1, ["gh", "api"], stderr="To get started with GitHub CLI, please run:  gh auth login"
@@ -502,7 +497,6 @@ class TestAuthenticationErrorHandling:
 
     def test_auth_error_unauthorized(self, github_client):
         """Test that unauthorized error produces user-friendly message."""
-        import subprocess
 
         error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="401 Unauthorized")
 
@@ -516,7 +510,6 @@ class TestAuthenticationErrorHandling:
 
     def test_auth_error_not_logged_in(self, github_client):
         """Test that 'not logged in' error produces user-friendly message."""
-        import subprocess
 
         error = subprocess.CalledProcessError(
             1, ["gh", "api"], stderr="You are not logged in to any GitHub hosts"
@@ -531,7 +524,6 @@ class TestAuthenticationErrorHandling:
 
     def test_auth_error_no_token(self, github_client):
         """Test that 'no token' error produces user-friendly message."""
-        import subprocess
 
         error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="no token found")
 
@@ -544,7 +536,6 @@ class TestAuthenticationErrorHandling:
 
     def test_auth_error_authentication_required(self, github_client):
         """Test that 'authentication' error produces user-friendly message."""
-        import subprocess
 
         error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="authentication required")
 
@@ -557,7 +548,6 @@ class TestAuthenticationErrorHandling:
 
     def test_non_auth_error_raises_original(self, github_client):
         """Test that non-authentication errors are re-raised as-is."""
-        import subprocess
 
         error = subprocess.CalledProcessError(
             1, ["gh", "api"], stderr="some other error: network timeout"
@@ -569,7 +559,6 @@ class TestAuthenticationErrorHandling:
 
     def test_auth_error_empty_stderr(self, github_client):
         """Test that empty stderr doesn't cause errors."""
-        import subprocess
 
         error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="")
 
@@ -580,7 +569,6 @@ class TestAuthenticationErrorHandling:
 
     def test_auth_error_none_stderr(self, github_client):
         """Test that None stderr doesn't cause errors."""
-        import subprocess
 
         error = subprocess.CalledProcessError(1, ["gh", "api"], stderr=None)
 
@@ -591,7 +579,6 @@ class TestAuthenticationErrorHandling:
 
     def test_auth_error_includes_hostname(self, github_client):
         """Test that error message includes hostname."""
-        import subprocess
 
         error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="gh auth login")
 
@@ -609,7 +596,6 @@ class TestNetworkErrorDetection:
 
     def test_tls_handshake_timeout_raises_network_error(self, github_client):
         """Test that TLS handshake timeout raises NetworkError."""
-        import subprocess
 
         error = subprocess.CalledProcessError(
             1, ["gh", "api"], stderr="dial tcp: TLS handshake timeout"
@@ -623,7 +609,6 @@ class TestNetworkErrorDetection:
 
     def test_connection_timeout_raises_network_error(self, github_client):
         """Test that connection timeout raises NetworkError."""
-        import subprocess
 
         error = subprocess.CalledProcessError(
             1, ["gh", "api"], stderr="connection timeout: unable to reach server"
@@ -635,7 +620,6 @@ class TestNetworkErrorDetection:
 
     def test_connection_refused_raises_network_error(self, github_client):
         """Test that connection refused raises NetworkError."""
-        import subprocess
 
         error = subprocess.CalledProcessError(
             1, ["gh", "api"], stderr="connection refused"
@@ -647,7 +631,6 @@ class TestNetworkErrorDetection:
 
     def test_io_timeout_raises_network_error(self, github_client):
         """Test that i/o timeout raises NetworkError."""
-        import subprocess
 
         error = subprocess.CalledProcessError(
             1, ["gh", "api"], stderr="read: i/o timeout"
@@ -659,7 +642,6 @@ class TestNetworkErrorDetection:
 
     def test_dial_tcp_error_raises_network_error(self, github_client):
         """Test that Go network dial errors raise NetworkError."""
-        import subprocess
 
         error = subprocess.CalledProcessError(
             1, ["gh", "api"], stderr="dial tcp: lookup api.github.com: no such host"
@@ -671,7 +653,6 @@ class TestNetworkErrorDetection:
 
     def test_no_such_host_raises_network_error(self, github_client):
         """Test that DNS resolution failures raise NetworkError."""
-        import subprocess
 
         error = subprocess.CalledProcessError(
             1, ["gh", "api"], stderr="no such host: api.github.com"
@@ -683,7 +664,6 @@ class TestNetworkErrorDetection:
 
     def test_temporary_failure_raises_network_error(self, github_client):
         """Test that temporary DNS failures raise NetworkError."""
-        import subprocess
 
         error = subprocess.CalledProcessError(
             1, ["gh", "api"], stderr="temporary failure in name resolution"
@@ -695,7 +675,6 @@ class TestNetworkErrorDetection:
 
     def test_network_error_generic_raises_network_error(self, github_client):
         """Test that generic network error message raises NetworkError."""
-        import subprocess
 
         error = subprocess.CalledProcessError(
             1, ["gh", "api"], stderr="network error: unable to reach GitHub"
@@ -707,7 +686,6 @@ class TestNetworkErrorDetection:
 
     def test_non_network_error_raises_called_process_error(self, github_client):
         """Test that non-network errors raise CalledProcessError."""
-        import subprocess
 
         error = subprocess.CalledProcessError(
             1, ["gh", "api"], stderr="unknown error: something else went wrong"
@@ -719,7 +697,6 @@ class TestNetworkErrorDetection:
 
     def test_network_error_takes_precedence_over_auth_error(self, github_client):
         """Test that network errors are detected before auth errors."""
-        import subprocess
 
         # Error message contains both network and auth indicators
         error = subprocess.CalledProcessError(

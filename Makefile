@@ -2,7 +2,7 @@
 
 # Ensure venv exists and has dev deps
 setup:
-	@if [ ! -d ".venv" ]; then python3.12 -m venv .venv; fi
+	@if [ ! -d ".venv" ]; then python3.13 -m venv .venv; fi
 	@.venv/bin/pip install -q -e ".[dev]"
 
 # Run linter (installs ruff if needed)

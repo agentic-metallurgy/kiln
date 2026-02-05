@@ -215,7 +215,7 @@ def install_claude_resources() -> None:
                 errors.append(f"Failed to copy {src} to {dest}: {e}")
 
     if errors:
-        error_msg = f"Failed to install kiln resources:\n" + "\n".join(errors)
+        error_msg = "Failed to install kiln resources:\n" + "\n".join(errors)
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
@@ -244,8 +244,8 @@ def init_kiln() -> None:
     # Create logs subdirectory
     (kiln_dir / "logs").mkdir(exist_ok=True)
 
-    # Create workspaces directory with .gitkeep
-    workspace_dir = Path.cwd() / "workspaces"
+    # Create worktrees directory with .gitkeep
+    workspace_dir = Path.cwd() / "worktrees"
     workspace_dir.mkdir(exist_ok=True)
     (workspace_dir / ".gitkeep").touch()
 
@@ -260,7 +260,7 @@ def init_kiln() -> None:
     print("  .kiln/config")
     print("  .kiln/logs/")
     print("  .kiln/README.md")
-    print("  workspaces/")
+    print("  worktrees/")
     print()
     print("Next steps:")
     print("  1. Edit .kiln/config")
@@ -280,6 +280,7 @@ def run_daemon(daemon_mode: bool = False) -> None:
     from src.logger import _extract_org_from_url, get_logger, setup_logging
     from src.setup import (
         SetupError,
+        check_for_updates,
         check_required_tools,
         configure_git_credential_helper,
         get_hostnames_from_project_urls,
@@ -295,6 +296,15 @@ def run_daemon(daemon_mode: bool = False) -> None:
         check_required_tools()
         startup_print("  ✓ gh CLI found", "glow")
         startup_print("  ✓ claude CLI found", "glow")
+
+        # Check for updates (non-blocking, fail-silent)
+        update_info = check_for_updates(kiln_dir=get_kiln_dir())
+        if update_info is not None:
+            startup_print(
+                f"  Update available: v{update_info.latest_version} (current: v{update_info.current_version})",
+                "glow",
+            )
+            startup_print("  Run: brew upgrade kiln", "glow")
         print()
 
         # Phase 2: Extract Claude resources to .kiln/
@@ -371,6 +381,12 @@ def run_daemon(daemon_mode: bool = False) -> None:
         logger = get_logger(__name__)
         logger.info(f"=== Kiln Starting (v{__version__}) ===")
         logger.info(f"Logging to {config.log_file}")
+
+        if config.workspace_dir == "workspaces":
+            logger.info("Using workspaces/ directory (detected existing worktrees)")
+            logger.info("New installs use worktrees/ by default")
+        else:
+            logger.info("Using worktrees/ directory")
 
         git_version = get_git_version()
         logger.info(f"Git version: {git_version}")
