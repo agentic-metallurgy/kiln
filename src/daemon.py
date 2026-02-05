@@ -29,6 +29,7 @@ from src.frontmatter import parse_issue_frontmatter
 from src.integrations.azure_oauth import AzureOAuthClient
 from src.integrations.mcp_client import check_all_mcp_servers
 from src.integrations.mcp_config import MCPConfigManager
+from src.integrations.repo_credentials import RepoCredentialsManager
 from src.integrations.pagerduty import init_pagerduty, resolve_hibernation_alert, trigger_hibernation_alert
 from src.integrations.slack import init_slack, send_phase_completion_notification, send_startup_ping
 from src.integrations.telemetry import get_git_version, get_tracer, init_telemetry, record_llm_metrics
@@ -351,6 +352,9 @@ class Daemon:
                     logger.info(f"  {result.server_name} MCP loaded successfully. Tools: {tools_str}")
                 else:
                     logger.warning(f"  {result.server_name} MCP: {result.error}")
+
+        # Initialize repo credentials manager
+        self.repo_credentials_manager = RepoCredentialsManager()
 
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -1772,6 +1776,18 @@ class Daemon:
                 except Exception as e:
                     # Log warning but don't fail the workflow
                     logger.warning(f"Failed to write MCP config to worktree: {e}")
+
+            # Copy repo credentials to worktree if configured
+            if self.repo_credentials_manager.has_config():
+                try:
+                    cred_path = self.repo_credentials_manager.copy_to_worktree(
+                        worktree_path, item.repo
+                    )
+                    if cred_path:
+                        logger.info(f"Copied credentials to {cred_path}")
+                except Exception as e:
+                    # Log warning but don't fail the workflow
+                    logger.warning(f"Failed to copy credentials to worktree: {e}")
 
             # Create masking filter if configured
             masking_filter: MaskingFilter | None = None
