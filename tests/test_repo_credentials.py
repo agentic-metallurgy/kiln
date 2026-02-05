@@ -13,7 +13,107 @@ from src.integrations.repo_credentials import (
     RepoCredentialsError,
     RepoCredentialsLoadError,
     RepoCredentialsManager,
+    parse_repo_url,
 )
+
+
+@pytest.mark.unit
+class TestParseRepoUrl:
+    """Tests for parse_repo_url helper."""
+
+    def test_full_https_url(self):
+        """Test parsing a full https URL."""
+        host, owner, repo = parse_repo_url("https://github.com/my-org/api-service")
+        assert host == "github.com"
+        assert owner == "my-org"
+        assert repo == "api-service"
+
+    def test_url_with_trailing_slash(self):
+        """Test parsing a URL with trailing slash."""
+        host, owner, repo = parse_repo_url("https://github.com/my-org/api-service/")
+        assert host == "github.com"
+        assert owner == "my-org"
+        assert repo == "api-service"
+
+    def test_url_with_extra_path(self):
+        """Test parsing a URL with extra path segments (tree/main etc)."""
+        host, owner, repo = parse_repo_url(
+            "https://github.com/agentic-metallurgy/kiln/tree/main"
+        )
+        assert host == "github.com"
+        assert owner == "agentic-metallurgy"
+        assert repo == "kiln"
+
+    def test_url_without_scheme(self):
+        """Test parsing a URL without https:// prefix."""
+        host, owner, repo = parse_repo_url("github.com/my-org/api-service")
+        assert host == "github.com"
+        assert owner == "my-org"
+        assert repo == "api-service"
+
+    def test_url_without_scheme_with_extra_path(self):
+        """Test parsing a schemeless URL with extra path."""
+        host, owner, repo = parse_repo_url(
+            "github.com/agentic-metallurgy/kiln/tree/main"
+        )
+        assert host == "github.com"
+        assert owner == "agentic-metallurgy"
+        assert repo == "kiln"
+
+    def test_ghes_url(self):
+        """Test parsing a GitHub Enterprise Server URL."""
+        host, owner, repo = parse_repo_url("https://ghes.example.com/org/repo")
+        assert host == "ghes.example.com"
+        assert owner == "org"
+        assert repo == "repo"
+
+    def test_ghes_url_without_scheme(self):
+        """Test parsing a GHES URL without scheme."""
+        host, owner, repo = parse_repo_url("ghes.example.com/org/repo")
+        assert host == "ghes.example.com"
+        assert owner == "org"
+        assert repo == "repo"
+
+    def test_url_with_dot_git_suffix(self):
+        """Test parsing a URL with .git suffix."""
+        host, owner, repo = parse_repo_url("https://github.com/my-org/api-service.git")
+        assert host == "github.com"
+        assert owner == "my-org"
+        assert repo == "api-service"
+
+    def test_http_url(self):
+        """Test parsing an http:// URL."""
+        host, owner, repo = parse_repo_url("http://github.com/my-org/api-service")
+        assert host == "github.com"
+        assert owner == "my-org"
+        assert repo == "api-service"
+
+    def test_empty_string_raises(self):
+        """Test that empty string raises ValueError."""
+        with pytest.raises(ValueError, match="cannot be empty"):
+            parse_repo_url("")
+
+    def test_whitespace_only_raises(self):
+        """Test that whitespace-only string raises ValueError."""
+        with pytest.raises(ValueError, match="cannot be empty"):
+            parse_repo_url("   ")
+
+    def test_host_only_raises(self):
+        """Test that a URL with only hostname raises ValueError."""
+        with pytest.raises(ValueError, match="at least owner/repo"):
+            parse_repo_url("https://github.com")
+
+    def test_host_with_one_segment_raises(self):
+        """Test that a URL with only one path segment raises ValueError."""
+        with pytest.raises(ValueError, match="at least owner/repo"):
+            parse_repo_url("https://github.com/only-owner")
+
+    def test_strips_whitespace(self):
+        """Test that leading/trailing whitespace is stripped."""
+        host, owner, repo = parse_repo_url("  github.com/my-org/api-service  ")
+        assert host == "github.com"
+        assert owner == "my-org"
+        assert repo == "api-service"
 
 
 @pytest.mark.unit
@@ -24,12 +124,14 @@ class TestRepoCredentialEntry:
         """Test creating an entry with all fields."""
         entry = RepoCredentialEntry(
             title="My API Service",
+            host="github.com",
             owner="my-org",
             repo="api-service",
             credential_path="/home/user/.env",
             destination=".env",
         )
         assert entry.title == "My API Service"
+        assert entry.host == "github.com"
         assert entry.owner == "my-org"
         assert entry.repo == "api-service"
         assert entry.credential_path == "/home/user/.env"
@@ -39,6 +141,7 @@ class TestRepoCredentialEntry:
         """Test creating an entry with a custom destination."""
         entry = RepoCredentialEntry(
             title="Frontend App",
+            host="github.com",
             owner="my-org",
             repo="frontend",
             credential_path="/home/user/frontend/.env.local",
@@ -81,8 +184,7 @@ class TestRepoCredentialsManagerLoadConfig:
             "repositories": [
                 {
                     "title": "My API Service",
-                    "owner": "my-org",
-                    "repo": "api-service",
+                    "repo_url": "https://github.com/my-org/api-service",
                     "credential_path": "/home/user/.env",
                     "destination": "docker/.env",
                 }
@@ -103,10 +205,99 @@ class TestRepoCredentialsManagerLoadConfig:
             assert len(result) == 1
             entry = result[0]
             assert entry.title == "My API Service"
+            assert entry.host == "github.com"
             assert entry.owner == "my-org"
             assert entry.repo == "api-service"
             assert entry.credential_path == "/home/user/.env"
             assert entry.destination == "docker/.env"
+        finally:
+            Path(config_path).unlink()
+
+    def test_load_config_repo_url_without_scheme(self):
+        """Test loading config where repo_url has no scheme."""
+        config_data = {
+            "repositories": [
+                {
+                    "title": "My API",
+                    "repo_url": "github.com/my-org/api",
+                    "credential_path": "/home/user/.env",
+                }
+            ]
+        }
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as f:
+            yaml.dump(config_data, f)
+            config_path = f.name
+
+        try:
+            manager = RepoCredentialsManager(config_path=config_path)
+            result = manager.load_config()
+
+            assert result is not None
+            assert len(result) == 1
+            assert result[0].host == "github.com"
+            assert result[0].owner == "my-org"
+            assert result[0].repo == "api"
+        finally:
+            Path(config_path).unlink()
+
+    def test_load_config_repo_url_with_extra_path(self):
+        """Test loading config where repo_url has extra path like /tree/main."""
+        config_data = {
+            "repositories": [
+                {
+                    "title": "My API",
+                    "repo_url": "github.com/my-org/api/tree/main",
+                    "credential_path": "/home/user/.env",
+                }
+            ]
+        }
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as f:
+            yaml.dump(config_data, f)
+            config_path = f.name
+
+        try:
+            manager = RepoCredentialsManager(config_path=config_path)
+            result = manager.load_config()
+
+            assert result is not None
+            assert result[0].host == "github.com"
+            assert result[0].owner == "my-org"
+            assert result[0].repo == "api"
+        finally:
+            Path(config_path).unlink()
+
+    def test_load_config_ghes_repo_url(self):
+        """Test loading config with a GHES repo_url."""
+        config_data = {
+            "repositories": [
+                {
+                    "title": "GHES Service",
+                    "repo_url": "https://ghes.example.com/org/service",
+                    "credential_path": "/home/user/.env",
+                }
+            ]
+        }
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as f:
+            yaml.dump(config_data, f)
+            config_path = f.name
+
+        try:
+            manager = RepoCredentialsManager(config_path=config_path)
+            result = manager.load_config()
+
+            assert result is not None
+            assert result[0].host == "ghes.example.com"
+            assert result[0].owner == "org"
+            assert result[0].repo == "service"
         finally:
             Path(config_path).unlink()
 
@@ -116,8 +307,7 @@ class TestRepoCredentialsManagerLoadConfig:
             "repositories": [
                 {
                     "title": "My API",
-                    "owner": "my-org",
-                    "repo": "api",
+                    "repo_url": "https://github.com/my-org/api",
                     "credential_path": "/home/user/.env",
                 }
             ]
@@ -145,14 +335,12 @@ class TestRepoCredentialsManagerLoadConfig:
             "repositories": [
                 {
                     "title": "Service A",
-                    "owner": "org",
-                    "repo": "service-a",
+                    "repo_url": "https://github.com/org/service-a",
                     "credential_path": "/path/a/.env",
                 },
                 {
                     "title": "Service B",
-                    "owner": "org",
-                    "repo": "service-b",
+                    "repo_url": "https://github.com/org/service-b",
                     "credential_path": "/path/b/.env",
                     "destination": "config/.env",
                 },
@@ -219,8 +407,7 @@ class TestRepoCredentialsManagerLoadConfig:
             "repositories": [
                 {
                     "title": "My API",
-                    "owner": "my-org",
-                    # missing "repo" and "credential_path"
+                    # missing "repo_url" and "credential_path"
                 }
             ]
         }
@@ -241,14 +428,41 @@ class TestRepoCredentialsManagerLoadConfig:
         finally:
             Path(config_path).unlink()
 
+    def test_load_config_invalid_repo_url(self):
+        """Test loading config with invalid repo_url raises error."""
+        config_data = {
+            "repositories": [
+                {
+                    "title": "My API",
+                    "repo_url": "https://github.com",
+                    "credential_path": "/home/user/.env",
+                }
+            ]
+        }
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as f:
+            yaml.dump(config_data, f)
+            config_path = f.name
+
+        try:
+            manager = RepoCredentialsManager(config_path=config_path)
+
+            with pytest.raises(RepoCredentialsLoadError) as exc_info:
+                manager.load_config()
+
+            assert "invalid repo_url" in str(exc_info.value)
+        finally:
+            Path(config_path).unlink()
+
     def test_load_config_non_absolute_credential_path(self):
         """Test loading config with relative credential_path raises error."""
         config_data = {
             "repositories": [
                 {
                     "title": "My API",
-                    "owner": "my-org",
-                    "repo": "api",
+                    "repo_url": "https://github.com/my-org/api",
                     "credential_path": "relative/path/.env",
                 }
             ]
@@ -350,8 +564,7 @@ class TestRepoCredentialsManagerLoadConfig:
             "repositories": [
                 {
                     "title": "My API",
-                    "owner": "my-org",
-                    "repo": "api",
+                    "repo_url": "https://github.com/my-org/api",
                     "credential_path": "/home/user/.env",
                 }
             ]
@@ -389,8 +602,7 @@ class TestRepoCredentialsManagerHasConfig:
             "repositories": [
                 {
                     "title": "My API",
-                    "owner": "my-org",
-                    "repo": "api",
+                    "repo_url": "https://github.com/my-org/api",
                     "credential_path": "/home/user/.env",
                 }
             ]
@@ -461,8 +673,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
                 "repositories": [
                     {
                         "title": "My API",
-                        "owner": "my-org",
-                        "repo": "api-service",
+                        "repo_url": "https://github.com/my-org/api-service",
                         "credential_path": str(source_file),
                     }
                 ]
@@ -497,8 +708,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
             "repositories": [
                 {
                     "title": "Other Service",
-                    "owner": "other-org",
-                    "repo": "other-service",
+                    "repo_url": "https://github.com/other-org/other-service",
                     "credential_path": "/home/user/.env",
                 }
             ]
@@ -528,8 +738,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
             "repositories": [
                 {
                     "title": "My API",
-                    "owner": "my-org",
-                    "repo": "api-service",
+                    "repo_url": "https://github.com/my-org/api-service",
                     "credential_path": "/nonexistent/path/.env",
                 }
             ]
@@ -566,8 +775,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
                 "repositories": [
                     {
                         "title": "My API",
-                        "owner": "my-org",
-                        "repo": "api-service",
+                        "repo_url": "https://github.com/my-org/api-service",
                         "credential_path": str(source_file),
                         "destination": "docker/config/.env",
                     }
@@ -597,8 +805,8 @@ class TestRepoCredentialsManagerCopyToWorktree:
             finally:
                 Path(config_path).unlink()
 
-    def test_copy_to_worktree_hostname_owner_repo_format(self):
-        """Test repo matching extracts owner/repo from hostname/owner/repo."""
+    def test_copy_to_worktree_matches_full_host_owner_repo(self):
+        """Test repo matching uses full host/owner/repo for deterministic matching."""
         with tempfile.TemporaryDirectory() as worktree_path:
             source_dir = Path(worktree_path) / "source"
             source_dir.mkdir()
@@ -609,8 +817,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
                 "repositories": [
                     {
                         "title": "My API",
-                        "owner": "my-org",
-                        "repo": "api-service",
+                        "repo_url": "https://github.com/my-org/api-service",
                         "credential_path": str(source_file),
                     }
                 ]
@@ -628,24 +835,43 @@ class TestRepoCredentialsManagerCopyToWorktree:
                 dest_dir = Path(worktree_path) / "dest_worktree"
                 dest_dir.mkdir()
 
-                # Should match with full hostname/owner/repo format
+                # Should match with full host/owner/repo format
                 result = manager.copy_to_worktree(
                     str(dest_dir), "github.com/my-org/api-service"
                 )
                 assert result is not None
-
-                # Should also work with just owner/repo
-                dest_dir2 = Path(worktree_path) / "dest_worktree2"
-                dest_dir2.mkdir()
-                manager.clear_cache()
-
-                manager2 = RepoCredentialsManager(config_path=config_path)
-                result2 = manager2.copy_to_worktree(
-                    str(dest_dir2), "my-org/api-service"
-                )
-                assert result2 is not None
             finally:
                 Path(config_path).unlink()
+
+    def test_copy_to_worktree_ghes_does_not_match_github_com(self):
+        """Test that a GHES entry does not match a github.com repo identifier."""
+        config_data = {
+            "repositories": [
+                {
+                    "title": "GHES Service",
+                    "repo_url": "https://ghes.example.com/my-org/api-service",
+                    "credential_path": "/home/user/.env",
+                }
+            ]
+        }
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        ) as f:
+            yaml.dump(config_data, f)
+            config_path = f.name
+
+        try:
+            manager = RepoCredentialsManager(config_path=config_path)
+
+            with tempfile.TemporaryDirectory() as worktree_path:
+                # Same owner/repo but different host — should NOT match
+                result = manager.copy_to_worktree(
+                    worktree_path, "github.com/my-org/api-service"
+                )
+                assert result is None
+        finally:
+            Path(config_path).unlink()
 
     def test_copy_to_worktree_no_config(self):
         """Test copy returns None when no config exists."""
@@ -670,8 +896,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
                 "repositories": [
                     {
                         "title": "My API",
-                        "owner": "my-org",
-                        "repo": "api-service",
+                        "repo_url": "https://github.com/my-org/api-service",
                         "credential_path": str(source_file),
                     }
                 ]
@@ -720,8 +945,7 @@ class TestRepoCredentialsManagerClearCache:
             "repositories": [
                 {
                     "title": "My API",
-                    "owner": "my-org",
-                    "repo": "api",
+                    "repo_url": "https://github.com/my-org/api",
                     "credential_path": "/home/user/.env",
                 }
             ]

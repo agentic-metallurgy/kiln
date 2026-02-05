@@ -9,6 +9,7 @@ import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yaml
 
@@ -31,12 +32,62 @@ class RepoCredentialsLoadError(RepoCredentialsError):
     pass
 
 
+def parse_repo_url(url: str) -> tuple[str, str, str]:
+    """Parse a repository URL into (host, owner, repo).
+
+    Accepts URLs in various formats:
+        - https://github.com/owner/repo
+        - https://github.com/owner/repo/
+        - https://github.com/owner/repo/tree/main
+        - github.com/owner/repo
+        - github.com/owner/repo/tree/main
+        - http://ghes.example.com/owner/repo
+
+    Args:
+        url: Repository URL string (with or without scheme).
+
+    Returns:
+        Tuple of (host, owner, repo).
+
+    Raises:
+        ValueError: If the URL cannot be parsed into host/owner/repo.
+    """
+    raw = url.strip()
+    if not raw:
+        raise ValueError("repo_url cannot be empty")
+
+    # Prepend scheme if missing so urlparse works correctly
+    if "://" not in raw:
+        raw = f"https://{raw}"
+
+    parsed = urlparse(raw)
+    host = parsed.netloc
+    if not host:
+        raise ValueError(f"Could not extract hostname from repo_url '{url}'")
+
+    # Split path into segments, filtering empty strings from leading/trailing slashes
+    segments = [s for s in parsed.path.split("/") if s]
+    if len(segments) < 2:
+        raise ValueError(
+            f"repo_url must contain at least owner/repo in the path, got '{url}'"
+        )
+
+    owner = segments[0]
+    repo = segments[1]
+    # Strip .git suffix if present
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+
+    return host, owner, repo
+
+
 @dataclass
 class RepoCredentialEntry:
     """Represents a single repository credential mapping.
 
     Attributes:
         title: Human-readable label for the repository.
+        host: GitHub hostname (e.g., "github.com" or "ghes.example.com").
         owner: GitHub organization or user (e.g., "my-org").
         repo: Repository name (e.g., "api-service").
         credential_path: Absolute path to the credential file on disk.
@@ -44,6 +95,7 @@ class RepoCredentialEntry:
     """
 
     title: str
+    host: str
     owner: str
     repo: str
     credential_path: str
@@ -132,12 +184,21 @@ class RepoCredentialsManager:
                 )
 
             # Validate required fields
-            required_fields = ["title", "owner", "repo", "credential_path"]
+            required_fields = ["title", "repo_url", "credential_path"]
             for field in required_fields:
                 if field not in repo_entry:
                     raise RepoCredentialsLoadError(
                         f"Repository entry {i} is missing required field '{field}'"
                     )
+
+            # Parse repo_url into host/owner/repo
+            repo_url = str(repo_entry["repo_url"])
+            try:
+                host, owner, repo = parse_repo_url(repo_url)
+            except ValueError as e:
+                raise RepoCredentialsLoadError(
+                    f"Repository entry {i} has invalid repo_url: {e}"
+                ) from e
 
             credential_path = str(repo_entry["credential_path"])
 
@@ -155,8 +216,9 @@ class RepoCredentialsManager:
             entries.append(
                 RepoCredentialEntry(
                     title=str(repo_entry["title"]),
-                    owner=str(repo_entry["owner"]),
-                    repo=str(repo_entry["repo"]),
+                    host=host,
+                    owner=owner,
+                    repo=repo,
                     credential_path=credential_path,
                     destination=destination,
                 )
@@ -205,21 +267,26 @@ class RepoCredentialsManager:
         if not entries:
             return None
 
-        # Extract owner/repo from hostname/owner/repo format
+        # Normalize the repo identifier to host/owner/repo for matching
         parts = repo.split("/")
-        owner_repo = f"{parts[-2]}/{parts[-1]}" if len(parts) >= 2 else repo
+        if len(parts) == 3:
+            repo_key = repo  # Already host/owner/repo
+        elif len(parts) == 2:
+            repo_key = repo  # owner/repo — will only match if entry also lacks host
+        else:
+            repo_key = repo
 
-        # Find matching entry
+        # Find matching entry by full host/owner/repo
         matching_entry: RepoCredentialEntry | None = None
         for entry in entries:
-            entry_key = f"{entry.owner}/{entry.repo}"
-            if entry_key == owner_repo:
+            entry_key = f"{entry.host}/{entry.owner}/{entry.repo}"
+            if entry_key == repo_key:
                 matching_entry = entry
                 break
 
         if matching_entry is None:
             logger.debug(
-                f"No credential mapping found for repo '{owner_repo}'"
+                f"No credential mapping found for repo '{repo_key}'"
             )
             return None
 
