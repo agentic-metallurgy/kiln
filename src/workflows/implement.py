@@ -10,11 +10,11 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from tenacity import wait_exponential
 
 from src.claude_runner import run_claude
-from src.logger import get_logger, log_message
 from src.integrations.slack import (
     send_implementation_beginning_notification,
     send_ready_for_validation_notification,
 )
+from src.logger import get_logger, log_message
 from src.ticket_clients.base import NetworkError
 from src.workflows.base import WorkflowContext
 

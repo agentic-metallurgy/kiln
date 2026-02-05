@@ -9,8 +9,6 @@ from unittest.mock import patch
 
 import pytest
 
-from src.ticket_clients.github import GitHubTicketClient
-
 
 @pytest.mark.unit
 class TestGetLastStatusActor:
