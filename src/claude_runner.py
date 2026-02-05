@@ -50,7 +50,7 @@ def run_claude(
     enable_telemetry: bool = False,
     execution_stage: str | None = None,
     mcp_config_path: str | None = None,
-    process_registrar: Callable[[subprocess.Popen], None] | None = None,
+    process_registrar: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> ClaudeResult:
     """
     Run the Claude CLI with a given prompt and return the response with metrics.

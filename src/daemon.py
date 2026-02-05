@@ -152,7 +152,7 @@ class WorkflowRunner:
             # Create process registrar callback if daemon is available
             process_registrar = None
             if self.daemon is not None:
-                def process_registrar(process: subprocess.Popen) -> None:
+                def process_registrar(process: subprocess.Popen[str]) -> None:
                     self.daemon.register_process(issue_key, process)  # type: ignore[union-attr]
 
             try:
@@ -296,7 +296,7 @@ class Daemon:
 
         # Track running Claude subprocesses for termination on reset
         # Maps "repo#issue_number" -> subprocess.Popen object
-        self._running_processes: dict[str, subprocess.Popen] = {}
+        self._running_processes: dict[str, subprocess.Popen[str]] = {}
         self._running_processes_lock = threading.Lock()
 
         # Track repos that have had labels initialized
@@ -810,7 +810,7 @@ class Daemon:
                 # Don't fail shutdown if label removal fails
                 logger.warning(f"Failed to remove '{label}' label from {key} during shutdown: {e}")
 
-    def register_process(self, key: str, process: subprocess.Popen) -> None:
+    def register_process(self, key: str, process: subprocess.Popen[str]) -> None:
         """Register a running Claude subprocess for an issue.
 
         Tracks the subprocess so it can be terminated when the reset label
