@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any
 
 from src.interfaces import Comment, LinkedPullRequest, TicketItem
-from src.labels import LabelConfig, REQUIRED_LABELS
+from src.labels import REQUIRED_LABELS, LabelConfig
 from src.logger import get_logger, is_debug_mode
 from src.ticket_clients.base import NetworkError
 
@@ -42,6 +42,11 @@ class GitHubTicketClient:
     @property
     def supports_status_actor_check(self) -> bool:
         """github.com supports project timeline events for status change verification."""
+        return True
+
+    @property
+    def supports_column_management(self) -> bool:
+        """github.com supports updateProjectV2Field mutation."""
         return True
 
     @property

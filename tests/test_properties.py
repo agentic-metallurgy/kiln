@@ -322,7 +322,7 @@ class TestConfigParsingProperties:
             ),
             min_size=1,
             max_size=50,
-        ),
+        ).filter(lambda x: x.strip()),  # Exclude whitespace-only values (parser strips them)
         leading_spaces=st.integers(min_value=0, max_value=5),
         trailing_spaces=st.integers(min_value=0, max_value=5),
     )
@@ -339,7 +339,7 @@ class TestConfigParsingProperties:
             result = parse_config_file(config_file)
             assert key in result
             # The parser strips the entire line, so value should match
-            assert result[key] == value
+            assert result[key] == value.strip()
 
     @given(
         key=config_key_strategy,
@@ -350,7 +350,7 @@ class TestConfigParsingProperties:
             ),
             min_size=1,
             max_size=50,
-        ).filter(lambda x: x.strip()),  # Exclude whitespace-only values (they get stripped)
+        ).filter(lambda x: x.strip()),  # Exclude whitespace-only values (parser strips them)
         key_trailing_spaces=st.integers(min_value=0, max_value=5),
         value_leading_spaces=st.integers(min_value=0, max_value=5),
     )
@@ -366,7 +366,7 @@ class TestConfigParsingProperties:
             config_file.write_text(line)
             result = parse_config_file(config_file)
             assert key in result
-            assert result[key] == value.strip()  # Parser strips leading/trailing whitespace from values
+            assert result[key] == value.strip()
 
     @given(
         comment=st.text(

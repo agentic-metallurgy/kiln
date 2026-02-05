@@ -25,7 +25,7 @@ def workflow_context():
         repo="github.com/owner/test-repo",
         issue_number=42,
         issue_title="Add feature X to improve performance",
-        workspace_path="/tmp/workspaces/owner-test-repo-42",
+        workspace_path="/tmp/worktrees/owner-test-repo-42",
     )
 
 
@@ -279,7 +279,7 @@ class TestPrepareWorkflow:
             repo="owner/repo",
             issue_number=42,
             issue_title="Test Issue",
-            workspace_path="/tmp/workspaces",
+            workspace_path="/tmp/worktrees",
         )
         workflow = PrepareWorkflow()
         prompts = workflow.init(ctx)
@@ -292,13 +292,13 @@ class TestPrepareWorkflow:
             repo="owner/repo",
             issue_number=42,
             issue_title="Test Issue",
-            workspace_path="/tmp/workspaces",
+            workspace_path="/tmp/worktrees",
         )
         workflow = PrepareWorkflow()
         prompts = workflow.init(ctx)
 
         assert "Clone https://github.com/owner/repo.git" in prompts[0]
-        assert "to /tmp/workspaces/repo if missing" in prompts[0]
+        assert "to /tmp/worktrees/repo if missing" in prompts[0]
 
     def test_prepare_workflow_with_issue_body_includes_body_directly(self):
         """Test that with issue_body, prompt includes the body directly."""
@@ -307,7 +307,7 @@ class TestPrepareWorkflow:
             repo="owner/repo",
             issue_number=42,
             issue_title="Test Issue Title",
-            workspace_path="/tmp/workspaces",
+            workspace_path="/tmp/worktrees",
             issue_body=issue_body,
         )
         workflow = PrepareWorkflow()
@@ -326,7 +326,7 @@ class TestPrepareWorkflow:
             repo="owner/repo",
             issue_number=123,
             issue_title="Test Issue",
-            workspace_path="/tmp/workspaces",
+            workspace_path="/tmp/worktrees",
             issue_body="Issue body content",
         )
         workflow = PrepareWorkflow()
@@ -342,7 +342,7 @@ class TestPrepareWorkflow:
             repo="myorg/myrepo",
             issue_number=99,
             issue_title="Test Issue",
-            workspace_path="/home/user/workspaces",
+            workspace_path="/home/user/worktrees",
             issue_body="Body text",
         )
         workflow = PrepareWorkflow()
@@ -356,7 +356,7 @@ class TestPrepareWorkflow:
             repo="owner/repo",
             issue_number=42,
             issue_title="Test Issue",
-            workspace_path="/tmp/workspaces",
+            workspace_path="/tmp/worktrees",
             issue_body="",  # Empty string, not None
         )
         workflow = PrepareWorkflow()
@@ -372,7 +372,7 @@ class TestPrepareWorkflow:
             repo="github.com/owner/repo",
             issue_number=42,
             issue_title="Child Issue",
-            workspace_path="/tmp/workspaces",
+            workspace_path="/tmp/worktrees",
             issue_body="Child issue body",
             parent_issue_number=10,
             parent_branch="10-parent-feature",
@@ -392,7 +392,7 @@ class TestPrepareWorkflow:
             repo="github.com/owner/repo",
             issue_number=42,
             issue_title="Standalone Issue",
-            workspace_path="/tmp/workspaces",
+            workspace_path="/tmp/worktrees",
             issue_body="Issue body",
             parent_issue_number=None,
             parent_branch=None,
@@ -411,7 +411,7 @@ class TestPrepareWorkflow:
             repo="github.com/owner/repo",
             issue_number=42,
             issue_title="Child Issue",
-            workspace_path="/tmp/workspaces",
+            workspace_path="/tmp/worktrees",
             issue_body="Issue body",
             parent_issue_number=10,  # Has parent but no open PR
             parent_branch=None,
@@ -433,7 +433,7 @@ class TestPrepareWorkflow:
             repo="github.com/owner/repo",
             issue_number=42,
             issue_title="Feature Issue",
-            workspace_path="/tmp/workspaces",
+            workspace_path="/tmp/worktrees",
             issue_body="Issue body",
             parent_issue_number=None,  # No parent issue
             parent_branch="my-feature-branch",  # Explicit feature_branch from frontmatter
@@ -1473,7 +1473,7 @@ Some other content here.
             repo="github.com/owner/test-repo",
             issue_number=42,
             issue_title="Test Issue",
-            workspace_path="/tmp/workspaces/test",
+            workspace_path="/tmp/worktrees/test",
             parent_branch="feature/parent-branch",
         )
 

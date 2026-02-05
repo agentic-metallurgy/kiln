@@ -17,10 +17,10 @@ from typing import TYPE_CHECKING
 
 from src.database import Database
 from src.frontmatter import parse_issue_frontmatter
+from src.integrations.slack import send_comment_processed_notification
 from src.interfaces import Comment, TicketClient, TicketItem
 from src.labels import Labels
 from src.logger import clear_issue_context, get_logger, set_issue_context
-from src.integrations.slack import send_comment_processed_notification
 from src.workflows import PrepareWorkflow, ProcessCommentsWorkflow, WorkflowContext
 
 if TYPE_CHECKING:

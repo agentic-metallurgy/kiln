@@ -100,6 +100,11 @@ class GitHubClientBase:
         return True
 
     @property
+    def supports_column_management(self) -> bool:
+        """Whether this client supports updating project column options via API."""
+        return True
+
+    @property
     def client_description(self) -> str:
         """Human-readable description of this client for logging."""
         return "GitHub"

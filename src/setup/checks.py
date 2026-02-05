@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
+import time
+import urllib.request
 from pathlib import Path
+from typing import NamedTuple
 
 from src.logger import get_logger
 
@@ -119,6 +123,76 @@ def check_required_tools() -> None:
 
     if errors:
         raise SetupError("\n".join(errors))
+
+
+FORMULA_URL = "https://raw.githubusercontent.com/agentic-metallurgy/homebrew-tap/main/Formula/kiln.rb"
+CACHE_FILE_NAME = "last_update_check"
+CACHE_MAX_AGE_SECONDS = 86400  # 24 hours
+HTTP_TIMEOUT_SECONDS = 3
+
+
+class UpdateInfo(NamedTuple):
+    """Information about an available update."""
+
+    latest_version: str
+    current_version: str
+
+
+def check_for_updates(kiln_dir: Path | None = None) -> UpdateInfo | None:
+    """Check if a newer version of kiln is available from the homebrew tap.
+
+    Fetches the formula file from GitHub and compares the version against
+    the current version. Results are cached for 24 hours to avoid repeated
+    network requests.
+
+    Args:
+        kiln_dir: Path to the .kiln directory for cache storage.
+                  Defaults to .kiln/ in the current working directory.
+
+    Returns:
+        UpdateInfo if a newer version is available, None otherwise
+        (up-to-date, cached, or error).
+    """
+    try:
+        from src.cli import __version__
+
+        if kiln_dir is None:
+            kiln_dir = Path.cwd() / ".kiln"
+
+        cache_file = kiln_dir / CACHE_FILE_NAME
+
+        # Check cache - skip network request if checked within 24 hours
+        if cache_file.exists():
+            last_check = cache_file.stat().st_mtime
+            if time.time() - last_check < CACHE_MAX_AGE_SECONDS:
+                return None
+
+        # Fetch formula from GitHub
+        with urllib.request.urlopen(FORMULA_URL, timeout=HTTP_TIMEOUT_SECONDS) as response:
+            content = response.read().decode("utf-8")
+
+        # Parse version from formula
+        match = re.search(r'version\s+"([^"]+)"', content)
+        if match is None:
+            return None
+
+        latest_version = match.group(1)
+
+        # Update cache file (regardless of whether update is available)
+        kiln_dir.mkdir(parents=True, exist_ok=True)
+        cache_file.touch()
+
+        # Compare versions
+        if latest_version != __version__:
+            return UpdateInfo(
+                latest_version=latest_version,
+                current_version=__version__,
+            )
+
+        return None
+
+    except Exception:
+        return None
 
 
 def configure_git_credential_helper(hostname: str = "github.com") -> None:

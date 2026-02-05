@@ -1,12 +1,20 @@
 """Unit tests for the setup validation module."""
 
+import os
 import subprocess
+import time
+import urllib.error
+from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.setup.checks import (
+    CACHE_FILE_NAME,
+    CACHE_MAX_AGE_SECONDS,
     SetupError,
+    UpdateInfo,
+    check_for_updates,
     check_required_tools,
     configure_git_credential_helper,
     get_hostnames_from_project_urls,
@@ -382,6 +390,160 @@ class TestGetHostnamesFromProjectUrls:
 
 
 @pytest.mark.unit
+class TestCheckForUpdates:
+    """Tests for check_for_updates()."""
+
+    FORMULA_CONTENT = b'class Kiln < Formula\n  version "2.0.0"\n  url "https://example.com"\nend'
+
+    def _mock_urlopen(self, content: bytes) -> MagicMock:
+        """Create a mock urlopen context manager that returns content."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = content
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        return mock_response
+
+    def test_returns_update_info_when_newer_version_available(self, tmp_path) -> None:
+        """Test: returns UpdateInfo when newer version is available."""
+        kiln_dir = tmp_path / ".kiln"
+
+        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(self.FORMULA_CONTENT)):
+            with patch("src.cli.__version__", "1.0.0"):
+                result = check_for_updates(kiln_dir=kiln_dir)
+
+        assert result is not None
+        assert isinstance(result, UpdateInfo)
+        assert result.latest_version == "2.0.0"
+        assert result.current_version == "1.0.0"
+
+    def test_returns_none_when_version_matches(self, tmp_path) -> None:
+        """Test: returns None when version matches (up-to-date)."""
+        kiln_dir = tmp_path / ".kiln"
+        formula = b'class Kiln < Formula\n  version "1.1.0"\nend'
+
+        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(formula)):
+            with patch("src.cli.__version__", "1.1.0"):
+                result = check_for_updates(kiln_dir=kiln_dir)
+
+        assert result is None
+
+    def test_returns_none_on_network_timeout(self, tmp_path) -> None:
+        """Test: returns None on network timeout."""
+        kiln_dir = tmp_path / ".kiln"
+
+        with patch("src.setup.checks.urllib.request.urlopen", side_effect=urllib.error.URLError("timeout")):
+            result = check_for_updates(kiln_dir=kiln_dir)
+
+        assert result is None
+
+    def test_returns_none_on_http_error(self, tmp_path) -> None:
+        """Test: returns None on HTTP error (404, 500)."""
+        kiln_dir = tmp_path / ".kiln"
+
+        with patch(
+            "src.setup.checks.urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError(
+                url="https://example.com", code=404, msg="Not Found", hdrs=MagicMock(), fp=BytesIO(b"")
+            ),
+        ):
+            result = check_for_updates(kiln_dir=kiln_dir)
+
+        assert result is None
+
+    def test_returns_none_on_malformed_formula_content(self, tmp_path) -> None:
+        """Test: returns None on malformed formula content (no version string)."""
+        kiln_dir = tmp_path / ".kiln"
+        malformed = b"class Kiln < Formula\n  url 'https://example.com'\nend"
+
+        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(malformed)):
+            with patch("src.cli.__version__", "1.0.0"):
+                result = check_for_updates(kiln_dir=kiln_dir)
+
+        assert result is None
+
+    def test_cache_prevents_repeat_checks_within_24_hours(self, tmp_path) -> None:
+        """Test: cache file prevents repeat checks within 24 hours."""
+        kiln_dir = tmp_path / ".kiln"
+        kiln_dir.mkdir()
+        cache_file = kiln_dir / CACHE_FILE_NAME
+        cache_file.touch()  # Fresh cache file (mtime = now)
+
+        with patch("src.setup.checks.urllib.request.urlopen") as mock_urlopen:
+            result = check_for_updates(kiln_dir=kiln_dir)
+
+        assert result is None
+        mock_urlopen.assert_not_called()
+
+    def test_cache_older_than_24_hours_triggers_new_check(self, tmp_path) -> None:
+        """Test: cache file older than 24 hours triggers new check."""
+        kiln_dir = tmp_path / ".kiln"
+        kiln_dir.mkdir()
+        cache_file = kiln_dir / CACHE_FILE_NAME
+        cache_file.touch()
+
+        # Set mtime to 25 hours ago
+        old_time = time.time() - (CACHE_MAX_AGE_SECONDS + 3600)
+        os.utime(cache_file, (old_time, old_time))
+
+        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(self.FORMULA_CONTENT)):
+            with patch("src.cli.__version__", "1.0.0"):
+                result = check_for_updates(kiln_dir=kiln_dir)
+
+        assert result is not None
+        assert result.latest_version == "2.0.0"
+
+    def test_cache_file_created_after_successful_check(self, tmp_path) -> None:
+        """Test: cache file is created/updated after successful check."""
+        kiln_dir = tmp_path / ".kiln"
+
+        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(self.FORMULA_CONTENT)):
+            with patch("src.cli.__version__", "1.0.0"):
+                check_for_updates(kiln_dir=kiln_dir)
+
+        cache_file = kiln_dir / CACHE_FILE_NAME
+        assert cache_file.exists()
+
+    def test_cache_file_created_when_up_to_date(self, tmp_path) -> None:
+        """Test: cache file is created/updated after check when already up-to-date."""
+        kiln_dir = tmp_path / ".kiln"
+        formula = b'class Kiln < Formula\n  version "1.1.0"\nend'
+
+        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(formula)):
+            with patch("src.cli.__version__", "1.1.0"):
+                result = check_for_updates(kiln_dir=kiln_dir)
+
+        assert result is None
+        cache_file = kiln_dir / CACHE_FILE_NAME
+        assert cache_file.exists()
+
+    def test_works_when_kiln_directory_does_not_exist(self, tmp_path) -> None:
+        """Test: works when .kiln/ directory doesn't exist yet (creates it)."""
+        kiln_dir = tmp_path / ".kiln"
+        assert not kiln_dir.exists()
+
+        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(self.FORMULA_CONTENT)):
+            with patch("src.cli.__version__", "1.0.0"):
+                result = check_for_updates(kiln_dir=kiln_dir)
+
+        assert result is not None
+        assert kiln_dir.exists()
+        assert (kiln_dir / CACHE_FILE_NAME).exists()
+
+    def test_fails_silently_when_cache_directory_cannot_be_created(self, tmp_path) -> None:
+        """Test: fails silently when cache directory can't be created."""
+        # Use a path that can't be created (file exists where directory is expected)
+        blocker = tmp_path / ".kiln"
+        blocker.write_text("not a directory")  # File blocking directory creation
+
+        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(self.FORMULA_CONTENT)):
+            with patch("src.cli.__version__", "1.0.0"):
+                result = check_for_updates(kiln_dir=blocker)
+
+        # Should fail silently and return None
+        assert result is None
+
+
+@pytest.mark.unit
 class TestValidateProjectColumns:
     """Tests for validate_project_columns()."""
 
@@ -542,8 +704,8 @@ class TestValidateProjectColumns:
             "status_options": {
                 "Backlog": "opt_1",
                 "Ready": "opt_2",
-                "In Progress": "opt_3",
-                "In Review": "opt_4",
+                "In progress": "opt_3",
+                "In review": "opt_4",
                 "Done": "opt_5",
             },
         }
@@ -570,8 +732,8 @@ class TestValidateProjectColumns:
             "status_options": {
                 "Backlog": "opt_1",
                 "Ready": "opt_2",
-                "In Progress": "opt_3",
-                "In Review": "opt_4",
+                "In progress": "opt_3",
+                "In review": "opt_4",
                 "Done": "opt_5",
             },
         }
@@ -595,7 +757,7 @@ class TestValidateProjectColumns:
                 board_url="https://github.com/orgs/test/projects/1",
                 ticket_id=2,
                 repo="github.com/test/repo",
-                status="In Progress",
+                status="In progress",
                 title="Test 2",
                 labels=set(),
                 state="OPEN",
@@ -630,7 +792,7 @@ class TestValidateProjectColumns:
             "status_options": {
                 "Backlog": "opt_1",
                 "Ready": "opt_2",
-                "In Progress": "opt_3",
+                "In progress": "opt_3",
                 "Done": "opt_5",
             },
         }
@@ -647,8 +809,8 @@ class TestValidateProjectColumns:
             "status_options": {
                 "Backlog": "opt_1",
                 "Ready": "opt_2",
-                "In Progress": "opt_3",
-                "In Review": "opt_4",
+                "In progress": "opt_3",
+                "In review": "opt_4",
                 "Done": "opt_5",
             },
         }
@@ -667,7 +829,7 @@ class TestValidateProjectColumns:
     def test_github_default_columns_constant(self):
         """Test that GITHUB_DEFAULT_COLUMNS has the correct values."""
         expected = frozenset(
-            {"Backlog", "Ready", "In Progress", "In Review", "Done"}
+            {"Backlog", "Ready", "In progress", "In review", "Done"}
         )
         assert expected == GITHUB_DEFAULT_COLUMNS
         assert isinstance(GITHUB_DEFAULT_COLUMNS, frozenset)

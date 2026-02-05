@@ -47,16 +47,16 @@ class TestCli:
 class TestInitKiln:
     """Tests for init_kiln function."""
 
-    def test_init_kiln_creates_workspaces_directory(self, tmp_path, monkeypatch, capsys):
-        """Test that init_kiln creates workspaces directory with .gitkeep."""
+    def test_init_kiln_creates_worktrees_directory(self, tmp_path, monkeypatch, capsys):
+        """Test that init_kiln creates worktrees directory with .gitkeep."""
         monkeypatch.chdir(tmp_path)
 
         from src.cli import init_kiln
 
         init_kiln()
 
-        # Verify workspaces directory was created
-        workspace_dir = tmp_path / "workspaces"
+        # Verify worktrees directory was created
+        workspace_dir = tmp_path / "worktrees"
         assert workspace_dir.exists()
         assert workspace_dir.is_dir()
 
@@ -65,9 +65,9 @@ class TestInitKiln:
         assert gitkeep_file.exists()
         assert gitkeep_file.is_file()
 
-        # Verify output includes workspaces/
+        # Verify output includes worktrees/
         captured = capsys.readouterr()
-        assert "workspaces/" in captured.out
+        assert "worktrees/" in captured.out
 
     def test_init_kiln_creates_readme(self, tmp_path, monkeypatch):
         """Test that init_kiln() creates .kiln/README.md."""
@@ -94,8 +94,8 @@ class TestInitKiln:
         assert (tmp_path / ".kiln" / "config").is_file()
         assert (tmp_path / ".kiln" / "logs").is_dir()
         assert (tmp_path / ".kiln" / "README.md").is_file()
-        assert (tmp_path / "workspaces").is_dir()
-        assert (tmp_path / "workspaces" / ".gitkeep").is_file()
+        assert (tmp_path / "worktrees").is_dir()
+        assert (tmp_path / "worktrees" / ".gitkeep").is_file()
 
     def test_init_kiln_is_idempotent(self, tmp_path, monkeypatch):
         """Test that running init_kiln twice doesn't fail."""
@@ -108,8 +108,8 @@ class TestInitKiln:
         init_kiln()
 
         # Verify directories still exist
-        assert (tmp_path / "workspaces").exists()
-        assert (tmp_path / "workspaces" / ".gitkeep").exists()
+        assert (tmp_path / "worktrees").exists()
+        assert (tmp_path / "worktrees" / ".gitkeep").exists()
         assert (tmp_path / ".kiln").exists()
         assert (tmp_path / ".kiln" / "README.md").exists()
 

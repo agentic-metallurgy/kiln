@@ -4,6 +4,7 @@ import pytest
 
 from src.config import (
     Config,
+    determine_workspace_dir,
     load_config,
     load_config_from_env,
     load_config_from_file,
@@ -26,9 +27,9 @@ class TestConfig:
         assert config.project_urls == ["https://github.com/orgs/chronoboost/projects/6/views/2"]
         assert config.poll_interval == 30
         assert config.database_path == ".kiln/kiln.db"
-        assert config.workspace_dir == "workspaces"
+        assert config.workspace_dir == "worktrees"
         assert config.watched_statuses == ["Research", "Plan", "Implement"]
-        assert config.max_concurrent_workflows == 3
+        assert config.max_concurrent_workflows == 5
         assert config.log_file == ".kiln/logs/kiln.log"
 
     def test_config_creation_with_custom_values(self):
@@ -83,7 +84,6 @@ class TestLoadConfig:
         )
         monkeypatch.setenv("POLL_INTERVAL", "120")
         monkeypatch.setenv("DATABASE_PATH", "env.db")
-        monkeypatch.setenv("WORKSPACE_DIR", "env_workspaces")
         monkeypatch.setenv("WATCHED_STATUSES", "Status1, Status2, Status3")
         monkeypatch.setenv("USERNAME_SELF", "user1")
 
@@ -96,18 +96,18 @@ class TestLoadConfig:
         ]
         assert config.poll_interval == 120
         assert config.database_path == "env.db"
-        assert config.workspace_dir == "env_workspaces"
         assert config.watched_statuses == ["Status1", "Status2", "Status3"]
         assert config.username_self == "user1"
 
-    def test_load_config_with_minimal_env_vars(self, monkeypatch):
+    def test_load_config_with_minimal_env_vars(self, tmp_path, monkeypatch):
         """Test load_config applies defaults when only required vars are set."""
+        # Use clean directory so determine_workspace_dir() returns "worktrees"
+        monkeypatch.chdir(tmp_path)
         # Clear any existing environment variables
         for key in [
             "PROJECT_URLS",
             "POLL_INTERVAL",
             "DATABASE_PATH",
-            "WORKSPACE_DIR",
             "WATCHED_STATUSES",
             "MAX_CONCURRENT_WORKFLOWS",
         ]:
@@ -123,9 +123,9 @@ class TestLoadConfig:
         assert config.project_urls == ["https://github.com/orgs/chronoboost/projects/6/views/2"]
         assert config.poll_interval == 30
         assert config.database_path == ".kiln/kiln.db"
-        assert config.workspace_dir == "workspaces"
+        assert config.workspace_dir == "worktrees"
         assert config.watched_statuses == ["Research", "Plan", "Implement"]
-        assert config.max_concurrent_workflows == 3
+        assert config.max_concurrent_workflows == 5
         assert config.username_self == "testuser"
 
     def test_load_config_missing_github_token(self, monkeypatch):
@@ -718,7 +718,7 @@ class TestLoadConfigFromFile:
 
         assert config.poll_interval == 30
         assert config.watched_statuses == ["Research", "Plan", "Implement"]
-        assert config.max_concurrent_workflows == 3
+        assert config.max_concurrent_workflows == 5
 
     def test_load_config_from_file_parses_stage_models_json(self, tmp_path, monkeypatch):
         """Test STAGE_MODELS JSON parsing."""
@@ -1668,3 +1668,39 @@ class TestAzureOAuthConfiguration:
         config = load_config_from_file(config_file)
 
         assert config.azure_password == "pass=word!@#$%"
+
+
+@pytest.mark.unit
+class TestDetermineWorkspaceDir:
+    """Tests for determine_workspace_dir() auto-detection logic."""
+
+    def test_fresh_install_uses_worktrees(self, tmp_path, monkeypatch):
+        """Test that fresh install (no existing directories) defaults to worktrees."""
+        monkeypatch.chdir(tmp_path)
+
+        assert determine_workspace_dir() == "worktrees"
+
+    def test_existing_workspaces_with_content_uses_workspaces(self, tmp_path, monkeypatch):
+        """Test that existing workspaces/ with content is preserved."""
+        monkeypatch.chdir(tmp_path)
+        workspaces = tmp_path / "workspaces"
+        workspaces.mkdir()
+        (workspaces / "test-worktree").mkdir()
+
+        assert determine_workspace_dir() == "workspaces"
+
+    def test_empty_workspaces_uses_worktrees(self, tmp_path, monkeypatch):
+        """Test that empty workspaces/ directory is ignored."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "workspaces").mkdir()
+
+        assert determine_workspace_dir() == "worktrees"
+
+    def test_workspaces_with_only_gitkeep_uses_worktrees(self, tmp_path, monkeypatch):
+        """Test that workspaces/ with only .gitkeep is ignored."""
+        monkeypatch.chdir(tmp_path)
+        workspaces = tmp_path / "workspaces"
+        workspaces.mkdir()
+        (workspaces / ".gitkeep").touch()
+
+        assert determine_workspace_dir() == "worktrees"
