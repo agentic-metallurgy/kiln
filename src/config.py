@@ -6,10 +6,13 @@ fallback to environment variables for backward compatibility.
 """
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 # Default paths relative to .kiln directory
 KILN_DIR = ".kiln"
@@ -71,6 +74,20 @@ class Config:
     azure_username: str | None = None
     azure_password: str | None = None
     azure_scope: str | None = None  # Defaults to "https://graph.microsoft.com/.default" if not specified
+
+
+def determine_workspace_dir() -> str:
+    """Determine which workspace directory to use.
+
+    Returns "workspaces" if it exists with content (for backward compatibility),
+    otherwise returns "worktrees" (new default).
+    """
+    workspaces_dir = Path.cwd() / "workspaces"
+    if workspaces_dir.exists() and any(workspaces_dir.iterdir()):
+        contents = [p for p in workspaces_dir.iterdir() if p.name != ".gitkeep"]
+        if contents:
+            return "workspaces"
+    return "worktrees"
 
 
 def _validate_project_urls_host(
@@ -333,7 +350,7 @@ def load_config_from_file(config_path: Path) -> Config:
         project_urls=project_urls,
         poll_interval=poll_interval,
         database_path=".kiln/kiln.db",
-        workspace_dir="workspaces",
+        workspace_dir=determine_workspace_dir(),
         watched_statuses=watched_statuses,
         username_self=username_self,
         team_usernames=team_usernames,
@@ -540,6 +557,7 @@ def load_config_from_env() -> Config:
         project_urls=project_urls,
         poll_interval=poll_interval,
         database_path=database_path,
+        workspace_dir=determine_workspace_dir(),
         watched_statuses=watched_statuses,
         username_self=username_self,
         team_usernames=team_usernames,

@@ -372,6 +372,12 @@ def run_daemon(daemon_mode: bool = False) -> None:
         logger.info(f"=== Kiln Starting (v{__version__}) ===")
         logger.info(f"Logging to {config.log_file}")
 
+        if config.workspace_dir == "workspaces":
+            logger.info("Using workspaces/ directory (detected existing worktrees)")
+            logger.info("New installs use worktrees/ by default")
+        else:
+            logger.info("Using worktrees/ directory")
+
         git_version = get_git_version()
         logger.info(f"Git version: {git_version}")
 
