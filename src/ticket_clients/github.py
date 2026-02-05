@@ -45,6 +45,11 @@ class GitHubTicketClient:
         return True
 
     @property
+    def supports_column_management(self) -> bool:
+        """github.com supports updateProjectV2Field mutation."""
+        return True
+
+    @property
     def client_description(self) -> str:
         """Human-readable description of this client."""
         return "GitHub.com"

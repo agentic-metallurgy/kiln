@@ -5,6 +5,7 @@ It uses alternative APIs since GHES 3.14 lacks certain github.com features:
 - closedByPullRequestsReferences is NOT available (uses CLOSED_EVENT instead)
 - sub-issues API is NOT available
 - Project V2 timeline events don't exist (uses field creator instead)
+- updateProjectV2Field mutation is NOT available (column setup must be manual)
 
 Key alternative approaches:
 - Merged PR detection: timelineItems with CLOSED_EVENT
@@ -67,9 +68,33 @@ class GitHubEnterprise314Client(GitHubClientBase):
         return True
 
     @property
+    def supports_column_management(self) -> bool:
+        """GHES 3.14 does NOT support updateProjectV2Field mutation."""
+        return False
+
+    @property
     def client_description(self) -> str:
         """Human-readable description of this client."""
         return "GitHub Enterprise Server 3.14"
+
+    def update_status_field_options(
+        self,
+        field_id: str,
+        options: list[dict[str, Any]],
+        hostname: str = "github.com",
+    ) -> None:
+        """Update the Status field options for a GitHub project.
+
+        GHES 3.14 does NOT support the updateProjectV2Field mutation.
+        Project column configuration must be done manually via the GitHub UI.
+        """
+        del field_id, options, hostname  # Unused - mutation not available
+        logger.warning(
+            f"Cannot update project field options on {self.client_description}: "
+            "updateProjectV2Field mutation is not available. "
+            "Please configure project columns manually via the GitHub UI."
+        )
+        # Don't raise - just skip the operation with a warning
 
     def get_last_status_actor(self, repo: str, ticket_id: int) -> str | None:
         """Get the username of who last changed the issue's project status.

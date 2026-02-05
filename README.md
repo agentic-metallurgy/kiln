@@ -1,206 +1,56 @@
 # Kiln
 
-A polling-based daemon that monitors GitHub Project Kanban boards and orchestrates Claude-powered workflows for software development automation. It enables a human-in-the-loop development process where engineers move issues through kanban columns (Research → Plan → Implement) and Claude handles the execution.
+Kiln orchestrates Claude Code instances on your local machine using GitHub projects as its control panel.
 
-## Installation and How-To
+When you move issues from one column to another, Kiln invokes Claude to run the corresponding /command.
 
-See the [User Guide](docs/user-guide.md) for setup instructions.
+Claude creates the worktrees, researches the codebase, creates and implements the plan.
 
-## What it looks like
+**Setup instructions**: https://kiln.bot/docs
+
+![Research and Plan demo](https://media.githubusercontent.com/media/agentic-metallurgy/kiln-docs/main/src/assets/ratio-math-research-ready.gif)
+
+## Design
+
+It's meant to be simple:
+
+- **Use your existing Claude subscription** (no auth trickery, no API keys needed, runs locally)
+- **All context and state is on GitHub** (no markdown mess, no local DBs, easy recovery)
+- **Poll instead of webhooks/events** (no external attack surfaces, works behind VPN)
+- **Supports MCPs and anything else Claude can do**
+
+That's the heart of it and it works because… it's Claude :)
+
+### 🔥 The Kanban Board
+
+The control panel—you move Issues around on it and see labels get added/removed to indicate state. [Set up your board](https://kiln.bot/docs/project-board-setup/).
 
 | ⚪ Backlog | 🔵 Research | 🟣 Plan | 🟠 Implement | 🟡 Validate | 🟢 Done |
 |-----------|-------------|---------|--------------|-------------|---------|
 | *new issues* | *codebase exploration* | *design tasks* | *write code* | *human review* | *complete* |
 
-| Column    | What Claude Does                                        | Labels                                  |
-|-----------|---------------------------------------------------------|-----------------------------------------|
-| Backlog   | —                                                       | —                                       |
-| Research  | Explores codebase, writes findings to issue             | researching → research_ready            |
-| Plan      | Designs implementation, writes plan to issue            | planning → plan_ready                   |
-| Implement | Executes plan, commits code, opens PR, iterates on review | implementing → reviewing → (Validate) |
-| Validate  | Nothing; Human review — merge PR when ready             | —                                       |
-| Done      | Worktree cleaned up automatically                       | cleaned_up                              |
-
-## Architecture
-
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  GitHub Project │────▶│     Daemon      │────▶│   SQLite DB     │
-│ (State Machine) │     │    (Poller)     │     │    (Cache)      │
-└─────────────────┘     └────────┬────────┘     └─────────────────┘
-                                 │
-                                 ▼
-                        ┌─────────────────┐
-                        │  WorkflowRunner │
-                        │  (Orchestrator) │
-                        └────────┬────────┘
-                                 │
-                 ┌───────────────┼───────────────┐
-                 ▼               ▼               ▼
-           ┌──────────┐    ┌──────────┐    ┌───────────┐
-           │ Research │    │   Plan   │    │ Implement │
-           │ Workflow │    │ Workflow │    │  Workflow │
-           └──────────┘    └──────────┘    └───────────┘
-                                 │
-                                 ▼
-                        ┌─────────────────┐
-                        │   Claude CLI    │
-                        │   (Executor)    │
-                        └─────────────────┘
-```
-
-## Capabilities
-
 ### 🔥 Claude CLI as Execution Engine
 
-Execute workflows via the `claude` CLI rather than direct API calls.
+Executes workflows via the Claude Code CLI:
 
-- **Zero auth setup**: Leverages existing `claude` and `gh` logins—no API keys or OAuth flows to configure
-- **Commit attribution**: Git commits are attributed to the authenticated user without external auth dependencies
-- **Full capabilities**: Claude CLI supports slash commands, tools, file access, and git operations
-- **Streaming**: Native support for long-running operations with streaming output
+- **No New Auth Setup**: Leverages existing Claude subscription, no trickery
+- **Full Claude capabilities**: `/commands`, MCPs, tools, git operations, local file access
+
+### 🔥 GitHub as Single Source of Truth
+
+Uses GitHub as the end-to-end context and state store:
+
+- **Single source of truth**: Research and plan outputs are written and iterated on in the issue
+- **Crash recovery**: Nothing local is sacred, local DB is cache only
+- **Visibility**: End to end context is stored as a single artifact, from PRD -> PR
+- **Observability**: Issue to PR to Merge all timestamped, easy to derive analytics
+- **No `.md` mess**: No local files to manage and organize, see which prompts made what edits to research and plan
 
 ### 🔥 Polling Over Webhooks
 
-Use periodic polling instead of webhook-based event handling.
+Use periodic polling instead of webhook-based event handling:
 
-- **Security-first**: No external attack surface from exposed endpoints
+- **Security-first**: No external attack surface, public URLs, webhook secrets management
 - **Firewall-friendly**: Works behind VPNs without requiring publicly-accessible endpoints
-- **No infrastructure**: Eliminates need for public URLs, SSL certificates, or webhook secret management
-- **Simplicity**: Single process, no web server, no ngrok tunnels, no cloud functions
 
 **Trade-off**: 30-second latency (configurable) vs. near-instant webhook response.
-
-### 🔥 GitHub Labels as State Machine
-
-Use GitHub labels as the primary workflow state machine rather than database state.
-
-- **Crash recovery**: Daemon restarts automatically resume from label state
-- **Visibility**: Engineers can see workflow state directly on issues
-- **Manual override**: Labels can be manually added/removed to force state transitions
-- **Distributed-safe**: Multiple daemon instances won't conflict
-
-### 🔥 Issues as Product Requirements Docs
-
-Research and plan outputs are written and iterated on in the issue description to keep a single source of truth with auditable progression.
-
-- **Single source**: All context in one place for implementation
-- **Editable**: Users can directly edit research/plan sections
-- **Structured**: HTML markers (`<!-- kiln:research -->`, `<!-- kiln:plan -->`) enable targeted updates
-- **Idempotent**: Markers prevent duplicate runs from creating duplicate content
-
-### 🔥 No Comment Iteration at Validation Stage
-
-Comment-based iteration is disabled once work reaches the PR/Validate stage.
-
-- **Prevents bloat**: Stops "vibe coding" via comments that adds unnecessary changes to PRs
-- **Token efficiency**: Avoids wasteful back-and-forth on already-implemented work
-- **Forces testing**: Developers must checkout the PR locally and test manually
-- **Keeps PRs clean**: Fixes are pushed directly rather than AI-appended
-
-**Trade-off**: No comment-driven iteration on PRs. If you prefer not to checkout the branch locally, merge the PR when it's "good enough" and open new issues for remaining fixes.
-
-## Config
-
-1. Run `./run.sh` — first run scaffolds a fresh config file
-2. Edit `.kiln/config`:
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `GITHUB_TOKEN` | Yes | - | GitHub PAT (classic) with required scopes |
-| `PROJECT_URLS` | Yes | - | Comma-separated GitHub Project URLs |
-| `ALLOWED_USERNAME` | Yes | - | GitHub username authorized to trigger workflows |
-| `POLL_INTERVAL` | No | 30 | Seconds between polls |
-| `WATCHED_STATUSES` | No | Research,Plan,Implement | Status columns to monitor |
-| `MAX_CONCURRENT_WORKFLOWS` | No | 3 | Parallel workflow limit |
-| `STAGE_MODELS` | No | see below | Claude model per workflow stage |
-
-### 🔥 Special Labels
-
-These labels trigger autonomous workflows:
-
-| Label | Effect |
-|-------|--------|
-| ![yolo](docs/label-yolo.svg) | Autonomously push through until PR is made |
-| ![reset](docs/label-reset.svg) | Clears all research, plan, labels, worktrees, and sends to Backlog |
-
-### 🔥 Stage Models Default
-
-| Stage | Model | Rationale |
-|-------|-------|-----------|
-| Prepare | haiku | Fast, simple worktree setup |
-| Research | opus | Deep codebase exploration |
-| Plan | opus | Complex architectural reasoning |
-| Implement: Code | opus | Code generation from plan |
-| Implement: Review | sonnet | PR review iteration |
-| Comment Iteration | sonnet | Feedback processing in Research/Plan |
-
-### 🔥 GHES Log Masking
-
-For GitHub Enterprise Server users, Kiln automatically masks sensitive hostname and organization information in log files to prevent accidental exposure.
-
-| Config | Default | Description |
-|--------|---------|-------------|
-| `GHES_LOGS_MASK` | `true` | Enable/disable log masking |
-
-When enabled (default), logs show:
-- `<GHES>` instead of your GHES hostname
-- `<ORG>` instead of your organization name
-
-Example: `github.corp.com/myorg/repo#123` becomes `<GHES>/<ORG>/repo#123`
-
-To disable masking (e.g., for debugging), set `GHES_LOGS_MASK=false` in `.kiln/config`.
-
-**Note**: This only applies to GHES configurations. GitHub.com hostnames are not masked.
-
-### 🔥 Run Logs
-
-Each workflow execution creates a dedicated log file for debugging and audit purposes. Logs are stored hierarchically by repository and issue:
-
-```
-.kiln/logs/{hostname}/{owner}/{repo}/{issue_number}/{workflow}-{timestamp}.log
-```
-
-Example:
-```
-.kiln/logs/github.com/acme-org/my-repo/42/research-20250121-1430.log
-```
-
-**Features:**
-- **Per-run isolation**: Each workflow run gets its own log file
-- **Session linking**: Companion `.session` files store Claude session IDs for linking to full conversation details
-- **Database tracking**: All run metadata (timestamp, outcome, duration) stored in SQLite for querying
-- **Reset-safe**: Run logs are preserved when using the `reset` label (debugging history is not deleted)
-
-#### `kiln logs` CLI Command
-
-View run history and logs for a specific issue:
-
-```bash
-# List all runs for an issue
-kiln logs owner/repo#42
-
-# View a specific log file by run ID
-kiln logs owner/repo#42 --view 5
-
-# Get Claude session info for a run
-kiln logs owner/repo#42 --session 5
-```
-
-**Output example:**
-```
-Run history for owner/repo#42:
-
-ID     Workflow     Started            Duration     Outcome
-----------------------------------------------------------------------
-1      research     2025-01-21 10:30   2m 45s       ✓ success
-2      plan         2025-01-21 10:35   4m 12s       ✓ success
-3      implement    2025-01-21 10:42   running...   ⏳ running
-
-Use 'kiln logs <issue> --view <id>' to view a specific log file.
-Use 'kiln logs <issue> --session <id>' to get Claude session info.
-```
-
-**Issue identifier formats:**
-- `owner/repo#42` — assumes github.com
-- `hostname/owner/repo#42` — for GitHub Enterprise Server

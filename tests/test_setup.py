@@ -14,6 +14,7 @@ from src.setup.checks import (
     validate_working_directory,
 )
 from src.setup.project import (
+    GITHUB_DEFAULT_COLUMNS,
     REQUIRED_COLUMN_NAMES,
     ValidationResult,
     validate_project_columns,
@@ -533,6 +534,143 @@ class TestValidateProjectColumns:
         assert result.action == "ok"
         assert result.message == "Test message"
 
+    def test_github_defaults_replaces_columns(self, mock_client):
+        """Test that GitHub default columns are replaced with Kiln columns."""
+        # Simulate GitHub defaults - order preserved by dict in Python 3.7+
+        mock_client.get_board_metadata.return_value = {
+            "status_field_id": "field_123",
+            "status_options": {
+                "Backlog": "opt_1",
+                "Ready": "opt_2",
+                "In progress": "opt_3",
+                "In review": "opt_4",
+                "Done": "opt_5",
+            },
+        }
+        mock_client.get_board_items.return_value = []  # No items to migrate
+
+        result = validate_project_columns(
+            mock_client, "https://github.com/orgs/test/projects/1"
+        )
+
+        assert result.action == "replaced"
+        assert "Replaced GitHub default columns" in result.message
+        mock_client.update_status_field_options.assert_called_once()
+
+        # Verify the options passed include all 6 Kiln columns
+        call_args = mock_client.update_status_field_options.call_args
+        options = call_args[0][1]
+        option_names = [opt["name"] for opt in options]
+        assert option_names == REQUIRED_COLUMN_NAMES
+
+    def test_github_defaults_migrates_items_to_backlog(self, mock_client):
+        """Test that items in deprecated statuses are migrated to Backlog."""
+        mock_client.get_board_metadata.return_value = {
+            "status_field_id": "field_123",
+            "status_options": {
+                "Backlog": "opt_1",
+                "Ready": "opt_2",
+                "In progress": "opt_3",
+                "In review": "opt_4",
+                "Done": "opt_5",
+            },
+        }
+
+        # Mock items in deprecated statuses
+        from src.interfaces import TicketItem
+
+        mock_items = [
+            TicketItem(
+                item_id="item1",
+                board_url="https://github.com/orgs/test/projects/1",
+                ticket_id=1,
+                repo="github.com/test/repo",
+                status="Ready",
+                title="Test 1",
+                labels=set(),
+                state="OPEN",
+            ),
+            TicketItem(
+                item_id="item2",
+                board_url="https://github.com/orgs/test/projects/1",
+                ticket_id=2,
+                repo="github.com/test/repo",
+                status="In progress",
+                title="Test 2",
+                labels=set(),
+                state="OPEN",
+            ),
+            TicketItem(
+                item_id="item3",
+                board_url="https://github.com/orgs/test/projects/1",
+                ticket_id=3,
+                repo="github.com/test/repo",
+                status="Backlog",
+                title="Test 3",
+                labels=set(),
+                state="OPEN",
+            ),
+        ]
+        mock_client.get_board_items.return_value = mock_items
+
+        result = validate_project_columns(
+            mock_client, "https://github.com/orgs/test/projects/1"
+        )
+
+        assert result.action == "replaced"
+        assert "2 item(s) moved to Backlog" in result.message
+        # Verify update_item_status called for items in deprecated statuses
+        assert mock_client.update_item_status.call_count == 2
+
+    def test_partial_github_defaults_raises_error(self, mock_client):
+        """Test that partial GitHub defaults (e.g., missing one column) still errors."""
+        # Only 4 of the 5 GitHub defaults - missing "In Review"
+        mock_client.get_board_metadata.return_value = {
+            "status_field_id": "field_123",
+            "status_options": {
+                "Backlog": "opt_1",
+                "Ready": "opt_2",
+                "In progress": "opt_3",
+                "Done": "opt_5",
+            },
+        }
+
+        with pytest.raises(SetupError):
+            validate_project_columns(
+                mock_client, "https://github.com/orgs/test/projects/1"
+            )
+
+    def test_github_defaults_empty_project_no_items(self, mock_client):
+        """Test GitHub defaults with no items to migrate (fresh project)."""
+        mock_client.get_board_metadata.return_value = {
+            "status_field_id": "field_123",
+            "status_options": {
+                "Backlog": "opt_1",
+                "Ready": "opt_2",
+                "In progress": "opt_3",
+                "In review": "opt_4",
+                "Done": "opt_5",
+            },
+        }
+        mock_client.get_board_items.return_value = []  # Empty project
+
+        result = validate_project_columns(
+            mock_client, "https://github.com/orgs/test/projects/1"
+        )
+
+        assert result.action == "replaced"
+        # Message should NOT contain migration count if no items migrated
+        assert "item(s) moved to Backlog" not in result.message
+        # update_item_status should not have been called
+        mock_client.update_item_status.assert_not_called()
+
+    def test_github_default_columns_constant(self):
+        """Test that GITHUB_DEFAULT_COLUMNS has the correct values."""
+        expected = frozenset(
+            {"Backlog", "Ready", "In progress", "In review", "Done"}
+        )
+        assert expected == GITHUB_DEFAULT_COLUMNS
+        assert isinstance(GITHUB_DEFAULT_COLUMNS, frozenset)
 
 
 @pytest.mark.unit
