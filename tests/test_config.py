@@ -29,7 +29,7 @@ class TestConfig:
         assert config.database_path == ".kiln/kiln.db"
         assert config.workspace_dir == "worktrees"
         assert config.watched_statuses == ["Research", "Plan", "Implement"]
-        assert config.max_concurrent_workflows == 5
+        assert config.max_concurrent_workflows == 6
         assert config.log_file == ".kiln/logs/kiln.log"
 
     def test_config_creation_with_custom_values(self):
@@ -125,7 +125,7 @@ class TestLoadConfig:
         assert config.database_path == ".kiln/kiln.db"
         assert config.workspace_dir == "worktrees"
         assert config.watched_statuses == ["Research", "Plan", "Implement"]
-        assert config.max_concurrent_workflows == 5
+        assert config.max_concurrent_workflows == 6
         assert config.username_self == "testuser"
 
     def test_load_config_missing_github_token(self, monkeypatch):
@@ -718,7 +718,7 @@ class TestLoadConfigFromFile:
 
         assert config.poll_interval == 30
         assert config.watched_statuses == ["Research", "Plan", "Implement"]
-        assert config.max_concurrent_workflows == 5
+        assert config.max_concurrent_workflows == 6
 
     def test_load_config_from_file_parses_stage_models_json(self, tmp_path, monkeypatch):
         """Test STAGE_MODELS JSON parsing."""

@@ -46,7 +46,7 @@ class Config:
     watched_statuses: list[str] = field(default_factory=lambda: ["Research", "Plan", "Implement"])
     username_self: str = ""  # Required, no default
     team_usernames: list[str] = field(default_factory=list)  # Optional team members
-    max_concurrent_workflows: int = 5
+    max_concurrent_workflows: int = 6
     log_file: str = ".kiln/logs/kiln.log"
     log_size: int = 10 * 1024 * 1024  # 10MB default
     log_backups: int = 5  # Keep 5 backup files by default
@@ -252,7 +252,7 @@ def load_config_from_file(config_path: Path) -> Config:
 
     # Parse optional fields with defaults
     poll_interval = int(data.get("POLL_INTERVAL", "30"))
-    max_concurrent_workflows = int(data.get("MAX_CONCURRENT_WORKFLOWS", "5"))
+    max_concurrent_workflows = int(data.get("MAX_CONCURRENT_WORKFLOWS", "6"))
 
     # Parse watched_statuses
     watched_statuses_str = data.get("WATCHED_STATUSES")
@@ -473,7 +473,7 @@ def load_config_from_env() -> Config:
     else:
         watched_statuses = ["Research", "Plan", "Implement"]
 
-    max_concurrent_workflows = int(os.environ.get("MAX_CONCURRENT_WORKFLOWS", "5"))
+    max_concurrent_workflows = int(os.environ.get("MAX_CONCURRENT_WORKFLOWS", "6"))
 
     # Parse USERNAMES_TEAM as comma-separated list (optional)
     team_usernames_str = os.environ.get("USERNAMES_TEAM", "")
