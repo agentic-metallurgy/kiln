@@ -8,6 +8,8 @@ This module provides pre-flight checks that run before the daemon starts:
 
 from src.setup.checks import (
     SetupError,
+    UpdateInfo,
+    check_for_updates,
     check_required_tools,
     configure_git_credential_helper,
     get_hostnames_from_project_urls,
@@ -17,6 +19,8 @@ from src.setup.checks import (
 from src.setup.project import validate_project_columns
 
 __all__ = [
+    "UpdateInfo",
+    "check_for_updates",
     "check_required_tools",
     "configure_git_credential_helper",
     "get_hostnames_from_project_urls",
