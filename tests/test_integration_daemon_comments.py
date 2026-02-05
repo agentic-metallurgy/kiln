@@ -20,7 +20,6 @@ from src.daemon import Daemon
 from src.interfaces import Comment, TicketItem
 from src.labels import Labels
 
-
 # ============================================================================
 # Daemon Comment Processing Tests
 # ============================================================================

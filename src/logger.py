@@ -171,7 +171,7 @@ class ContextAwareFormatter(ColoredFormatter):
     """Formatter that injects issue context from contextvars."""
 
     def __init__(
-        self, fmt: str | None = None, masking_filter: "MaskingFilter | None" = None
+        self, fmt: str | None = None, masking_filter: MaskingFilter | None = None
     ) -> None:
         """Initialize the formatter.
 
@@ -195,7 +195,7 @@ class PlainContextAwareFormatter(logging.Formatter):
     """Plain formatter (no colors) that injects issue context from contextvars."""
 
     def __init__(
-        self, fmt: str | None = None, masking_filter: "MaskingFilter | None" = None
+        self, fmt: str | None = None, masking_filter: MaskingFilter | None = None
     ) -> None:
         """Initialize the formatter.
 
@@ -508,7 +508,7 @@ class RunLogger:
             filename,
         )
 
-    def __enter__(self) -> "RunLogger":
+    def __enter__(self) -> RunLogger:
         """Set up per-run file handler.
 
         Creates the log directory if needed and adds a file handler to the root logger.

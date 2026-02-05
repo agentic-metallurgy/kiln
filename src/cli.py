@@ -215,7 +215,7 @@ def install_claude_resources() -> None:
                 errors.append(f"Failed to copy {src} to {dest}: {e}")
 
     if errors:
-        error_msg = f"Failed to install kiln resources:\n" + "\n".join(errors)
+        error_msg = "Failed to install kiln resources:\n" + "\n".join(errors)
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 

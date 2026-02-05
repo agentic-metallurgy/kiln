@@ -10,7 +10,6 @@ import pytest
 from src.daemon import Daemon
 from src.interfaces import LinkedPullRequest, TicketItem
 
-
 # ============================================================================
 # Daemon Clear Kiln Content Tests
 # ============================================================================
