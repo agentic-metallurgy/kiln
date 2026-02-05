@@ -26,7 +26,7 @@ class TestConfig:
         assert config.project_urls == ["https://github.com/orgs/chronoboost/projects/6/views/2"]
         assert config.poll_interval == 30
         assert config.database_path == ".kiln/kiln.db"
-        assert config.workspace_dir == "workspaces"
+        assert config.workspace_dir == "worktrees"
         assert config.watched_statuses == ["Research", "Plan", "Implement"]
         assert config.max_concurrent_workflows == 5
         assert config.log_file == ".kiln/logs/kiln.log"
@@ -98,8 +98,10 @@ class TestLoadConfig:
         assert config.watched_statuses == ["Status1", "Status2", "Status3"]
         assert config.username_self == "user1"
 
-    def test_load_config_with_minimal_env_vars(self, monkeypatch):
+    def test_load_config_with_minimal_env_vars(self, tmp_path, monkeypatch):
         """Test load_config applies defaults when only required vars are set."""
+        # Use clean directory so determine_workspace_dir() returns "worktrees"
+        monkeypatch.chdir(tmp_path)
         # Clear any existing environment variables
         for key in [
             "PROJECT_URLS",
@@ -120,7 +122,7 @@ class TestLoadConfig:
         assert config.project_urls == ["https://github.com/orgs/chronoboost/projects/6/views/2"]
         assert config.poll_interval == 30
         assert config.database_path == ".kiln/kiln.db"
-        assert config.workspace_dir == "workspaces"
+        assert config.workspace_dir == "worktrees"
         assert config.watched_statuses == ["Research", "Plan", "Implement"]
         assert config.max_concurrent_workflows == 5
         assert config.username_self == "testuser"
