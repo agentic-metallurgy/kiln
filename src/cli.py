@@ -280,6 +280,7 @@ def run_daemon(daemon_mode: bool = False) -> None:
     from src.logger import _extract_org_from_url, get_logger, setup_logging
     from src.setup import (
         SetupError,
+        check_for_updates,
         check_required_tools,
         configure_git_credential_helper,
         get_hostnames_from_project_urls,
@@ -295,6 +296,15 @@ def run_daemon(daemon_mode: bool = False) -> None:
         check_required_tools()
         startup_print("  ✓ gh CLI found", "glow")
         startup_print("  ✓ claude CLI found", "glow")
+
+        # Check for updates (non-blocking, fail-silent)
+        update_info = check_for_updates(kiln_dir=get_kiln_dir())
+        if update_info is not None:
+            startup_print(
+                f"  Update available: v{update_info.latest_version} (current: v{update_info.current_version})",
+                "glow",
+            )
+            startup_print("  Run: brew upgrade kiln", "glow")
         print()
 
         # Phase 2: Extract Claude resources to .kiln/
