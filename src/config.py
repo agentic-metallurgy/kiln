@@ -6,10 +6,13 @@ fallback to environment variables for backward compatibility.
 """
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 # Default paths relative to .kiln directory
 KILN_DIR = ".kiln"
@@ -39,7 +42,7 @@ class Config:
     project_urls: list[str] = field(default_factory=list)  # Required, no default
     poll_interval: int = 30
     database_path: str = ".kiln/kiln.db"
-    workspace_dir: str = "workspaces"
+    workspace_dir: str = "worktrees"
     watched_statuses: list[str] = field(default_factory=lambda: ["Research", "Plan", "Implement"])
     username_self: str = ""  # Required, no default
     team_usernames: list[str] = field(default_factory=list)  # Optional team members
@@ -71,6 +74,20 @@ class Config:
     azure_username: str | None = None
     azure_password: str | None = None
     azure_scope: str | None = None  # Defaults to "https://graph.microsoft.com/.default" if not specified
+
+
+def determine_workspace_dir() -> str:
+    """Determine which workspace directory to use.
+
+    Returns "workspaces" if it exists with content (for backward compatibility),
+    otherwise returns "worktrees" (new default).
+    """
+    workspaces_dir = Path.cwd() / "workspaces"
+    if workspaces_dir.exists() and any(workspaces_dir.iterdir()):
+        contents = [p for p in workspaces_dir.iterdir() if p.name != ".gitkeep"]
+        if contents:
+            return "workspaces"
+    return "worktrees"
 
 
 def _validate_project_urls_host(
@@ -333,7 +350,7 @@ def load_config_from_file(config_path: Path) -> Config:
         project_urls=project_urls,
         poll_interval=poll_interval,
         database_path=".kiln/kiln.db",
-        workspace_dir="workspaces",
+        workspace_dir=determine_workspace_dir(),
         watched_statuses=watched_statuses,
         username_self=username_self,
         team_usernames=team_usernames,
@@ -449,8 +466,6 @@ def load_config_from_env() -> Config:
 
     database_path = os.environ.get("DATABASE_PATH", ".kiln/kiln.db")
 
-    workspace_dir = os.environ.get("WORKSPACE_DIR", "workspaces")
-
     # Parse watched_statuses as comma-separated values if provided
     watched_statuses_env = os.environ.get("WATCHED_STATUSES")
     if watched_statuses_env:
@@ -542,7 +557,7 @@ def load_config_from_env() -> Config:
         project_urls=project_urls,
         poll_interval=poll_interval,
         database_path=database_path,
-        workspace_dir=workspace_dir,
+        workspace_dir=determine_workspace_dir(),
         watched_statuses=watched_statuses,
         username_self=username_self,
         team_usernames=team_usernames,

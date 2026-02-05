@@ -62,9 +62,12 @@ html/
 ehthumbs.db
 Thumbs.db
 
-# Workspaces directory contents (keep the directory itself)
+# Worktree directory contents (keep the directory itself)
+# Both workspaces/ (legacy) and worktrees/ (current) are supported
 workspaces/*
 !workspaces/.gitkeep
+worktrees/*
+!worktrees/.gitkeep
 thoughts/*
 
 # Logs
