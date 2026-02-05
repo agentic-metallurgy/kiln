@@ -42,7 +42,7 @@ class Config:
     project_urls: list[str] = field(default_factory=list)  # Required, no default
     poll_interval: int = 30
     database_path: str = ".kiln/kiln.db"
-    workspace_dir: str = "workspaces"
+    workspace_dir: str = "worktrees"
     watched_statuses: list[str] = field(default_factory=lambda: ["Research", "Plan", "Implement"])
     username_self: str = ""  # Required, no default
     team_usernames: list[str] = field(default_factory=list)  # Optional team members
