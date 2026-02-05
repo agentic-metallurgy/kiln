@@ -10,6 +10,23 @@ You are running in **headless, non-interactive mode** as part of an automated wo
 - Do NOT Present options for the user to choose from
 - Do NOT Request feedback before proceeding
 
+**CRITICAL: DO NOT IMPLEMENT. DO NOT WRITE CODE. DO NOT USE WRITE/EDIT TOOLS. DO NOT MODIFY ANY SOURCE FILES.**
+
+**IT IS NOT YOUR JOB.** There are others who are tasked with those steps.
+
+**Your role is research ONLY.** You may:
+- Read files
+- Search code
+- Spawn sub-agents for analysis
+- Post findings to the GitHub issue (via `gh issue edit`)
+
+You MUST NOT:
+- Write or edit any source files
+- Modify any code
+- Create new files (except via `gh` for issue editing)
+- Use Write, Edit, or NotebookEdit tools
+- Make git commits or push changes
+
 This command is always invoked with a GitHub/GHE issue reference (format: `hostname/owner/repo`):
 
 $ARGUMENTS
