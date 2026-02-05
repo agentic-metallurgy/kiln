@@ -1111,7 +1111,7 @@ class TestRunLoggingIntegration:
         config.watched_statuses = ["Research", "Plan", "Implement"]
         config.max_concurrent_workflows = 2
         config.database_path = str(tmp_path / "test.db")
-        config.workspace_dir = str(tmp_path / "workspaces")
+        config.workspace_dir = str(tmp_path / "worktrees")
         config.project_urls = ["https://github.com/orgs/test/projects/1"]
         config.stage_models = {}
         config.github_enterprise_version = None
@@ -1120,7 +1120,7 @@ class TestRunLoggingIntegration:
         config.log_file = str(tmp_path / ".kiln/logs/kiln.log")
 
         # Create directories
-        (tmp_path / "workspaces").mkdir()
+        (tmp_path / "worktrees").mkdir()
         (tmp_path / ".kiln" / "logs").mkdir(parents=True)
 
         with (
@@ -1159,7 +1159,7 @@ class TestRunLoggingIntegration:
         )
 
         # Create worktree to avoid auto-prepare (path format: {repo_name}-issue-{issue_number})
-        worktree_path = tmp_path / "workspaces" / "repo-issue-42"
+        worktree_path = tmp_path / "worktrees" / "repo-issue-42"
         worktree_path.mkdir(parents=True)
 
         # Mock the workflow runner to succeed
@@ -1192,7 +1192,7 @@ class TestRunLoggingIntegration:
         )
 
         # Create worktree (path format: {repo_name}-issue-{issue_number})
-        worktree_path = tmp_path / "workspaces" / "repo-issue-42"
+        worktree_path = tmp_path / "worktrees" / "repo-issue-42"
         worktree_path.mkdir(parents=True)
 
         # Mock the workflow runner to fail
@@ -1223,7 +1223,7 @@ class TestRunLoggingIntegration:
         )
 
         # Create worktree
-        worktree_path = tmp_path / "workspaces" / "repo-issue-42"
+        worktree_path = tmp_path / "worktrees" / "repo-issue-42"
         worktree_path.mkdir(parents=True)
 
         # Mock the workflow runner to succeed
@@ -1255,7 +1255,7 @@ class TestRunLoggingIntegration:
         )
 
         # Create worktree
-        worktree_path = tmp_path / "workspaces" / "repo-issue-42"
+        worktree_path = tmp_path / "worktrees" / "repo-issue-42"
         worktree_path.mkdir(parents=True)
 
         # Mock the workflow runner to succeed with session ID
@@ -1289,7 +1289,7 @@ class TestRunLoggingIntegration:
         )
 
         # Create worktree
-        worktree_path = tmp_path / "workspaces" / "repo-issue-42"
+        worktree_path = tmp_path / "worktrees" / "repo-issue-42"
         worktree_path.mkdir(parents=True)
 
         # Run workflow 3 times
