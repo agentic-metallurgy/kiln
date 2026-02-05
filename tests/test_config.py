@@ -83,7 +83,6 @@ class TestLoadConfig:
         )
         monkeypatch.setenv("POLL_INTERVAL", "120")
         monkeypatch.setenv("DATABASE_PATH", "env.db")
-        monkeypatch.setenv("WORKSPACE_DIR", "env_workspaces")
         monkeypatch.setenv("WATCHED_STATUSES", "Status1, Status2, Status3")
         monkeypatch.setenv("USERNAME_SELF", "user1")
 
@@ -96,7 +95,6 @@ class TestLoadConfig:
         ]
         assert config.poll_interval == 120
         assert config.database_path == "env.db"
-        assert config.workspace_dir == "env_workspaces"
         assert config.watched_statuses == ["Status1", "Status2", "Status3"]
         assert config.username_self == "user1"
 
@@ -107,7 +105,6 @@ class TestLoadConfig:
             "PROJECT_URLS",
             "POLL_INTERVAL",
             "DATABASE_PATH",
-            "WORKSPACE_DIR",
             "WATCHED_STATUSES",
             "MAX_CONCURRENT_WORKFLOWS",
         ]:

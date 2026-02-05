@@ -449,8 +449,6 @@ def load_config_from_env() -> Config:
 
     database_path = os.environ.get("DATABASE_PATH", ".kiln/kiln.db")
 
-    workspace_dir = os.environ.get("WORKSPACE_DIR", "workspaces")
-
     # Parse watched_statuses as comma-separated values if provided
     watched_statuses_env = os.environ.get("WATCHED_STATUSES")
     if watched_statuses_env:
@@ -542,7 +540,6 @@ def load_config_from_env() -> Config:
         project_urls=project_urls,
         poll_interval=poll_interval,
         database_path=database_path,
-        workspace_dir=workspace_dir,
         watched_statuses=watched_statuses,
         username_self=username_self,
         team_usernames=team_usernames,
