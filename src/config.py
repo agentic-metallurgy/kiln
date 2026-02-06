@@ -52,11 +52,11 @@ class Config:
     log_backups: int = 5  # Keep 5 backup files by default
     stage_models: dict[str, str] = field(
         default_factory=lambda: {
-            "Prepare": "haiku",
+            "Prepare": "claude-3-5-haiku-20241022",
             "Research": "claude-opus-4-5-20251101",
             "Plan": "claude-opus-4-5-20251101",
             "Implement": "claude-opus-4-5-20251101",
-            "process_comments": "sonnet",
+            "process_comments": "claude-sonnet-4-20250514",
         }
     )
     otel_endpoint: str = ""
@@ -269,11 +269,11 @@ def load_config_from_file(config_path: Path) -> Config:
             raise ValueError("STAGE_MODELS must be valid JSON") from e
     else:
         stage_models = {
-            "Prepare": "haiku",
+            "Prepare": "claude-3-5-haiku-20241022",
             "Research": "claude-opus-4-5-20251101",
             "Plan": "claude-opus-4-5-20251101",
             "Implement": "claude-opus-4-5-20251101",
-            "process_comments": "sonnet",
+            "process_comments": "claude-sonnet-4-20250514",
         }
 
     # Parse log settings
@@ -485,11 +485,11 @@ def load_config_from_env() -> Config:
             raise ValueError("STAGE_MODELS must be valid JSON") from e
     else:
         stage_models = {
-            "Prepare": "haiku",
+            "Prepare": "claude-3-5-haiku-20241022",
             "Research": "claude-opus-4-5-20251101",
             "Plan": "claude-opus-4-5-20251101",
             "Implement": "claude-opus-4-5-20251101",
-            "process_comments": "sonnet",
+            "process_comments": "claude-sonnet-4-20250514",
         }
 
     # Slack notification settings
