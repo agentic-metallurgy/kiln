@@ -286,9 +286,9 @@ class TestLoadConfig:
 
         assert config.stage_models == {
             "Prepare": "haiku",
-            "Research": "opus",
-            "Plan": "opus",
-            "Implement": "opus",
+            "Research": "claude-opus-4-5-20251101",
+            "Plan": "claude-opus-4-5-20251101",
+            "Implement": "claude-opus-4-5-20251101",
             "process_comments": "sonnet",
         }
 

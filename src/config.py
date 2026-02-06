@@ -53,9 +53,9 @@ class Config:
     stage_models: dict[str, str] = field(
         default_factory=lambda: {
             "Prepare": "haiku",
-            "Research": "opus",
-            "Plan": "opus",
-            "Implement": "opus",
+            "Research": "claude-opus-4-5-20251101",
+            "Plan": "claude-opus-4-5-20251101",
+            "Implement": "claude-opus-4-5-20251101",
             "process_comments": "sonnet",
         }
     )
@@ -270,9 +270,9 @@ def load_config_from_file(config_path: Path) -> Config:
     else:
         stage_models = {
             "Prepare": "haiku",
-            "Research": "opus",
-            "Plan": "opus",
-            "Implement": "opus",
+            "Research": "claude-opus-4-5-20251101",
+            "Plan": "claude-opus-4-5-20251101",
+            "Implement": "claude-opus-4-5-20251101",
             "process_comments": "sonnet",
         }
 
@@ -486,9 +486,9 @@ def load_config_from_env() -> Config:
     else:
         stage_models = {
             "Prepare": "haiku",
-            "Research": "opus",
-            "Plan": "opus",
-            "Implement": "opus",
+            "Research": "claude-opus-4-5-20251101",
+            "Plan": "claude-opus-4-5-20251101",
+            "Implement": "claude-opus-4-5-20251101",
             "process_comments": "sonnet",
         }
 
