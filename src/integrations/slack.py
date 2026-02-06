@@ -10,7 +10,7 @@ from src.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Module-level state (singleton pattern matching pagerduty.py)
+# Module-level state (singleton pattern matching telemetry.py)
 _initialized = False
 _bot_token: str | None = None
 _user_id: str | None = None
