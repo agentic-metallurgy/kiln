@@ -958,7 +958,7 @@ class Daemon:
 
         # Skip if already running (has running_label) - use cached labels
         if running_label in item.labels:
-            logger.debug(f"Skipping {key} - has '{running_label}' label (workflow running)")
+            logger.info(f"Skipping {key} - workflow already running ('{running_label}' label present)")
             return False
 
         # Skip if already complete (has complete_label)
