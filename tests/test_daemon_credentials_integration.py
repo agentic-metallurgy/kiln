@@ -84,6 +84,8 @@ def daemon_for_workflow(temp_workspace_dir):
     with patch("src.ticket_clients.github.GitHubTicketClient"):
         daemon = Daemon(config)
         daemon.ticket_client = MagicMock()
+        # Mock get_label_actor to return our username for post-claim verification
+        daemon.ticket_client.get_label_actor.return_value = "test-bot"
         daemon.runner = MagicMock()
         daemon.database = MagicMock()
         daemon.database.insert_run_record = MagicMock(return_value=1)
