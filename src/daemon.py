@@ -1771,6 +1771,34 @@ class Daemon:
                     self._running_labels[key] = running_label
                 logger.debug(f"Added '{running_label}' label to {key}")
 
+                # POST-CLAIM VERIFICATION: Wait for GitHub timeline and verify we were first
+                # This prevents race conditions when multiple kiln instances try to claim the same workflow
+                time.sleep(5)  # Allow GitHub API timeline to propagate
+
+                actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, running_label)
+
+                if actor is None:
+                    logger.error(
+                        f"Could not verify label actor for '{running_label}' on {key}, aborting workflow"
+                    )
+                    # Do NOT remove the label - could be stale, humans resolve manually
+                    # Remove from shutdown cleanup tracking since we didn't actually claim it
+                    with self._running_labels_lock:
+                        self._running_labels.pop(key, None)
+                    return
+
+                if actor != self.config.username_self:
+                    logger.warning(
+                        f"Race detected: '{actor}' claimed '{running_label}' on {key} before us, aborting workflow"
+                    )
+                    # Do NOT remove the label - let the winner keep it
+                    # Remove from shutdown cleanup tracking since we didn't actually claim it
+                    with self._running_labels_lock:
+                        self._running_labels.pop(key, None)
+                    return
+
+                logger.info(f"Verified we claimed '{running_label}' on {key}, proceeding with workflow")
+
             # Write MCP config to worktree if configured
             mcp_config_path: str | None = None
             if self.mcp_config_manager.has_config():
