@@ -191,7 +191,11 @@ class TestRunClaude:
         with patch("src.claude_runner.time") as mock_time:
             # First call is start_time, second is current_time check
             # Make it appear that timeout has exceeded
-            mock_time.time.side_effect = [0, 0, 2000]  # start, last_activity, current (2000s elapsed)
+            mock_time.time.side_effect = [
+                0,
+                0,
+                2000,
+            ]  # start, last_activity, current (2000s elapsed)
 
             with pytest.raises(ClaudeTimeoutError, match="exceeded total timeout"):
                 run_claude("Prompt", str(tmp_path), timeout=1800)
@@ -407,6 +411,33 @@ class TestRunClaude:
         cmd = call_args[0][0]
         assert "--mcp-config" not in cmd
 
+    def test_run_claude_with_process_registrar(self, mock_claude_subprocess, tmp_path):
+        """Test run_claude calls process_registrar callback with the Popen object."""
+        result_event = json.dumps({"type": "result", "result": "Response"})
+        mock_process = self._create_mock_process([result_event + "\n"])
+        mock_claude_subprocess.return_value = mock_process
+
+        registered_processes = []
+
+        def registrar(process):
+            registered_processes.append(process)
+
+        run_claude("Prompt", str(tmp_path), process_registrar=registrar)
+
+        assert len(registered_processes) == 1
+        assert registered_processes[0] is mock_process
+
+    def test_run_claude_without_process_registrar(self, mock_claude_subprocess, tmp_path):
+        """Test run_claude works correctly when process_registrar is None."""
+        result_event = json.dumps({"type": "result", "result": "Response"})
+        mock_process = self._create_mock_process([result_event + "\n"])
+        mock_claude_subprocess.return_value = mock_process
+
+        # Should not raise any error when registrar is None
+        result = run_claude("Prompt", str(tmp_path), process_registrar=None)
+
+        assert result.response == "Response"
+
 
 @pytest.mark.unit
 class TestRunClaudeJsonStreamParsing:
@@ -438,9 +469,7 @@ class TestRunClaudeJsonStreamParsing:
 
     def test_parses_result_event(self, mock_claude_subprocess, tmp_path):
         """Test parsing result event type extracts response."""
-        result_event = json.dumps(
-            {"type": "result", "result": "Final answer: 42"}
-        )
+        result_event = json.dumps({"type": "result", "result": "Final answer: 42"})
         mock_process = self._create_mock_process([result_event + "\n"])
         mock_claude_subprocess.return_value = mock_process
 
@@ -462,9 +491,7 @@ class TestRunClaudeJsonStreamParsing:
             }
         )
         result_event = json.dumps({"type": "result", "result": "Final"})
-        mock_process = self._create_mock_process(
-            [assistant_event + "\n", result_event + "\n"]
-        )
+        mock_process = self._create_mock_process([assistant_event + "\n", result_event + "\n"])
         mock_claude_subprocess.return_value = mock_process
 
         result = run_claude("Prompt", str(tmp_path))
@@ -475,9 +502,7 @@ class TestRunClaudeJsonStreamParsing:
 
     def test_parses_error_event(self, mock_claude_subprocess, tmp_path):
         """Test parsing error event raises ClaudeRunnerError."""
-        error_event = json.dumps(
-            {"type": "error", "message": "API connection failed"}
-        )
+        error_event = json.dumps({"type": "error", "message": "API connection failed"})
         mock_process = self._create_mock_process([error_event + "\n"])
         mock_claude_subprocess.return_value = mock_process
 
@@ -486,9 +511,7 @@ class TestRunClaudeJsonStreamParsing:
 
     def test_parses_error_event_with_text_field(self, mock_claude_subprocess, tmp_path):
         """Test parsing error event that uses 'text' instead of 'message' field."""
-        error_event = json.dumps(
-            {"type": "error", "text": "Alternative error format"}
-        )
+        error_event = json.dumps({"type": "error", "text": "Alternative error format"})
         mock_process = self._create_mock_process([error_event + "\n"])
         mock_claude_subprocess.return_value = mock_process
 
