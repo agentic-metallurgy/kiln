@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from src.integrations.telemetry import LLMMetrics
@@ -49,6 +50,7 @@ def run_claude(
     enable_telemetry: bool = False,
     execution_stage: str | None = None,
     mcp_config_path: str | None = None,
+    process_registrar: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> ClaudeResult:
     """
     Run the Claude CLI with a given prompt and return the response with metrics.
@@ -67,6 +69,8 @@ def run_claude(
         resume_session: Optional session ID to resume. If provided, adds --resume flag.
         execution_stage: Workflow stage name for logging (e.g., "research", "plan", "implement")
         mcp_config_path: Path to MCP configuration file. If provided, adds --mcp-config flag.
+        process_registrar: Optional callback invoked immediately after subprocess spawn.
+            Called with the Popen object, enabling external tracking/termination.
 
     Returns:
         ClaudeResult containing response text and optional LLMMetrics
@@ -82,7 +86,7 @@ def run_claude(
         >>> print(result.response)
         "4"
     """
-    log_message(logger,"Running Claude CLI with prompt", prompt)
+    log_message(logger, "Running Claude CLI with prompt", prompt)
     logger.debug(f"Working directory: {cwd}")
     logger.debug(f"Timeout: {timeout}s total, {inactivity_timeout}s inactivity")
     if resume_session:
@@ -137,6 +141,10 @@ def run_claude(
             bufsize=1,  # Line buffered
             env=env,
         )
+
+        # Register process immediately for external termination capability
+        if process_registrar:
+            process_registrar(process)
 
         # Send the prompt to stdin and close it
         logger.debug("Sending prompt to Claude via stdin")
@@ -200,7 +208,7 @@ def run_claude(
                     # Check for result type with "result" field (final response)
                     if data.get("type") == "result" and "result" in data:
                         response_parts.append(data["result"])
-                        log_message(logger,"Extracted result", data["result"])
+                        log_message(logger, "Extracted result", data["result"])
 
                         # Extract metrics from result event
                         usage = data.get("usage", {})
@@ -237,7 +245,7 @@ def run_claude(
                             for item in message["content"]:
                                 if isinstance(item, dict) and item.get("type") == "text":
                                     response_parts.append(item["text"])
-                                    log_message(logger,"Extracted assistant text", item["text"])
+                                    log_message(logger, "Extracted assistant text", item["text"])
 
                     # Check for error messages
                     elif data.get("type") == "error":

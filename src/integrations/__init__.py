@@ -5,6 +5,7 @@ This package contains modules for optional external services:
 - mcp_client: MCP server connectivity testing
 - mcp_config: MCP configuration management
 - pagerduty: PagerDuty alerting
+- repo_credentials: Repository credential file management
 - slack: Slack notifications
 - telemetry: OpenTelemetry instrumentation
 """
@@ -38,6 +39,14 @@ from src.integrations.pagerduty import (
     init_pagerduty,
     resolve_hibernation_alert,
     trigger_hibernation_alert,
+)
+
+# Re-exports from repo_credentials
+from src.integrations.repo_credentials import (
+    RepoCredentialEntry,
+    RepoCredentialsError,
+    RepoCredentialsLoadError,
+    RepoCredentialsManager,
 )
 
 # Re-exports from slack
@@ -77,6 +86,11 @@ __all__ = [
     "init_pagerduty",
     "resolve_hibernation_alert",
     "trigger_hibernation_alert",
+    # repo_credentials
+    "RepoCredentialEntry",
+    "RepoCredentialsError",
+    "RepoCredentialsLoadError",
+    "RepoCredentialsManager",
     # slack
     "init_slack",
     "send_comment_processed_notification",

@@ -34,6 +34,7 @@ from src.integrations.pagerduty import (
     resolve_hibernation_alert,
     trigger_hibernation_alert,
 )
+from src.integrations.repo_credentials import RepoCredentialsManager
 from src.integrations.slack import init_slack, send_phase_completion_notification, send_startup_ping
 from src.integrations.telemetry import (
     get_git_version,
@@ -83,15 +84,22 @@ class _BackoffState:
 class WorkflowRunner:
     """Executes workflows by running prompts through Claude CLI."""
 
-    def __init__(self, config: Config, version: str | None = None) -> None:
+    def __init__(
+        self,
+        config: Config,
+        version: str | None = None,
+        daemon: "Daemon | None" = None,
+    ) -> None:
         """Initialize the workflow runner.
 
         Args:
             config: Application configuration
             version: Git version string for metrics attribution
+            daemon: Optional Daemon reference for process registration
         """
         self.config = config
         self.version = version
+        self.daemon = daemon
         logger.debug(f"WorkflowRunner initialized (version={version})")
 
     def run(
@@ -139,52 +147,67 @@ class WorkflowRunner:
 
             session_id: str | None = None
 
-            # Execute each prompt
-            for i, prompt in enumerate(prompts, 1):
-                with tracer.start_as_current_span(f"prompt.{i}"):
-                    logger.debug(
-                        f"Executing prompt {i}/{len(prompts)} for workflow '{workflow.name}'"
-                    )
-                    log_message(logger, "Prompt", prompt)
+            # Create issue key for process registration
+            issue_key = f"{ctx.repo}#{ctx.issue_number}"
 
-                    try:
-                        model = self.config.stage_models.get(workflow_name)
-                        issue_context = f"{ctx.repo}#{ctx.issue_number}"
-                        result = run_claude(
-                            prompt,
-                            ctx.workspace_path,
-                            model=model,
-                            issue_context=issue_context,
-                            resume_session=resume_session,
-                            enable_telemetry=self.config.claude_code_enable_telemetry,
-                            execution_stage=workflow_name.lower(),
-                            mcp_config_path=mcp_config_path,
+            # Create process registrar callback if daemon is available
+            process_registrar = None
+            if self.daemon is not None:
+                def process_registrar(process: subprocess.Popen[str]) -> None:
+                    self.daemon.register_process(issue_key, process)  # type: ignore[union-attr]
+
+            try:
+                # Execute each prompt
+                for i, prompt in enumerate(prompts, 1):
+                    with tracer.start_as_current_span(f"prompt.{i}"):
+                        logger.debug(
+                            f"Executing prompt {i}/{len(prompts)} for workflow '{workflow.name}'"
                         )
-                        logger.debug(f"Prompt {i}/{len(prompts)} completed successfully")
-                        logger.debug(f"Response length: {len(result.response)} characters")
+                        log_message(logger, "Prompt", prompt)
 
-                        # Record LLM metrics
-                        if result.metrics:
-                            record_llm_metrics(
-                                result.metrics,
-                                ctx.repo,
-                                ctx.issue_number,
-                                workflow_name,
-                                model,
-                                version=self.version,
+                        try:
+                            model = self.config.stage_models.get(workflow_name)
+                            issue_context = f"{ctx.repo}#{ctx.issue_number}"
+                            result = run_claude(
+                                prompt,
+                                ctx.workspace_path,
+                                model=model,
+                                issue_context=issue_context,
+                                resume_session=resume_session,
+                                enable_telemetry=self.config.claude_code_enable_telemetry,
+                                execution_stage=workflow_name.lower(),
+                                mcp_config_path=mcp_config_path,
+                                process_registrar=process_registrar,
                             )
-                            # Capture session ID for subsequent prompts and return
-                            if result.metrics.session_id:
-                                session_id = result.metrics.session_id
-                                # Use this session for remaining prompts in this workflow
-                                resume_session = session_id
+                            logger.debug(f"Prompt {i}/{len(prompts)} completed successfully")
+                            logger.debug(f"Response length: {len(result.response)} characters")
 
-                    except Exception as e:
-                        logger.error(f"Failed to execute prompt {i}/{len(prompts)}: {e}")
-                        raise
+                            # Record LLM metrics
+                            if result.metrics:
+                                record_llm_metrics(
+                                    result.metrics,
+                                    ctx.repo,
+                                    ctx.issue_number,
+                                    workflow_name,
+                                    model,
+                                    version=self.version,
+                                )
+                                # Capture session ID for subsequent prompts and return
+                                if result.metrics.session_id:
+                                    session_id = result.metrics.session_id
+                                    # Use this session for remaining prompts in this workflow
+                                    resume_session = session_id
 
-            logger.info(f"Workflow '{workflow.name}' completed successfully")
-            return session_id
+                        except Exception as e:
+                            logger.error(f"Failed to execute prompt {i}/{len(prompts)}: {e}")
+                            raise
+
+                logger.info(f"Workflow '{workflow.name}' completed successfully")
+                return session_id
+            finally:
+                # Always unregister process when workflow completes (success or failure)
+                if self.daemon is not None:
+                    self.daemon.unregister_process(issue_key)
 
 
 class _WorkflowConfigEntry(TypedDict):
@@ -272,6 +295,11 @@ class Daemon:
         self._running_labels: dict[str, str] = {}
         self._running_labels_lock = threading.Lock()
 
+        # Track running Claude subprocesses for termination on reset
+        # Maps "repo#issue_number" -> subprocess.Popen object
+        self._running_processes: dict[str, subprocess.Popen[str]] = {}
+        self._running_processes_lock = threading.Lock()
+
         # Track repos that have had labels initialized
         self._repos_with_labels: set[str] = set()
 
@@ -306,7 +334,7 @@ class Daemon:
         self.workspace_manager = WorkspaceManager(config.workspace_dir)
         logger.debug(f"Workspace manager initialized with dir: {config.workspace_dir}")
 
-        self.runner = WorkflowRunner(config, version=version)
+        self.runner = WorkflowRunner(config, version=version, daemon=self)
 
         self.comment_processor = CommentProcessor(
             self.ticket_client,
@@ -360,6 +388,9 @@ class Daemon:
                     logger.info(f"  {result.server_name} MCP loaded successfully. Tools: {tools_str}")
                 else:
                     logger.warning(f"  {result.server_name} MCP: {result.error}")
+
+        # Initialize repo credentials manager
+        self.repo_credentials_manager = RepoCredentialsManager()
 
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -782,6 +813,64 @@ class Daemon:
             except Exception as e:
                 # Don't fail shutdown if label removal fails
                 logger.warning(f"Failed to remove '{label}' label from {key} during shutdown: {e}")
+
+    def register_process(self, key: str, process: subprocess.Popen[str]) -> None:
+        """Register a running Claude subprocess for an issue.
+
+        Tracks the subprocess so it can be terminated when the reset label
+        is applied to the issue.
+
+        Args:
+            key: Issue key in format "repo#issue_number"
+            process: The subprocess.Popen object to track
+        """
+        with self._running_processes_lock:
+            self._running_processes[key] = process
+        logger.debug(f"Registered subprocess for {key}")
+
+    def unregister_process(self, key: str) -> None:
+        """Unregister a subprocess when workflow completes.
+
+        Removes the subprocess from tracking after it has finished
+        (either successfully or due to failure).
+
+        Args:
+            key: Issue key in format "repo#issue_number"
+        """
+        with self._running_processes_lock:
+            self._running_processes.pop(key, None)
+        logger.debug(f"Unregistered subprocess for {key}")
+
+    def kill_process(self, key: str) -> bool:
+        """Kill and unregister a running subprocess for a specific issue.
+
+        SAFETY: Only affects the subprocess registered under this exact key.
+        Other processes remain unaffected.
+
+        Args:
+            key: Issue key in format "repo#issue_number"
+
+        Returns:
+            True if a process was found and killed, False otherwise
+        """
+        with self._running_processes_lock:
+            process = self._running_processes.pop(key, None)
+
+        if process is None:
+            return False
+
+        try:
+            process.kill()
+            process.wait(timeout=5)
+            logger.info(f"Killed subprocess for {key}")
+            return True
+        except ProcessLookupError:
+            # Process already dead
+            logger.debug(f"Subprocess for {key} already terminated")
+            return True
+        except OSError as e:
+            logger.warning(f"Error killing subprocess for {key}: {e}")
+            return False
 
     def _poll(self) -> None:
         """Poll GitHub for project items and handle status changes.
@@ -1432,6 +1521,10 @@ class Daemon:
         # Remove the reset label first
         self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.RESET)
 
+        # Kill any running subprocess for this issue (before worktree cleanup)
+        if self.kill_process(key):
+            logger.info(f"RESET: Killed running subprocess for {key}")
+
         # Clean up worktree if it exists (prevents rebase failures on subsequent Research runs)
         repo_name = item.repo.split("/")[-1]
         worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
@@ -1809,6 +1902,18 @@ class Daemon:
                 except Exception as e:
                     # Log warning but don't fail the workflow
                     logger.warning(f"Failed to write MCP config to worktree: {e}")
+
+            # Copy repo credentials to worktree if configured
+            if self.repo_credentials_manager.has_config():
+                try:
+                    cred_path = self.repo_credentials_manager.copy_to_worktree(
+                        worktree_path, item.repo
+                    )
+                    if cred_path:
+                        logger.info(f"Copied credentials to {cred_path}")
+                except Exception as e:
+                    # Log warning but don't fail the workflow
+                    logger.warning(f"Failed to copy credentials to worktree: {e}")
 
             # Create masking filter if configured
             masking_filter: MaskingFilter | None = None
