@@ -4,7 +4,6 @@ This package contains modules for optional external services:
 - azure_oauth: Azure Entra ID authentication
 - mcp_client: MCP server connectivity testing
 - mcp_config: MCP configuration management
-- pagerduty: PagerDuty alerting
 - repo_credentials: Repository credential file management
 - slack: Slack notifications
 - telemetry: OpenTelemetry instrumentation
@@ -32,13 +31,6 @@ from src.integrations.mcp_config import (
     MCPConfigLoadError,
     MCPConfigManager,
     MCPConfigWriteError,
-)
-
-# Re-exports from pagerduty
-from src.integrations.pagerduty import (
-    init_pagerduty,
-    resolve_hibernation_alert,
-    trigger_hibernation_alert,
 )
 
 # Re-exports from repo_credentials
@@ -82,10 +74,6 @@ __all__ = [
     "MCPConfigLoadError",
     "MCPConfigManager",
     "MCPConfigWriteError",
-    # pagerduty
-    "init_pagerduty",
-    "resolve_hibernation_alert",
-    "trigger_hibernation_alert",
     # repo_credentials
     "RepoCredentialEntry",
     "RepoCredentialsError",

@@ -214,9 +214,51 @@ class WorkspaceManager:
         )
         return str(worktree_path)
 
+    def _get_worktree_branch(self, worktree_path: Path, repo_path: Path) -> str | None:
+        """
+        Get the branch name for a worktree using git worktree list --porcelain.
+
+        Matches the exact worktree path to extract only its branch name.
+
+        Args:
+            worktree_path: Path to the worktree
+            repo_path: Path to the main repository
+
+        Returns:
+            Branch name or None if not found
+        """
+        try:
+            result = self._run_git_command(
+                ["worktree", "list", "--porcelain"],
+                cwd=repo_path,
+                check=True,
+            )
+            # Parse porcelain output format:
+            # worktree /path/to/worktree
+            # HEAD <sha>
+            # branch refs/heads/branch-name
+            # (blank line)
+            worktree_str = str(worktree_path)
+            lines = result.stdout.split("\n")
+            for i, line in enumerate(lines):
+                # Exact path match ensures we get the right branch
+                if line.startswith("worktree ") and line[9:] == worktree_str:
+                    # Look for branch line in this block
+                    for j in range(i + 1, min(i + 5, len(lines))):
+                        if lines[j].startswith("branch "):
+                            # branch refs/heads/branch-name -> branch-name
+                            ref = lines[j][7:]
+                            if ref.startswith("refs/heads/"):
+                                return ref[11:]
+                            return ref
+                    break
+            return None
+        except WorkspaceError:
+            return None
+
     def cleanup_workspace(self, repo_name: str, issue_number: int) -> None:
         """
-        Remove a worktree and its directory.
+        Remove a worktree, its directory, and the associated local branch.
 
         Args:
             repo_name: Repository name
@@ -242,10 +284,27 @@ class WorkspaceManager:
 
         # Remove the worktree using git worktree remove --force
         if repo_path.exists():
+            # Extract branch name BEFORE worktree removal
+            # This ensures we only delete the branch associated with this worktree
+            branch_name = self._get_worktree_branch(worktree_path, repo_path)
+
             self._run_git_command(
                 ["worktree", "remove", "--force", str(worktree_path)], cwd=repo_path
             )
             logger.info("Successfully removed worktree via git")
+
+            # Delete the local branch in the main repo
+            # Only deletes the branch we just extracted from this worktree
+            if branch_name:
+                try:
+                    self._run_git_command(
+                        ["branch", "-D", branch_name], cwd=repo_path, check=True
+                    )
+                    logger.info(f"Successfully deleted local branch '{branch_name}' from main repo")
+                except WorkspaceError as e:
+                    # Non-fatal - branch may already be deleted or never existed
+                    logger.warning(f"Failed to delete local branch '{branch_name}': {e}")
+
             logger.info(f"Successfully cleaned up workspace for {repo_name} issue {issue_number}")
         else:
             logger.warning(f"Repository not found at {repo_path}, cannot clean worktree")

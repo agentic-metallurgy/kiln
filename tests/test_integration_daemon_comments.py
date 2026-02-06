@@ -1243,6 +1243,8 @@ class TestYoloLabelRemovalDuringWorkflow:
         with patch("src.ticket_clients.github.GitHubTicketClient"):
             daemon = Daemon(config)
             daemon.ticket_client = MagicMock()
+            # Mock get_label_actor to return our username for post-claim verification
+            daemon.ticket_client.get_label_actor.return_value = "test-user"
             yield daemon
             daemon.stop()
 
@@ -1473,6 +1475,8 @@ class TestImplementationCompleteComment:
         with patch("src.ticket_clients.github.GitHubTicketClient"):
             daemon = Daemon(config)
             daemon.ticket_client = MagicMock()
+            # Mock get_label_actor to return our username for post-claim verification
+            daemon.ticket_client.get_label_actor.return_value = "test-user"
             yield daemon
             daemon.stop()
 

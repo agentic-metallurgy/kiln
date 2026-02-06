@@ -58,6 +58,8 @@ class TestSendStartupPing:
             payload = call_args[1]["json"]
             assert payload["channel"] == "U12345"
             assert payload["text"] == "🔥 your kiln is firing"
+            assert payload["unfurl_links"] is False
+            assert payload["unfurl_media"] is False
 
             headers = call_args[1]["headers"]
             assert headers["Authorization"] == "Bearer xoxb-test-token"
@@ -173,6 +175,8 @@ class TestSendCommentProcessedNotification:
             assert "💬" in payload["text"]
             assert "Comment processed:" in payload["text"]
             assert "<https://github.com/org/repo/issues/166#issuecomment-123|issue #166>" in payload["text"]
+            assert payload["unfurl_links"] is False
+            assert payload["unfurl_media"] is False
 
             headers = call_args[1]["headers"]
             assert headers["Authorization"] == "Bearer xoxb-test-token"
@@ -268,6 +272,8 @@ class TestSendImplementationBeginningNotification:
             assert "🔥" in payload["text"]
             assert "Firing implementation:" in payload["text"]
             assert "<https://github.com/org/repo/pull/42|PR #42>" in payload["text"]
+            assert payload["unfurl_links"] is False
+            assert payload["unfurl_media"] is False
 
             headers = call_args[1]["headers"]
             assert headers["Authorization"] == "Bearer xoxb-test-token"
@@ -360,6 +366,8 @@ class TestSendReadyForValidationNotification:
             assert "☑️" in payload["text"]
             assert "Ready for validation:" in payload["text"]
             assert "<https://github.com/org/repo/pull/42|PR #42>" in payload["text"]
+            assert payload["unfurl_links"] is False
+            assert payload["unfurl_media"] is False
 
             headers = call_args[1]["headers"]
             assert headers["Authorization"] == "Bearer xoxb-test-token"
@@ -477,6 +485,8 @@ class TestSendPhaseCompletionNotification:
             assert "🧪" in payload["text"]
             assert "Research complete:" in payload["text"]
             assert "<https://github.com/org/repo/issues/42|Issue #42>" in payload["text"]
+            assert payload["unfurl_links"] is False
+            assert payload["unfurl_media"] is False
 
     def test_success_plan_phase(self):
         """Test send_phase_completion_notification() returns True for Plan phase."""
@@ -503,6 +513,8 @@ class TestSendPhaseCompletionNotification:
             assert "🗺️" in payload["text"]
             assert "Plan complete:" in payload["text"]
             assert "<https://github.com/org/repo/issues/42|Issue #42>" in payload["text"]
+            assert payload["unfurl_links"] is False
+            assert payload["unfurl_media"] is False
 
     def test_handles_slack_api_error(self):
         """Test send_phase_completion_notification() handles Slack API error gracefully."""

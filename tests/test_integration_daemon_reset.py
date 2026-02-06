@@ -3,6 +3,8 @@
 Tests for clearing kiln content and closing PRs/deleting branches.
 """
 
+import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1006,3 +1008,358 @@ class TestDaemonClosePrsAndDeleteBranches:
 
         # get_pr_state should NOT be called if close_pr failed
         daemon.ticket_client.get_pr_state.assert_not_called()
+
+
+# ============================================================================
+# Integration Tests for Reset with Running Workflow
+# ============================================================================
+
+
+@pytest.mark.integration
+class TestResetWithRunningWorkflow:
+    """Integration tests for reset behavior when workflow is running.
+
+    These tests verify the end-to-end reset behavior:
+    - Running subprocess is terminated when reset label is applied
+    - Local branch is deleted after worktree cleanup
+    - Other concurrent workflows remain unaffected
+    """
+
+    @pytest.fixture
+    def daemon(self, temp_workspace_dir):
+        """Create a daemon instance for testing with process tracking."""
+        config = MagicMock()
+        config.poll_interval = 60
+        config.watched_statuses = ["Research", "Plan", "Implement"]
+        config.max_concurrent_workflows = 2
+        config.database_path = f"{temp_workspace_dir}/test.db"
+        config.workspace_dir = temp_workspace_dir
+        config.project_urls = ["https://github.com/orgs/test/projects/1"]
+        config.stage_models = {}
+        config.github_enterprise_version = None
+        config.team_usernames = []
+        config.username_self = "kiln-bot"
+
+        with patch("src.ticket_clients.github.GitHubTicketClient"):
+            daemon = Daemon(config)
+            daemon.ticket_client = MagicMock()
+            daemon.workspace_manager = MagicMock()
+            daemon.comment_processor.ticket_client = daemon.ticket_client
+            yield daemon
+            daemon.stop()
+
+    @pytest.fixture
+    def mock_running_process(self):
+        """Create a mock subprocess that appears to be running."""
+        process = MagicMock(spec=subprocess.Popen)
+        process.pid = 12345
+        process.poll.return_value = None  # Still running
+        return process
+
+    @pytest.fixture
+    def mock_running_process_2(self):
+        """Create a second mock subprocess for concurrent workflow testing."""
+        process = MagicMock(spec=subprocess.Popen)
+        process.pid = 54321
+        process.poll.return_value = None  # Still running
+        return process
+
+    def test_reset_terminates_running_subprocess(self, daemon, mock_running_process):
+        """Test that applying reset label terminates the running Claude subprocess."""
+        item = TicketItem(
+            item_id="PVI_100",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=100,
+            title="Test Issue with Running Workflow",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels=["reset"],
+        )
+
+        key = f"{item.repo}#{item.ticket_id}"
+
+        # Register a running process for this issue
+        daemon.register_process(key, mock_running_process)
+
+        # Verify process is registered
+        assert key in daemon._running_processes
+        assert daemon._running_processes[key] is mock_running_process
+
+        # Setup mocks for reset handler
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_linked_prs.return_value = []
+        daemon.ticket_client.get_ticket_body.return_value = "Issue body"
+
+        # Ensure worktree doesn't exist
+        worktree_path = Path(daemon.config.workspace_dir) / "repo-issue-100"
+        assert not worktree_path.exists()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            daemon._maybe_handle_reset(item)
+
+        # Verify process was killed
+        mock_running_process.kill.assert_called_once()
+        mock_running_process.wait.assert_called_once_with(timeout=5)
+
+        # Verify process is no longer registered
+        assert key not in daemon._running_processes
+
+    def test_reset_deletes_local_branch_after_worktree_cleanup(self, daemon, temp_workspace_dir):
+        """Test that reset cleans up worktree and deletes the local branch."""
+        item = TicketItem(
+            item_id="PVI_101",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=101,
+            title="Test Issue for Branch Deletion",
+            repo="github.com/owner/repo",
+            status="Implement",
+            labels=["reset"],
+        )
+
+        # Setup mocks
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_linked_prs.return_value = []
+        daemon.ticket_client.get_ticket_body.return_value = "Issue body"
+
+        # Create fake worktree directory
+        worktree_path = Path(temp_workspace_dir) / "repo-issue-101"
+        worktree_path.mkdir()
+        (worktree_path / "test_file.txt").write_text("test content")
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            daemon._maybe_handle_reset(item)
+
+        # Verify cleanup_workspace was called
+        daemon.workspace_manager.cleanup_workspace.assert_called_once_with("repo", 101)
+
+    def test_reset_does_not_affect_other_concurrent_workflows(
+        self, daemon, mock_running_process, mock_running_process_2
+    ):
+        """Test that resetting one issue does not affect other running workflows."""
+        item_to_reset = TicketItem(
+            item_id="PVI_102",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=102,
+            title="Issue to Reset",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels=["reset"],
+        )
+
+        key_to_reset = f"{item_to_reset.repo}#{item_to_reset.ticket_id}"
+        key_other = f"{item_to_reset.repo}#103"
+
+        # Register processes for both issues
+        daemon.register_process(key_to_reset, mock_running_process)
+        daemon.register_process(key_other, mock_running_process_2)
+
+        # Verify both processes are registered
+        assert key_to_reset in daemon._running_processes
+        assert key_other in daemon._running_processes
+
+        # Setup mocks for reset handler
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_linked_prs.return_value = []
+        daemon.ticket_client.get_ticket_body.return_value = "Issue body"
+
+        # Ensure worktree doesn't exist
+        worktree_path = Path(daemon.config.workspace_dir) / "repo-issue-102"
+        assert not worktree_path.exists()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            daemon._maybe_handle_reset(item_to_reset)
+
+        # Verify only the reset issue's process was killed
+        mock_running_process.kill.assert_called_once()
+        mock_running_process_2.kill.assert_not_called()
+
+        # Verify the other process is still registered
+        assert key_to_reset not in daemon._running_processes
+        assert key_other in daemon._running_processes
+        assert daemon._running_processes[key_other] is mock_running_process_2
+
+    def test_reset_handles_already_dead_process_gracefully(self, daemon, mock_running_process):
+        """Test that reset handles already-terminated processes gracefully."""
+        item = TicketItem(
+            item_id="PVI_104",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=104,
+            title="Issue with Dead Process",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels=["reset"],
+        )
+
+        key = f"{item.repo}#{item.ticket_id}"
+
+        # Process is already dead when kill is called
+        mock_running_process.kill.side_effect = ProcessLookupError("No such process")
+
+        # Register the dead process
+        daemon.register_process(key, mock_running_process)
+
+        # Setup mocks
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_linked_prs.return_value = []
+        daemon.ticket_client.get_ticket_body.return_value = "Issue body"
+
+        # Ensure worktree doesn't exist
+        worktree_path = Path(daemon.config.workspace_dir) / "repo-issue-104"
+        assert not worktree_path.exists()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            # Should not raise - handles dead process gracefully
+            daemon._maybe_handle_reset(item)
+
+        # Verify process was attempted to be killed
+        mock_running_process.kill.assert_called_once()
+
+        # Verify process is no longer registered
+        assert key not in daemon._running_processes
+
+    def test_reset_continues_when_no_running_process(self, daemon):
+        """Test that reset completes successfully when no process is running."""
+        item = TicketItem(
+            item_id="PVI_105",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=105,
+            title="Issue Without Running Process",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels=["reset"],
+        )
+
+        key = f"{item.repo}#{item.ticket_id}"
+
+        # No process registered for this issue
+        assert key not in daemon._running_processes
+
+        # Setup mocks
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_linked_prs.return_value = []
+        daemon.ticket_client.get_ticket_body.return_value = "Issue body"
+
+        # Ensure worktree doesn't exist
+        worktree_path = Path(daemon.config.workspace_dir) / "repo-issue-105"
+        assert not worktree_path.exists()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            # Should complete without error
+            daemon._maybe_handle_reset(item)
+
+        # Verify reset label was removed (indicating reset proceeded)
+        daemon.ticket_client.remove_label.assert_called()
+
+    def test_reset_kills_process_before_worktree_cleanup(self, daemon, mock_running_process):
+        """Test that process is killed BEFORE worktree cleanup to avoid race conditions."""
+        item = TicketItem(
+            item_id="PVI_106",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=106,
+            title="Issue for Order Verification",
+            repo="github.com/owner/repo",
+            status="Research",
+            labels=["reset"],
+        )
+
+        key = f"{item.repo}#{item.ticket_id}"
+
+        # Register process
+        daemon.register_process(key, mock_running_process)
+
+        # Setup mocks
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_linked_prs.return_value = []
+        daemon.ticket_client.get_ticket_body.return_value = "Issue body"
+
+        # Create fake worktree so cleanup is called
+        worktree_path = Path(daemon.config.workspace_dir) / "repo-issue-106"
+        worktree_path.mkdir()
+
+        # Track order of operations
+        operation_order = []
+
+        original_kill = daemon.kill_process
+
+        def track_kill(k):
+            operation_order.append(("kill_process", k))
+            return original_kill(k)
+
+        def track_cleanup(repo_name, issue_number):
+            operation_order.append(("cleanup_workspace", repo_name, issue_number))
+
+        with (
+            patch.object(daemon, "kill_process", side_effect=track_kill),
+            patch.object(daemon.workspace_manager, "cleanup_workspace", side_effect=track_cleanup),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0)
+            daemon._maybe_handle_reset(item)
+
+        # Verify kill_process was called before cleanup_workspace
+        kill_indices = [i for i, op in enumerate(operation_order) if op[0] == "kill_process"]
+        cleanup_indices = [i for i, op in enumerate(operation_order) if op[0] == "cleanup_workspace"]
+
+        assert len(kill_indices) == 1, "kill_process should be called exactly once"
+        assert len(cleanup_indices) == 1, "cleanup_workspace should be called exactly once"
+        assert kill_indices[0] < cleanup_indices[0], "kill_process should be called before cleanup_workspace"
+
+    def test_reset_with_multiple_concurrent_issues_isolation(
+        self, daemon, mock_running_process, mock_running_process_2
+    ):
+        """Test complete isolation when multiple issues are running concurrently."""
+        # Two different issues in different repos
+        item1 = TicketItem(
+            item_id="PVI_107",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=107,
+            title="Issue 1 to Reset",
+            repo="github.com/owner/repo1",
+            status="Research",
+            labels=["reset"],
+        )
+
+        item2 = TicketItem(
+            item_id="PVI_108",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=108,
+            title="Issue 2 Running",
+            repo="github.com/owner/repo2",
+            status="Plan",
+            labels=[],  # No reset label
+        )
+
+        key1 = f"{item1.repo}#{item1.ticket_id}"
+        key2 = f"{item2.repo}#{item2.ticket_id}"
+
+        # Register processes for both issues
+        daemon.register_process(key1, mock_running_process)
+        daemon.register_process(key2, mock_running_process_2)
+
+        # Setup mocks
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_linked_prs.return_value = []
+        daemon.ticket_client.get_ticket_body.return_value = "Issue body"
+
+        # Only reset item1
+        worktree_path = Path(daemon.config.workspace_dir) / "repo1-issue-107"
+        assert not worktree_path.exists()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            daemon._maybe_handle_reset(item1)
+
+        # item1's process should be killed
+        mock_running_process.kill.assert_called_once()
+        assert key1 not in daemon._running_processes
+
+        # item2's process should be completely untouched
+        mock_running_process_2.kill.assert_not_called()
+        mock_running_process_2.wait.assert_not_called()
+        assert key2 in daemon._running_processes
+        assert daemon._running_processes[key2] is mock_running_process_2

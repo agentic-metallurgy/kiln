@@ -64,7 +64,6 @@ class Config:
     claude_code_enable_telemetry: bool = False
     safety_allow_appended_tasks: int = 0  # 0 = infinite (no limit)
     ghes_logs_mask: bool = True  # Mask GHES hostname and org in logs
-    pagerduty_routing_key: str | None = None  # PagerDuty Events API v2 routing key
     slack_bot_token: str | None = None  # Slack Bot OAuth token (xoxb-...)
     slack_user_id: str | None = None  # Slack user ID to DM (U...)
     slack_dm_on_comment: bool = True  # Send DM when comment is processed
@@ -292,11 +291,6 @@ def load_config_from_file(config_path: Path) -> Config:
     # Log masking settings
     ghes_logs_mask = data.get("GHES_LOGS_MASK", "true").lower() == "true"
 
-    # PagerDuty settings
-    pagerduty_routing_key = data.get("PAGERDUTY_ROUTING_KEY")
-    if not pagerduty_routing_key:
-        pagerduty_routing_key = None
-
     # Slack notification settings
     slack_bot_token = data.get("SLACK_BOT_TOKEN")
     if not slack_bot_token:
@@ -362,7 +356,6 @@ def load_config_from_file(config_path: Path) -> Config:
         claude_code_enable_telemetry=claude_code_enable_telemetry,
         safety_allow_appended_tasks=safety_allow_appended_tasks,
         ghes_logs_mask=ghes_logs_mask,
-        pagerduty_routing_key=pagerduty_routing_key,
         slack_bot_token=slack_bot_token,
         slack_user_id=slack_user_id,
         slack_dm_on_comment=slack_dm_on_comment,
@@ -499,11 +492,6 @@ def load_config_from_env() -> Config:
             "process_comments": "sonnet",
         }
 
-    # PagerDuty settings
-    pagerduty_routing_key = os.environ.get("PAGERDUTY_ROUTING_KEY")
-    if not pagerduty_routing_key:
-        pagerduty_routing_key = None
-
     # Slack notification settings
     slack_bot_token = os.environ.get("SLACK_BOT_TOKEN")
     if not slack_bot_token:
@@ -571,7 +559,6 @@ def load_config_from_env() -> Config:
         claude_code_enable_telemetry=os.environ.get("CLAUDE_CODE_ENABLE_TELEMETRY", "0") == "1",
         safety_allow_appended_tasks=int(os.environ.get("SAFETY_ALLOW_APPENDED_TASKS", "0")),
         ghes_logs_mask=os.environ.get("GHES_LOGS_MASK", "true").lower() == "true",
-        pagerduty_routing_key=pagerduty_routing_key,
         slack_bot_token=slack_bot_token,
         slack_user_id=slack_user_id,
         slack_dm_on_comment=slack_dm_on_comment,

@@ -217,3 +217,250 @@ class TestWorkspaceSecurityValidation:
         valid_path = Path(temp_workspace_dir) / "valid-dir"
         result = manager._validate_path_containment(valid_path, Path(temp_workspace_dir), "test")
         assert result == valid_path.resolve()
+
+
+@pytest.mark.integration
+class TestGetWorktreeBranch:
+    """Tests for _get_worktree_branch method."""
+
+    def test_parses_porcelain_output_correctly(self, temp_workspace_dir):
+        """Test _get_worktree_branch parses porcelain output correctly."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create repo and worktree paths for mock
+        repo_path = Path(temp_workspace_dir) / "test-repo"
+        repo_path.mkdir()
+        worktree_path = Path(temp_workspace_dir) / "test-repo-issue-42"
+
+        # Mock porcelain output format
+        porcelain_output = (
+            f"worktree {repo_path}\n"
+            "HEAD abc123def456\n"
+            "branch refs/heads/main\n"
+            "\n"
+            f"worktree {worktree_path}\n"
+            "HEAD def456abc789\n"
+            "branch refs/heads/162-reset-cleanup-feature\n"
+            "\n"
+        )
+
+        def mock_run_git_command(args, cwd=None, check=True):
+            if args == ["worktree", "list", "--porcelain"]:
+                return MagicMock(returncode=0, stdout=porcelain_output, stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch.object(manager, "_run_git_command", mock_run_git_command):
+            result = manager._get_worktree_branch(worktree_path, repo_path)
+
+        assert result == "162-reset-cleanup-feature"
+
+    def test_returns_none_for_nonexistent_worktree(self, temp_workspace_dir):
+        """Test _get_worktree_branch returns None for non-existent worktree."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        repo_path = Path(temp_workspace_dir) / "test-repo"
+        repo_path.mkdir()
+        worktree_path = Path(temp_workspace_dir) / "nonexistent-worktree"
+
+        # Porcelain output that doesn't contain our worktree
+        porcelain_output = (
+            f"worktree {repo_path}\n"
+            "HEAD abc123def456\n"
+            "branch refs/heads/main\n"
+            "\n"
+        )
+
+        def mock_run_git_command(args, cwd=None, check=True):
+            if args == ["worktree", "list", "--porcelain"]:
+                return MagicMock(returncode=0, stdout=porcelain_output, stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch.object(manager, "_run_git_command", mock_run_git_command):
+            result = manager._get_worktree_branch(worktree_path, repo_path)
+
+        assert result is None
+
+    def test_returns_correct_branch_when_multiple_worktrees_exist(self, temp_workspace_dir):
+        """Test _get_worktree_branch returns correct branch when multiple worktrees exist."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        repo_path = Path(temp_workspace_dir) / "test-repo"
+        repo_path.mkdir()
+        worktree1 = Path(temp_workspace_dir) / "test-repo-issue-1"
+        worktree2 = Path(temp_workspace_dir) / "test-repo-issue-2"
+        worktree3 = Path(temp_workspace_dir) / "test-repo-issue-3"
+
+        # Multiple worktrees in porcelain output
+        porcelain_output = (
+            f"worktree {repo_path}\n"
+            "HEAD abc123\n"
+            "branch refs/heads/main\n"
+            "\n"
+            f"worktree {worktree1}\n"
+            "HEAD def456\n"
+            "branch refs/heads/issue-1-branch\n"
+            "\n"
+            f"worktree {worktree2}\n"
+            "HEAD ghi789\n"
+            "branch refs/heads/issue-2-branch\n"
+            "\n"
+            f"worktree {worktree3}\n"
+            "HEAD jkl012\n"
+            "branch refs/heads/issue-3-branch\n"
+            "\n"
+        )
+
+        def mock_run_git_command(args, cwd=None, check=True):
+            if args == ["worktree", "list", "--porcelain"]:
+                return MagicMock(returncode=0, stdout=porcelain_output, stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch.object(manager, "_run_git_command", mock_run_git_command):
+            # Request branch for worktree2 - should get issue-2-branch, not others
+            result = manager._get_worktree_branch(worktree2, repo_path)
+
+        assert result == "issue-2-branch"
+
+    def test_returns_none_on_git_command_error(self, temp_workspace_dir):
+        """Test _get_worktree_branch returns None when git command fails."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        repo_path = Path(temp_workspace_dir) / "test-repo"
+        repo_path.mkdir()
+        worktree_path = Path(temp_workspace_dir) / "test-worktree"
+
+        def mock_run_git_command(args, cwd=None, check=True):
+            raise WorkspaceError("Git command failed")
+
+        with patch.object(manager, "_run_git_command", mock_run_git_command):
+            result = manager._get_worktree_branch(worktree_path, repo_path)
+
+        assert result is None
+
+
+@pytest.mark.integration
+class TestCleanupWorkspaceBranchDeletion:
+    """Tests for branch deletion in cleanup_workspace."""
+
+    def test_deletes_branch_after_worktree_removal(self, temp_workspace_dir):
+        """Test cleanup_workspace deletes branch after worktree removal."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Setup: create fake repo and worktree directories
+        # Use resolve() to handle macOS symlink (/var -> /private/var)
+        repo_path = (Path(temp_workspace_dir) / "test-repo").resolve()
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()  # Make it look like a git repo
+
+        worktree_path = (Path(temp_workspace_dir) / "test-repo-issue-42").resolve()
+        worktree_path.mkdir()
+
+        git_commands = []
+
+        def mock_run_git_command(args, cwd=None, check=True):
+            git_commands.append((args, cwd))
+            if args == ["worktree", "list", "--porcelain"]:
+                # Return porcelain output with our worktree
+                return MagicMock(
+                    returncode=0,
+                    stdout=(
+                        f"worktree {repo_path}\n"
+                        "HEAD abc123\n"
+                        "branch refs/heads/main\n"
+                        "\n"
+                        f"worktree {worktree_path}\n"
+                        "HEAD def456\n"
+                        "branch refs/heads/42-feature-branch\n"
+                        "\n"
+                    ),
+                    stderr="",
+                )
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch.object(manager, "_run_git_command", mock_run_git_command):
+            manager.cleanup_workspace("test-repo", 42)
+
+        # Verify correct commands were called in order
+        command_args = [cmd[0] for cmd in git_commands]
+        assert ["worktree", "list", "--porcelain"] in command_args
+        assert ["worktree", "remove", "--force", str(worktree_path)] in command_args
+        assert ["branch", "-D", "42-feature-branch"] in command_args
+
+        # Verify order: branch deletion comes after worktree removal
+        porcelain_idx = command_args.index(["worktree", "list", "--porcelain"])
+        remove_idx = command_args.index(["worktree", "remove", "--force", str(worktree_path)])
+        branch_idx = command_args.index(["branch", "-D", "42-feature-branch"])
+        assert porcelain_idx < remove_idx < branch_idx
+
+    def test_continues_if_branch_deletion_fails(self, temp_workspace_dir):
+        """Test cleanup_workspace continues if branch deletion fails."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Setup: create fake repo and worktree directories
+        # Use resolve() to handle macOS symlink (/var -> /private/var)
+        repo_path = (Path(temp_workspace_dir) / "test-repo").resolve()
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()
+
+        worktree_path = (Path(temp_workspace_dir) / "test-repo-issue-42").resolve()
+        worktree_path.mkdir()
+
+        git_commands = []
+
+        def mock_run_git_command(args, cwd=None, check=True):
+            git_commands.append((args, cwd))
+            if args == ["worktree", "list", "--porcelain"]:
+                return MagicMock(
+                    returncode=0,
+                    stdout=(
+                        f"worktree {worktree_path}\n"
+                        "HEAD def456\n"
+                        "branch refs/heads/42-feature-branch\n"
+                        "\n"
+                    ),
+                    stderr="",
+                )
+            if args == ["branch", "-D", "42-feature-branch"]:
+                # Branch already deleted or doesn't exist
+                raise WorkspaceError("error: branch '42-feature-branch' not found")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        # Should not raise - error is handled gracefully
+        with patch.object(manager, "_run_git_command", mock_run_git_command):
+            manager.cleanup_workspace("test-repo", 42)
+
+        # Verify all commands were called including failed branch deletion
+        command_args = [cmd[0] for cmd in git_commands]
+        assert ["worktree", "remove", "--force", str(worktree_path)] in command_args
+        assert ["branch", "-D", "42-feature-branch"] in command_args
+
+    def test_skips_branch_deletion_when_no_branch_found(self, temp_workspace_dir):
+        """Test cleanup_workspace skips branch deletion when no branch is found."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Setup - use resolve() to handle macOS symlink (/var -> /private/var)
+        repo_path = (Path(temp_workspace_dir) / "test-repo").resolve()
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()
+
+        worktree_path = (Path(temp_workspace_dir) / "test-repo-issue-42").resolve()
+        worktree_path.mkdir()
+
+        git_commands = []
+
+        def mock_run_git_command(args, cwd=None, check=True):
+            git_commands.append((args, cwd))
+            if args == ["worktree", "list", "--porcelain"]:
+                # Return empty or no matching worktree
+                return MagicMock(returncode=0, stdout="", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch.object(manager, "_run_git_command", mock_run_git_command):
+            manager.cleanup_workspace("test-repo", 42)
+
+        # Verify branch -D was NOT called since no branch was found
+        command_args = [cmd[0] for cmd in git_commands]
+        assert ["worktree", "remove", "--force", str(worktree_path)] in command_args
+        # Verify no "branch" command was called
+        branch_commands = [cmd for cmd in command_args if cmd[0] == "branch"]
+        assert len(branch_commands) == 0
