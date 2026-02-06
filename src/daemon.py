@@ -29,11 +29,6 @@ from src.frontmatter import parse_issue_frontmatter
 from src.integrations.azure_oauth import AzureOAuthClient
 from src.integrations.mcp_client import check_all_mcp_servers
 from src.integrations.mcp_config import MCPConfigManager
-from src.integrations.pagerduty import (
-    init_pagerduty,
-    resolve_hibernation_alert,
-    trigger_hibernation_alert,
-)
 from src.integrations.repo_credentials import RepoCredentialsManager
 from src.integrations.slack import init_slack, send_phase_completion_notification, send_startup_ping
 from src.integrations.telemetry import (
@@ -573,8 +568,6 @@ class Daemon:
             logger.warning(
                 f"Daemon will re-check connectivity every {self.HIBERNATION_INTERVAL} seconds"
             )
-            # Trigger PagerDuty alert if configured
-            trigger_hibernation_alert(reason, self.config.project_urls)
 
     def _exit_hibernation(self) -> None:
         """Exit hibernation mode after connectivity is restored.
@@ -585,8 +578,6 @@ class Daemon:
         if self._hibernating:
             self._hibernating = False
             logger.info("Exiting hibernation mode: connectivity restored")
-            # Resolve PagerDuty alert if configured
-            resolve_hibernation_alert()
 
     def _check_github_connectivity(self) -> bool:
         """Check if GitHub API is reachable for all configured project hosts.
@@ -2290,10 +2281,6 @@ def main() -> None:
                 config.otel_service_name,
                 service_version=git_version,
             )
-
-        # Initialize PagerDuty if configured
-        if config.pagerduty_routing_key:
-            init_pagerduty(config.pagerduty_routing_key)
 
         # Initialize Slack if configured
         init_slack(config.slack_bot_token, config.slack_user_id)
