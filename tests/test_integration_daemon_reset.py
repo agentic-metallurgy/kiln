@@ -291,6 +291,266 @@ Plan data.
             # Verify original description is preserved
             assert original_description in cleaned_body
 
+    def test_clear_kiln_content_research_with_details_wrapper(self, daemon):
+        """Test clearing research block wrapped in <details> tags."""
+        item = TicketItem(
+            item_id="PVI_444",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=88,
+            title="Test Issue with Details Wrapper",
+            repo="github.com/owner/repo",
+            status="Plan",
+        )
+
+        original_description = "Original issue description."
+        research_with_details = """
+---
+<details>
+<summary><h2>Research Findings</h2></summary>
+
+<!-- kiln:research -->
+## Research Findings
+
+Some research content here.
+<!-- /kiln:research -->
+
+</details>"""
+        body = original_description + research_with_details
+
+        daemon.ticket_client.get_ticket_body.return_value = body
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            daemon._clear_kiln_content(item)
+
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0][0]
+            body_index = call_args.index("--body") + 1
+            cleaned_body = call_args[body_index]
+
+            # Verify research content AND details wrapper were removed
+            assert "kiln:research" not in cleaned_body
+            assert "<details>" not in cleaned_body
+            assert "</details>" not in cleaned_body
+            assert "Research Findings" not in cleaned_body
+            assert "<summary>" not in cleaned_body
+            # Verify original description is preserved
+            assert original_description in cleaned_body
+
+    def test_clear_kiln_content_plan_with_details_wrapper(self, daemon):
+        """Test clearing plan block wrapped in <details> tags."""
+        item = TicketItem(
+            item_id="PVI_555",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=99,
+            title="Test Issue with Plan Details Wrapper",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        original_description = "My original description."
+        plan_with_details = """
+---
+<details>
+<summary><h2>Implementation Plan</h2></summary>
+
+<!-- kiln:plan -->
+# Implementation Plan
+
+Step 1: Do this
+Step 2: Do that
+<!-- /kiln:plan -->
+
+</details>"""
+        body = original_description + plan_with_details
+
+        daemon.ticket_client.get_ticket_body.return_value = body
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            daemon._clear_kiln_content(item)
+
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0][0]
+            body_index = call_args.index("--body") + 1
+            cleaned_body = call_args[body_index]
+
+            # Verify plan content AND details wrapper were removed
+            assert "kiln:plan" not in cleaned_body
+            assert "<details>" not in cleaned_body
+            assert "</details>" not in cleaned_body
+            assert "Implementation Plan" not in cleaned_body
+            assert "<summary>" not in cleaned_body
+            # Verify original description is preserved
+            assert original_description in cleaned_body
+
+    def test_clear_kiln_content_both_with_details_wrappers(self, daemon):
+        """Test clearing both research and plan blocks wrapped in <details> tags."""
+        item = TicketItem(
+            item_id="PVI_666",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=111,
+            title="Test Issue with Both Details Wrappers",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        original_description = "The original user description."
+        research_with_details = """
+---
+<details>
+<summary><h2>Research Findings</h2></summary>
+
+<!-- kiln:research -->
+## Research Findings
+
+Research content goes here.
+<!-- /kiln:research -->
+
+</details>"""
+        plan_with_details = """
+---
+<details>
+<summary><h2>Implementation Plan</h2></summary>
+
+<!-- kiln:plan -->
+# Implementation Plan
+
+Plan content goes here.
+<!-- /kiln:plan -->
+
+</details>"""
+        body = original_description + research_with_details + plan_with_details
+
+        daemon.ticket_client.get_ticket_body.return_value = body
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            daemon._clear_kiln_content(item)
+
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0][0]
+            body_index = call_args.index("--body") + 1
+            cleaned_body = call_args[body_index]
+
+            # Verify both sections AND their details wrappers were removed
+            assert "kiln:research" not in cleaned_body
+            assert "kiln:plan" not in cleaned_body
+            assert "<details>" not in cleaned_body
+            assert "</details>" not in cleaned_body
+            assert "Research Findings" not in cleaned_body
+            assert "Implementation Plan" not in cleaned_body
+            assert "Research content" not in cleaned_body
+            assert "Plan content" not in cleaned_body
+            # Verify original description is preserved
+            assert original_description in cleaned_body
+
+    def test_clear_kiln_content_mixed_wrappers(self, daemon):
+        """Test clearing mixed: research collapsed in details, plan without details."""
+        item = TicketItem(
+            item_id="PVI_777",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=222,
+            title="Test Issue with Mixed Wrappers",
+            repo="github.com/owner/repo",
+            status="Implement",
+        )
+
+        original_description = "User's original issue description."
+        # Research is collapsed in details (after plan workflow ran)
+        research_with_details = """
+---
+<details>
+<summary><h2>Research Findings</h2></summary>
+
+<!-- kiln:research -->
+## Research Findings
+
+Research has been collapsed.
+<!-- /kiln:research -->
+
+</details>"""
+        # Plan is NOT in details (before prepare_implementation)
+        plan_without_details = """
+---
+<!-- kiln:plan -->
+# Implementation Plan
+
+Plan is not yet collapsed.
+<!-- /kiln:plan -->"""
+        body = original_description + research_with_details + plan_without_details
+
+        daemon.ticket_client.get_ticket_body.return_value = body
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            daemon._clear_kiln_content(item)
+
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0][0]
+            body_index = call_args.index("--body") + 1
+            cleaned_body = call_args[body_index]
+
+            # Verify research with details wrapper was removed
+            assert "kiln:research" not in cleaned_body
+            assert "Research Findings" not in cleaned_body
+            assert "Research has been collapsed" not in cleaned_body
+            # Verify plan without details wrapper was removed
+            assert "kiln:plan" not in cleaned_body
+            assert "Implementation Plan" not in cleaned_body
+            assert "Plan is not yet collapsed" not in cleaned_body
+            # Verify no leftover details tags
+            assert "<details>" not in cleaned_body
+            assert "</details>" not in cleaned_body
+            # Verify original description is preserved
+            assert original_description in cleaned_body
+
+    def test_clear_kiln_content_research_details_with_legacy_marker(self, daemon):
+        """Test clearing research in details with legacy <!-- /kiln --> end marker."""
+        item = TicketItem(
+            item_id="PVI_888",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=333,
+            title="Test Issue with Legacy Marker in Details",
+            repo="github.com/owner/repo",
+            status="Plan",
+        )
+
+        original_description = "Original description text."
+        research_details_legacy = """
+---
+<details>
+<summary><h2>Research Findings</h2></summary>
+
+<!-- kiln:research -->
+## Research
+
+Legacy marker research content.
+<!-- /kiln -->
+
+</details>"""
+        body = original_description + research_details_legacy
+
+        daemon.ticket_client.get_ticket_body.return_value = body
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            daemon._clear_kiln_content(item)
+
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0][0]
+            body_index = call_args.index("--body") + 1
+            cleaned_body = call_args[body_index]
+
+            # Verify content AND details wrapper were removed
+            assert "kiln:research" not in cleaned_body
+            assert "<!-- /kiln -->" not in cleaned_body
+            assert "<details>" not in cleaned_body
+            assert "</details>" not in cleaned_body
+            assert "Legacy marker research" not in cleaned_body
+            # Verify original description is preserved
+            assert original_description in cleaned_body
+
 
 # ============================================================================
 # Daemon Close PRs and Delete Branches Tests
