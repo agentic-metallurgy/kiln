@@ -1583,12 +1583,70 @@ class Daemon:
 
         original_body = body
 
-        # Remove research section (including separator before it)
+        # Remove research section with <details> wrapper (most specific, try first)
+        # Pattern: separator + <details> with Research Findings summary + kiln markers + </details>
+        research_details_pattern = (
+            r"\n*---\n*<details>\s*\n*<summary>.*?Research Findings.*?</summary>"
+            r"\s*\n*<!-- kiln:research -->.*?<!-- /kiln:research -->\s*\n*</details>"
+        )
+        body = re.sub(research_details_pattern, "", body, flags=re.DOTALL)
+
+        # Research with <details> wrapper, no separator
+        research_details_no_sep = (
+            r"\n*<details>\s*\n*<summary>.*?Research Findings.*?</summary>"
+            r"\s*\n*<!-- kiln:research -->.*?<!-- /kiln:research -->\s*\n*</details>"
+        )
+        body = re.sub(research_details_no_sep, "", body, flags=re.DOTALL)
+
+        # Research with <details> wrapper and legacy end marker
+        research_details_legacy = (
+            r"\n*---\n*<details>\s*\n*<summary>.*?Research Findings.*?</summary>"
+            r"\s*\n*<!-- kiln:research -->.*?<!-- /kiln -->\s*\n*</details>"
+        )
+        body = re.sub(research_details_legacy, "", body, flags=re.DOTALL)
+
+        # Research with <details> wrapper, legacy end marker, no separator
+        research_details_legacy_no_sep = (
+            r"\n*<details>\s*\n*<summary>.*?Research Findings.*?</summary>"
+            r"\s*\n*<!-- kiln:research -->.*?<!-- /kiln -->\s*\n*</details>"
+        )
+        body = re.sub(research_details_legacy_no_sep, "", body, flags=re.DOTALL)
+
+        # Remove plan section with <details> wrapper (most specific, try first)
+        # Pattern: separator + <details> with Implementation Plan summary + kiln markers + </details>
+        plan_details_pattern = (
+            r"\n*---\n*<details>\s*\n*<summary>.*?Implementation Plan.*?</summary>"
+            r"\s*\n*<!-- kiln:plan -->.*?<!-- /kiln:plan -->\s*\n*</details>"
+        )
+        body = re.sub(plan_details_pattern, "", body, flags=re.DOTALL)
+
+        # Plan with <details> wrapper, no separator
+        plan_details_no_sep = (
+            r"\n*<details>\s*\n*<summary>.*?Implementation Plan.*?</summary>"
+            r"\s*\n*<!-- kiln:plan -->.*?<!-- /kiln:plan -->\s*\n*</details>"
+        )
+        body = re.sub(plan_details_no_sep, "", body, flags=re.DOTALL)
+
+        # Plan with <details> wrapper and legacy end marker
+        plan_details_legacy = (
+            r"\n*---\n*<details>\s*\n*<summary>.*?Implementation Plan.*?</summary>"
+            r"\s*\n*<!-- kiln:plan -->.*?<!-- /kiln -->\s*\n*</details>"
+        )
+        body = re.sub(plan_details_legacy, "", body, flags=re.DOTALL)
+
+        # Plan with <details> wrapper, legacy end marker, no separator
+        plan_details_legacy_no_sep = (
+            r"\n*<details>\s*\n*<summary>.*?Implementation Plan.*?</summary>"
+            r"\s*\n*<!-- kiln:plan -->.*?<!-- /kiln -->\s*\n*</details>"
+        )
+        body = re.sub(plan_details_legacy_no_sep, "", body, flags=re.DOTALL)
+
+        # Remove research section without <details> wrapper (original patterns)
         # Pattern: optional separator (---) followed by research section
         research_pattern = r"\n*---\n*<!-- kiln:research -->.*?<!-- /kiln:research -->"
         body = re.sub(research_pattern, "", body, flags=re.DOTALL)
 
-        # Remove plan section (including separator before it)
+        # Remove plan section without <details> wrapper (original patterns)
         plan_pattern = r"\n*---\n*<!-- kiln:plan -->.*?<!-- /kiln:plan -->"
         body = re.sub(plan_pattern, "", body, flags=re.DOTALL)
 
