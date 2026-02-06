@@ -398,12 +398,6 @@ def run_daemon(daemon_mode: bool = False) -> None:
                 service_version=git_version,
             )
 
-        # Initialize PagerDuty if configured
-        if config.pagerduty_routing_key:
-            from src.integrations.pagerduty import init_pagerduty
-
-            init_pagerduty(config.pagerduty_routing_key)
-
         # Initialize Slack if configured
         from src.integrations.slack import init_slack, send_startup_ping
 
