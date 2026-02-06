@@ -85,6 +85,8 @@ def send_phase_completion_notification(
     payload = {
         "channel": _user_id,
         "text": message,
+        "unfurl_links": False,
+        "unfurl_media": False,
     }
 
     headers = {
@@ -137,6 +139,8 @@ def send_implementation_beginning_notification(pr_url: str, pr_number: int) -> b
     payload = {
         "channel": _user_id,
         "text": message,
+        "unfurl_links": False,
+        "unfurl_media": False,
     }
 
     headers = {
@@ -188,6 +192,8 @@ def send_ready_for_validation_notification(pr_url: str, pr_number: int) -> bool:
     payload = {
         "channel": _user_id,
         "text": message,
+        "unfurl_links": False,
+        "unfurl_media": False,
     }
 
     headers = {
@@ -235,6 +241,8 @@ def send_startup_ping() -> bool:
     payload = {
         "channel": _user_id,
         "text": message,
+        "unfurl_links": False,
+        "unfurl_media": False,
     }
 
     headers = {
@@ -291,6 +299,8 @@ def send_comment_processed_notification(
     payload = {
         "channel": _user_id,
         "text": message,
+        "unfurl_links": False,
+        "unfurl_media": False,
     }
 
     headers = {
