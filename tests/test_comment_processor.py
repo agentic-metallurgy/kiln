@@ -646,6 +646,269 @@ class TestCommentProcessorSkipBacklog:
 
 
 @pytest.mark.unit
+class TestCommentProcessorEyesReactionCleanup:
+    """Tests for eyes reaction cleanup on processing failure."""
+
+    def test_eyes_reaction_removed_on_failure(self):
+        """Test that eyes reactions are removed when comment processing fails."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        processor = CommentProcessor(
+            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+        )
+
+        # Mock database to return stored state with a timestamp
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Create a comment from the allowed user
+        user_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="This is feedback",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="allowed_user",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [user_comment]
+
+        # Create a ticket item
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Research",
+            title="Test Issue",
+            comment_count=1,
+        )
+
+        with (
+            patch.object(processor, "_get_target_type", return_value="research"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_apply_comment_to_kiln_post", side_effect=Exception("Processing failed")
+            ),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+        ):
+            processor.process(item)
+
+            # Verify remove_reaction was called with EYES
+            remove_reaction_calls = [
+                c for c in ticket_client.remove_reaction.call_args_list if c[0][1] == "EYES"
+            ]
+            assert len(remove_reaction_calls) == 1
+            assert remove_reaction_calls[0][0][0] == "IC_1"
+
+    def test_database_cleanup_on_failure(self):
+        """Test that database processing records are cleaned up on failure."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        processor = CommentProcessor(
+            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+        )
+
+        # Mock database to return stored state with a timestamp
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Create a comment from the allowed user
+        user_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="This is feedback",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="allowed_user",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [user_comment]
+
+        # Create a ticket item
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Research",
+            title="Test Issue",
+            comment_count=1,
+        )
+
+        with (
+            patch.object(processor, "_get_target_type", return_value="research"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_apply_comment_to_kiln_post", side_effect=Exception("Processing failed")
+            ),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+        ):
+            processor.process(item)
+
+            # Verify add_processing_comment was called when adding eyes
+            database.add_processing_comment.assert_called_once_with("owner/repo", 42, "IC_1")
+
+            # Verify remove_processing_comment was called in finally block
+            database.remove_processing_comment.assert_called_once_with("owner/repo", 42, "IC_1")
+
+    def test_database_cleanup_on_success(self):
+        """Test that database processing records are cleaned up on success."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        processor = CommentProcessor(
+            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+        )
+
+        # Mock database to return stored state with a timestamp
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Create a comment from the allowed user
+        user_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="This is feedback",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="allowed_user",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [user_comment]
+
+        # Create a ticket item
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Research",
+            title="Test Issue",
+            comment_count=1,
+        )
+
+        response_comment = Comment(
+            id="IC_2",
+            database_id=456,
+            body="response",
+            created_at=datetime(2024, 1, 15, 12, 0, 0),
+            author="test-user",
+        )
+
+        with (
+            patch.object(processor, "_get_target_type", return_value="research"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(processor, "_apply_comment_to_kiln_post"),
+            patch.object(processor, "_generate_diff", return_value="-old\n+new"),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+        ):
+            ticket_client.add_comment.return_value = response_comment
+
+            processor.process(item)
+
+            # Verify add_processing_comment was called when adding eyes
+            database.add_processing_comment.assert_called_once_with("owner/repo", 42, "IC_1")
+
+            # Verify remove_processing_comment was called in finally block (even on success)
+            database.remove_processing_comment.assert_called_once_with("owner/repo", 42, "IC_1")
+
+            # Verify remove_reaction for EYES was NOT called on success (only on failure)
+            remove_reaction_calls = [
+                c for c in ticket_client.remove_reaction.call_args_list if c[0][1] == "EYES"
+            ]
+            assert len(remove_reaction_calls) == 0
+
+    def test_multiple_comments_cleanup_on_failure(self):
+        """Test that all comments have eyes reactions removed on failure."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        processor = CommentProcessor(
+            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+        )
+
+        # Mock database to return stored state with a timestamp
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Create multiple comments from the allowed user
+        comments = [
+            Comment(
+                id=f"IC_{i}",
+                database_id=i,
+                body=f"Feedback {i}",
+                created_at=datetime(2024, 1, 15, 10 + i, 0, 0),
+                author="allowed_user",
+                is_processed=False,
+                is_processing=False,
+            )
+            for i in range(1, 4)
+        ]
+
+        ticket_client.get_comments_since.return_value = comments
+
+        # Create a ticket item
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Research",
+            title="Test Issue",
+            comment_count=3,
+        )
+
+        with (
+            patch.object(processor, "_get_target_type", return_value="research"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_apply_comment_to_kiln_post", side_effect=Exception("Processing failed")
+            ),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+        ):
+            processor.process(item)
+
+            # Verify remove_reaction was called for all 3 comments
+            remove_reaction_calls = [
+                c for c in ticket_client.remove_reaction.call_args_list if c[0][1] == "EYES"
+            ]
+            assert len(remove_reaction_calls) == 3
+            comment_ids = [c[0][0] for c in remove_reaction_calls]
+            assert "IC_1" in comment_ids
+            assert "IC_2" in comment_ids
+            assert "IC_3" in comment_ids
+
+            # Verify database cleanup for all 3 comments
+            assert database.remove_processing_comment.call_count == 3
+
+
+@pytest.mark.unit
 class TestCommentProcessorSlackNotification:
     """Tests for Slack notification integration in CommentProcessor."""
 

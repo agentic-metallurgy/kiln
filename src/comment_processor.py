@@ -6,6 +6,7 @@ This module handles processing user comments on GitHub issues, including:
 - Generating and posting diff responses
 """
 
+import contextlib
 import difflib
 import html
 import json
@@ -269,9 +270,11 @@ class CommentProcessor:
             self.ticket_client.add_label(item.repo, item.ticket_id, Labels.EDITING)
 
             # Add eyes reaction to all comments to indicate we're processing them
+            # Also track in database for stale detection on daemon restart
             for comment in user_comments:
                 try:
                     self.ticket_client.add_reaction(comment.id, "EYES", repo=item.repo)
+                    self.database.add_processing_comment(item.repo, item.ticket_id, comment.id)
                 except Exception as e:
                     logger.warning(f"Failed to add eyes reaction to {comment.database_id}: {e}")
 
@@ -370,7 +373,21 @@ Processed feedback for **{target_type}**. No textual changes detected (may have 
                     )
             except Exception as e:
                 logger.error(f"Failed to process comments: {e}")
+                # Clean up eyes reactions on failure so comments can be retried
+                for comment in user_comments:
+                    try:
+                        self.ticket_client.remove_reaction(comment.id, "EYES", repo=item.repo)
+                    except Exception as cleanup_error:
+                        logger.warning(
+                            f"Failed to remove eyes reaction from {comment.database_id}: {cleanup_error}"
+                        )
             finally:
+                # Clean up database tracking for all comments (success or failure)
+                for comment in user_comments:
+                    with contextlib.suppress(Exception):
+                        self.database.remove_processing_comment(
+                            item.repo, item.ticket_id, comment.id
+                        )
                 # Always remove editing label when done (success or failure)
                 try:
                     self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.EDITING)
