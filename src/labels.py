@@ -42,6 +42,7 @@ class Labels:
     YOLO = "yolo"
     YOLO_FAILED = "yolo_failed"
     RESET = "reset"
+    RECREATE = "recreate"
 
     # Failure labels
     IMPLEMENTATION_FAILED = "implementation_failed"
@@ -98,6 +99,10 @@ REQUIRED_LABELS: dict[str, LabelConfig] = {
     Labels.RESET: {
         "description": "Clear kiln content and move issue to Backlog",
         "color": "3B82F6",  # Blue
+    },
+    Labels.RECREATE: {
+        "description": "Re-create issue with clean slate",
+        "color": "9333EA",  # Purple
     },
     Labels.IMPLEMENTATION_FAILED: {
         "description": "Implementation workflow failed after retries",
