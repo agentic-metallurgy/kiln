@@ -683,6 +683,9 @@ class Daemon:
         # Initialize project metadata cache on startup
         self._initialize_project_metadata()
 
+        # Clean up any stale eyes reactions from previous crashes
+        self._cleanup_stale_processing_comments()
+
         self._running = True
         consecutive_failures = 0
 
@@ -769,6 +772,40 @@ class Daemon:
             logger.error(f"Error closing database: {e}")
 
         logger.debug("Daemon stopped")
+
+    def _cleanup_stale_processing_comments(self) -> None:
+        """Remove stale eyes reactions from comments left over from previous crashes.
+
+        Queries the database for comments that have been "processing" for more than
+        1 hour (likely from a daemon crash), removes the eyes reactions, and cleans
+        up the database records.
+
+        This is called during daemon startup to clean up any stale state from
+        previous crashes that may have left eyes reactions on comments.
+
+        Errors during cleanup are logged but don't fail startup.
+        """
+        STALE_THRESHOLD = 3600  # 1 hour
+
+        stale_comments = self.database.get_stale_processing_comments(STALE_THRESHOLD)
+        if not stale_comments:
+            logger.debug("No stale processing comments to clean up")
+            return
+
+        logger.info(f"Cleaning up {len(stale_comments)} stale processing comment(s)...")
+
+        for repo, issue_number, comment_id in stale_comments:
+            try:
+                self.ticket_client.remove_reaction(comment_id, "EYES", repo=repo)
+                self.database.remove_processing_comment(repo, issue_number, comment_id)
+                logger.info(f"Cleaned up stale eyes reaction from {repo}#{issue_number}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up stale processing comment: {e}")
+                # Still remove from database to prevent infinite retry
+                try:
+                    self.database.remove_processing_comment(repo, issue_number, comment_id)
+                except Exception:
+                    pass
 
     def _cleanup_running_labels(self) -> None:
         """Remove running workflow labels from issues on graceful shutdown.
