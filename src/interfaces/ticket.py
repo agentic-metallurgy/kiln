@@ -171,6 +171,16 @@ class TicketClient(Protocol):
         """
         ...
 
+    def remove_reaction(self, comment_id: str, reaction: str, repo: str | None = None) -> None:
+        """Remove a reaction from a comment.
+
+        Args:
+            comment_id: Unique identifier for the comment (node ID)
+            reaction: Reaction type (e.g., THUMBS_UP, EYES)
+            repo: Optional repository to help implementations determine the host
+        """
+        ...
+
     # Security/audit
     def get_last_status_actor(self, repo: str, ticket_id: int) -> str | None:
         """Get the username of who last changed the ticket's board status."""

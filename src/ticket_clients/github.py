@@ -997,6 +997,34 @@ class GitHubTicketClient:
         )
         logger.debug(f"Added {reaction} reaction to comment {comment_id}")
 
+    def remove_reaction(self, comment_id: str, reaction: str, repo: str | None = None) -> None:
+        """Remove a reaction from a comment.
+
+        Args:
+            comment_id: GitHub node ID of the comment
+            reaction: Reaction type (THUMBS_UP, EYES, etc.)
+            repo: Optional repository to determine hostname for GHE support
+        """
+        mutation = """
+        mutation($subjectId: ID!, $content: ReactionContent!) {
+          removeReaction(input: {subjectId: $subjectId, content: $content}) {
+            reaction {
+              content
+            }
+          }
+        }
+        """
+
+        self._execute_graphql_query(
+            mutation,
+            {
+                "subjectId": comment_id,
+                "content": reaction,
+            },
+            repo=repo,
+        )
+        logger.debug(f"Removed {reaction} reaction from comment {comment_id}")
+
     # Security/audit
 
     def get_last_status_actor(self, repo: str, ticket_id: int) -> str | None:

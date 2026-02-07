@@ -414,3 +414,181 @@ class TestDaemonMultiActorRaceDetection:
                 # After processing with race loss, key should be removed from _running_labels
                 assert key not in daemon._running_labels, \
                     "_running_labels should not contain the key after race abort"
+
+
+@pytest.mark.integration
+class TestDaemonStaleCommentCleanup:
+    """Tests for stale eyes reaction cleanup on daemon startup."""
+
+    @pytest.fixture
+    def daemon(self, temp_workspace_dir):
+        """Fixture providing Daemon with mocked dependencies."""
+        config = MagicMock()
+        config.poll_interval = 60
+        config.watched_statuses = ["Research", "Plan", "Implement"]
+        config.max_concurrent_workflows = 2
+        config.database_path = f"{temp_workspace_dir}/test.db"
+        config.workspace_dir = temp_workspace_dir
+        config.project_urls = ["https://github.com/orgs/test/projects/1"]
+        config.stage_models = {}
+        config.github_enterprise_version = None
+
+        with patch("src.ticket_clients.github.GitHubTicketClient"):
+            daemon = Daemon(config)
+            daemon.ticket_client = MagicMock()
+            daemon.comment_processor.ticket_client = daemon.ticket_client
+            yield daemon
+            daemon.stop()
+
+    def test_cleanup_stale_processing_comments_no_stale(self, daemon):
+        """Test cleanup when there are no stale processing comments."""
+        # No stale comments
+        stale_comments = daemon.database.get_stale_processing_comments()
+        assert stale_comments == []
+
+        # Should complete without error and not call remove_reaction
+        daemon._cleanup_stale_processing_comments()
+        daemon.ticket_client.remove_reaction.assert_not_called()
+
+    def test_cleanup_stale_processing_comments_removes_eyes_reactions(self, daemon):
+        """Test that stale eyes reactions are removed on startup."""
+        from datetime import datetime, timedelta
+
+        # Add a stale processing comment (started 2 hours ago)
+        repo = "github.com/test-org/test-repo"
+        issue_number = 123
+        comment_id = "IC_kwDOtest123"
+
+        # Manually insert a stale record
+        conn = daemon.database._get_conn()
+        stale_time = (datetime.now() - timedelta(hours=2)).isoformat()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO processing_comments (repo, issue_number, comment_id, started_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (repo, issue_number, comment_id, stale_time),
+            )
+
+        # Verify we have stale comments
+        stale_comments = daemon.database.get_stale_processing_comments()
+        assert len(stale_comments) == 1
+        assert stale_comments[0] == (repo, issue_number, comment_id)
+
+        # Run cleanup
+        daemon._cleanup_stale_processing_comments()
+
+        # Verify remove_reaction was called with correct parameters
+        daemon.ticket_client.remove_reaction.assert_called_once_with(
+            comment_id, "EYES", repo=repo
+        )
+
+        # Verify the database record was removed
+        stale_comments = daemon.database.get_stale_processing_comments()
+        assert stale_comments == []
+
+    def test_cleanup_stale_processing_comments_handles_api_errors(self, daemon):
+        """Test that API errors during cleanup don't crash and still remove DB records."""
+        from datetime import datetime, timedelta
+
+        repo = "github.com/test-org/test-repo"
+        issue_number = 456
+        comment_id = "IC_kwDOtest456"
+
+        # Add a stale processing comment
+        conn = daemon.database._get_conn()
+        stale_time = (datetime.now() - timedelta(hours=2)).isoformat()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO processing_comments (repo, issue_number, comment_id, started_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (repo, issue_number, comment_id, stale_time),
+            )
+
+        # Mock remove_reaction to raise an exception
+        daemon.ticket_client.remove_reaction.side_effect = Exception("API error")
+
+        # Cleanup should not raise
+        daemon._cleanup_stale_processing_comments()
+
+        # Verify remove_reaction was attempted
+        daemon.ticket_client.remove_reaction.assert_called_once()
+
+        # Verify the database record was still removed (best effort cleanup)
+        stale_comments = daemon.database.get_stale_processing_comments()
+        assert stale_comments == []
+
+    def test_cleanup_stale_processing_comments_multiple_comments(self, daemon):
+        """Test cleanup of multiple stale processing comments."""
+        from datetime import datetime, timedelta
+
+        # Add multiple stale processing comments
+        stale_time = (datetime.now() - timedelta(hours=2)).isoformat()
+        comments = [
+            ("github.com/org1/repo1", 100, "IC_kwDOtest100"),
+            ("github.com/org1/repo1", 101, "IC_kwDOtest101"),
+            ("github.com/org2/repo2", 200, "IC_kwDOtest200"),
+        ]
+
+        conn = daemon.database._get_conn()
+        with conn:
+            for repo, issue_number, comment_id in comments:
+                conn.execute(
+                    """
+                    INSERT INTO processing_comments (repo, issue_number, comment_id, started_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (repo, issue_number, comment_id, stale_time),
+                )
+
+        # Verify we have 3 stale comments
+        stale_comments = daemon.database.get_stale_processing_comments()
+        assert len(stale_comments) == 3
+
+        # Run cleanup
+        daemon._cleanup_stale_processing_comments()
+
+        # Verify remove_reaction was called for each comment
+        assert daemon.ticket_client.remove_reaction.call_count == 3
+
+        # Verify all database records were removed
+        stale_comments = daemon.database.get_stale_processing_comments()
+        assert stale_comments == []
+
+    def test_cleanup_not_triggered_for_recent_comments(self, daemon):
+        """Test that recent processing comments are not cleaned up."""
+        from datetime import datetime, timedelta
+
+        # Add a recent processing comment (started 5 minutes ago, not stale)
+        repo = "github.com/test-org/test-repo"
+        issue_number = 789
+        comment_id = "IC_kwDOtest789"
+
+        conn = daemon.database._get_conn()
+        recent_time = (datetime.now() - timedelta(minutes=5)).isoformat()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO processing_comments (repo, issue_number, comment_id, started_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (repo, issue_number, comment_id, recent_time),
+            )
+
+        # Run cleanup
+        daemon._cleanup_stale_processing_comments()
+
+        # Verify remove_reaction was NOT called (comment is not stale)
+        daemon.ticket_client.remove_reaction.assert_not_called()
+
+        # Verify the database record still exists
+        conn = daemon.database._get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT comment_id FROM processing_comments WHERE comment_id = ?",
+            (comment_id,),
+        )
+        assert cursor.fetchone() is not None
