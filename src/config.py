@@ -93,6 +93,15 @@ def _detect_ghes_version(hostname: str, token: str) -> str:
 KILN_DIR = ".kiln"
 CONFIG_FILE = "config"
 
+# Hardcoded model assignments per workflow stage
+STAGE_MODELS: dict[str, str] = {
+    "Prepare": "claude-haiku-4-5-20251001",
+    "Research": "claude-opus-4-5-20251101",
+    "Plan": "claude-opus-4-5-20251101",
+    "Implement": "claude-opus-4-5-20251101",
+    "process_comments": "claude-sonnet-4-5-20250929",
+}
+
 
 @dataclass
 class Config:
@@ -125,18 +134,8 @@ class Config:
     log_file: str = ".kiln/logs/kiln.log"
     log_size: int = 10 * 1024 * 1024  # 10MB default
     log_backups: int = 5  # Keep 5 backup files by default
-    stage_models: dict[str, str] = field(
-        default_factory=lambda: {
-            "Prepare": "claude-haiku-4-5-20251001",
-            "Research": "claude-opus-4-5-20251101",
-            "Plan": "claude-opus-4-5-20251101",
-            "Implement": "claude-opus-4-5-20251101",
-            "process_comments": "claude-sonnet-4-5-20250929",
-        }
-    )
     otel_endpoint: str = ""
     otel_service_name: str = "kiln"
-    claude_code_enable_telemetry: bool = False
     safety_allow_appended_tasks: int = 0  # 0 = infinite (no limit)
     ghes_logs_mask: bool = True  # Mask GHES hostname and org in logs
     slack_bot_token: str | None = None  # Slack Bot OAuth token (xoxb-...)
@@ -344,22 +343,6 @@ def load_config_from_file(config_path: Path) -> Config:
     else:
         watched_statuses = ["Research", "Plan", "Implement"]
 
-    # Parse stage_models
-    stage_models_str = data.get("STAGE_MODELS")
-    if stage_models_str:
-        try:
-            stage_models = json.loads(stage_models_str)
-        except json.JSONDecodeError as e:
-            raise ValueError("STAGE_MODELS must be valid JSON") from e
-    else:
-        stage_models = {
-            "Prepare": "claude-haiku-4-5-20251001",
-            "Research": "claude-opus-4-5-20251101",
-            "Plan": "claude-opus-4-5-20251101",
-            "Implement": "claude-opus-4-5-20251101",
-            "process_comments": "claude-sonnet-4-5-20250929",
-        }
-
     # Parse log settings
     log_level = data.get("LOG_LEVEL", "INFO")
     os.environ["LOG_LEVEL"] = log_level  # Set for logger module
@@ -367,7 +350,6 @@ def load_config_from_file(config_path: Path) -> Config:
     # Telemetry settings
     otel_endpoint = data.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
     otel_service_name = data.get("OTEL_SERVICE_NAME", "kiln")
-    claude_code_enable_telemetry = data.get("CLAUDE_CODE_ENABLE_TELEMETRY", "0") == "1"
 
     # Safety settings
     safety_allow_appended_tasks = int(data.get("SAFETY_ALLOW_APPENDED_TASKS", "0"))
@@ -434,10 +416,8 @@ def load_config_from_file(config_path: Path) -> Config:
         team_usernames=team_usernames,
         max_concurrent_workflows=max_concurrent_workflows,
         log_file=".kiln/logs/kiln.log",
-        stage_models=stage_models,
         otel_endpoint=otel_endpoint,
         otel_service_name=otel_service_name,
-        claude_code_enable_telemetry=claude_code_enable_telemetry,
         safety_allow_appended_tasks=safety_allow_appended_tasks,
         ghes_logs_mask=ghes_logs_mask,
         slack_bot_token=slack_bot_token,
@@ -569,22 +549,6 @@ def load_config_from_env() -> Config:
     log_size = int(os.environ.get("LOG_SIZE", 10 * 1024 * 1024))  # Default 10MB
     log_backups = int(os.environ.get("LOG_BACKUPS", 5))  # Default 5 backups
 
-    # Parse STAGE_MODELS as JSON or use defaults
-    stage_models_env = os.environ.get("STAGE_MODELS")
-    if stage_models_env:
-        try:
-            stage_models = json.loads(stage_models_env)
-        except json.JSONDecodeError as e:
-            raise ValueError("STAGE_MODELS must be valid JSON") from e
-    else:
-        stage_models = {
-            "Prepare": "claude-haiku-4-5-20251001",
-            "Research": "claude-opus-4-5-20251101",
-            "Plan": "claude-opus-4-5-20251101",
-            "Implement": "claude-opus-4-5-20251101",
-            "process_comments": "claude-sonnet-4-5-20250929",
-        }
-
     # Slack notification settings
     slack_bot_token = os.environ.get("SLACK_BOT_TOKEN")
     if not slack_bot_token:
@@ -646,10 +610,8 @@ def load_config_from_env() -> Config:
         log_file=log_file,
         log_size=log_size,
         log_backups=log_backups,
-        stage_models=stage_models,
         otel_endpoint=os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
         otel_service_name=os.environ.get("OTEL_SERVICE_NAME", "kiln"),
-        claude_code_enable_telemetry=os.environ.get("CLAUDE_CODE_ENABLE_TELEMETRY", "0") == "1",
         safety_allow_appended_tasks=int(os.environ.get("SAFETY_ALLOW_APPENDED_TASKS", "0")),
         ghes_logs_mask=os.environ.get("GHES_LOGS_MASK", "true").lower() == "true",
         slack_bot_token=slack_bot_token,

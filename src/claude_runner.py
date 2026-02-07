@@ -150,7 +150,6 @@ def run_claude(
     inactivity_timeout: int = 300,
     issue_context: str | None = None,  # noqa: ARG001
     resume_session: str | None = None,
-    enable_telemetry: bool = False,
     execution_stage: str | None = None,
     mcp_config_path: str | None = None,
     process_registrar: Callable[[subprocess.Popen[str]], None] | None = None,
@@ -225,10 +224,6 @@ def run_claude(
 
         # Auth handled via keyring (gh auth login stores token there)
         # No env var injection needed - Claude inherits user's keyring access
-
-        # Add telemetry flag if enabled
-        if enable_telemetry:
-            env["CLAUDE_CODE_ENABLE_TELEMETRY"] = "1"
 
         # Claude runs as the user and inherits ~/.config/gh/hosts.yml
         # All gh commands use full URLs (https://hostname/owner/repo/issues/N)

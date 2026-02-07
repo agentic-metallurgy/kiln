@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from tenacity import wait_exponential
 
 from src.claude_runner import run_claude
+from src.config import STAGE_MODELS
 from src.integrations.slack import (
     send_implementation_beginning_notification,
     send_ready_for_validation_notification,
@@ -393,7 +394,7 @@ class ImplementWorkflow:
             config: Application configuration
             stage_name: Stage name for model selection and logging
         """
-        model = config.stage_models.get(stage_name) or config.stage_models.get("Implement")
+        model = STAGE_MODELS.get(stage_name) or STAGE_MODELS.get("Implement")
         issue_context = f"{ctx.repo}#{ctx.issue_number}"
 
         logger.info(f"Running prompt (model={model}, workspace={ctx.workspace_path})")
@@ -404,7 +405,6 @@ class ImplementWorkflow:
             ctx.workspace_path,
             model=model,
             issue_context=issue_context,
-            enable_telemetry=config.claude_code_enable_telemetry,
             execution_stage=stage_name,
         )
 

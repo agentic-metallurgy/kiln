@@ -26,7 +26,7 @@ def daemon(temp_workspace_dir):
     config.database_path = f"{temp_workspace_dir}/test.db"
     config.workspace_dir = temp_workspace_dir
     config.project_urls = ["https://github.com/orgs/test/projects/1"]
-    config.stage_models = {}
+
     config.github_enterprise_version = None
 
     with patch("src.ticket_clients.github.GitHubTicketClient"):
