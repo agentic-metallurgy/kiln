@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import time
@@ -195,45 +196,42 @@ def check_for_updates(kiln_dir: Path | None = None) -> UpdateInfo | None:
         return None
 
 
-def configure_git_credential_helper(hostname: str = "github.com") -> None:
-    """Configure gh CLI as git credential helper for a hostname.
+def configure_git_credential_env(hostnames: set[str]) -> None:
+    """Configure gh CLI as git credential helper via environment variables.
 
-    Sets up git to use `gh auth git-credential` for HTTPS authentication.
-    This is equivalent to running `gh auth setup-git` but supports per-hostname
-    configuration for GitHub Enterprise Server.
+    Sets GIT_CONFIG_COUNT/GIT_CONFIG_KEY_*/GIT_CONFIG_VALUE_* to inject
+    credential helper configuration into the current process environment.
+    Child processes (git, claude, gh) inherit these variables automatically.
 
-    The function clears any existing credential helpers for the hostname before
-    adding the gh CLI helper to avoid stacking multiple helpers.
+    This approach is preferred over `git config --global` as it:
+    - Does not modify the user's ~/.gitconfig
+    - Only affects Kiln's process tree
+    - Leaves external terminals unaffected
+
+    Requires Git 2.31+ (released March 2021).
 
     Args:
-        hostname: GitHub hostname (e.g., "github.com" or "github.mycompany.com")
+        hostnames: Set of GitHub hostnames (e.g., {"github.com", "ghes.company.com"})
 
     Example:
-        >>> configure_git_credential_helper("github.com")
-        >>> configure_git_credential_helper("github.enterprise.example.com")
+        >>> configure_git_credential_env({"github.com", "ghes.company.com"})
 
-        After calling, `git config --global --get credential.https://github.com.helper`
-        will return `!gh auth git-credential`.
+        After calling, environment variables will be set:
+        - GIT_CONFIG_COUNT=2
+        - GIT_CONFIG_KEY_0=credential.https://ghes.company.com.helper
+        - GIT_CONFIG_VALUE_0=!gh auth git-credential
+        - GIT_CONFIG_KEY_1=credential.https://github.com.helper
+        - GIT_CONFIG_VALUE_1=!gh auth git-credential
     """
-    credential_key = f"credential.https://{hostname}.helper"
+    sorted_hostnames = sorted(hostnames)
+    os.environ["GIT_CONFIG_COUNT"] = str(len(sorted_hostnames))
 
-    try:
-        # Clear any existing helpers for this hostname to avoid stacking
-        subprocess.run(
-            ["git", "config", "--global", credential_key, ""],
-            check=False,  # Don't fail if no existing config
-            capture_output=True,
-        )
+    for i, hostname in enumerate(sorted_hostnames):
+        os.environ[f"GIT_CONFIG_KEY_{i}"] = f"credential.https://{hostname}.helper"
+        os.environ[f"GIT_CONFIG_VALUE_{i}"] = "!gh auth git-credential"
 
-        # Add gh as credential helper
-        subprocess.run(
-            ["git", "config", "--global", "--add", credential_key, "!gh auth git-credential"],
-            check=True,
-            capture_output=True,
-        )
-    except subprocess.CalledProcessError as e:
-        # Log but don't fail - user might have different setup
-        logger.warning(f"Could not configure git credential helper for {hostname}: {e}")
+    if sorted_hostnames:
+        logger.debug(f"Configured git credential env vars for: {', '.join(sorted_hostnames)}")
 
 
 def get_hostnames_from_project_urls(project_urls: list[str]) -> set[str]:

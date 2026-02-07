@@ -16,7 +16,7 @@ from src.setup.checks import (
     UpdateInfo,
     check_for_updates,
     check_required_tools,
-    configure_git_credential_helper,
+    configure_git_credential_env,
     get_hostnames_from_project_urls,
     is_restricted_directory,
     validate_working_directory,
@@ -244,79 +244,71 @@ class TestCheckRequiredTools:
 
 
 @pytest.mark.unit
-class TestConfigureGitCredentialHelper:
-    """Tests for configure_git_credential_helper()."""
+class TestConfigureGitCredentialEnv:
+    """Tests for configure_git_credential_env()."""
 
-    def test_configures_github_com_by_default(self):
-        """Test that github.com is configured by default."""
-        with patch("src.setup.checks.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
-            configure_git_credential_helper()
+    def test_single_hostname(self, monkeypatch):
+        """Test environment variables set for single hostname."""
+        # Clear any existing GIT_CONFIG_* vars
+        for key in list(os.environ.keys()):
+            if key.startswith("GIT_CONFIG_"):
+                monkeypatch.delenv(key, raising=False)
 
-            # Should be called twice: once to clear, once to add
-            assert mock_run.call_count == 2
+        configure_git_credential_env({"github.com"})
 
-            # First call clears existing helper
-            first_call = mock_run.call_args_list[0]
-            assert first_call[0][0] == [
-                "git",
-                "config",
-                "--global",
-                "credential.https://github.com.helper",
-                "",
-            ]
+        assert os.environ["GIT_CONFIG_COUNT"] == "1"
+        assert os.environ["GIT_CONFIG_KEY_0"] == "credential.https://github.com.helper"
+        assert os.environ["GIT_CONFIG_VALUE_0"] == "!gh auth git-credential"
 
-            # Second call adds gh as helper
-            second_call = mock_run.call_args_list[1]
-            assert second_call[0][0] == [
-                "git",
-                "config",
-                "--global",
-                "--add",
-                "credential.https://github.com.helper",
-                "!gh auth git-credential",
-            ]
+    def test_multiple_hostnames_sorted(self, monkeypatch):
+        """Test multiple hostnames are sorted and zero-indexed."""
+        for key in list(os.environ.keys()):
+            if key.startswith("GIT_CONFIG_"):
+                monkeypatch.delenv(key, raising=False)
 
-    def test_configures_custom_hostname(self):
-        """Test that custom hostnames are configured correctly."""
-        with patch("src.setup.checks.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
-            configure_git_credential_helper("ghes.company.com")
+        configure_git_credential_env({"zebra.example.com", "alpha.example.com", "github.com"})
 
-            # Should use the custom hostname
-            first_call = mock_run.call_args_list[0]
-            assert "credential.https://ghes.company.com.helper" in first_call[0][0]
+        assert os.environ["GIT_CONFIG_COUNT"] == "3"
+        # Sorted order: alpha, github, zebra
+        assert os.environ["GIT_CONFIG_KEY_0"] == "credential.https://alpha.example.com.helper"
+        assert os.environ["GIT_CONFIG_VALUE_0"] == "!gh auth git-credential"
+        assert os.environ["GIT_CONFIG_KEY_1"] == "credential.https://github.com.helper"
+        assert os.environ["GIT_CONFIG_VALUE_1"] == "!gh auth git-credential"
+        assert os.environ["GIT_CONFIG_KEY_2"] == "credential.https://zebra.example.com.helper"
+        assert os.environ["GIT_CONFIG_VALUE_2"] == "!gh auth git-credential"
 
-            second_call = mock_run.call_args_list[1]
-            assert "credential.https://ghes.company.com.helper" in second_call[0][0]
+    def test_empty_hostname_set(self, monkeypatch):
+        """Test empty hostname set sets count to zero."""
+        for key in list(os.environ.keys()):
+            if key.startswith("GIT_CONFIG_"):
+                monkeypatch.delenv(key, raising=False)
 
-    def test_handles_subprocess_error_gracefully(self):
-        """Test that subprocess errors are logged but don't raise."""
-        with patch("src.setup.checks.subprocess.run") as mock_run:
-            mock_run.side_effect = subprocess.CalledProcessError(1, "git")
+        configure_git_credential_env(set())
 
-            with patch("src.setup.checks.logger") as mock_logger:
-                # Should not raise
-                configure_git_credential_helper("github.com")
-                mock_logger.warning.assert_called_once()
-                assert "Could not configure" in mock_logger.warning.call_args[0][0]
+        assert os.environ["GIT_CONFIG_COUNT"] == "0"
 
-    def test_clear_does_not_fail_on_missing_config(self):
-        """Test that clearing missing config doesn't fail startup."""
-        def side_effect(args, **kwargs):
-            # First call (clear) fails - no existing config
-            if args[-1] == "":
-                raise subprocess.CalledProcessError(1, "git")
-            # Second call (add) succeeds
-            return MagicMock(returncode=0)
+    def test_logs_configured_hostnames(self, monkeypatch):
+        """Test that configured hostnames are logged at DEBUG level."""
+        for key in list(os.environ.keys()):
+            if key.startswith("GIT_CONFIG_"):
+                monkeypatch.delenv(key, raising=False)
 
-        with patch("src.setup.checks.subprocess.run", side_effect=side_effect):
-            with patch("src.setup.checks.logger") as mock_logger:
-                # Should log warning but handle gracefully
-                configure_git_credential_helper()
-                # First call with check=False shouldn't raise even on error
-                # but the side_effect still raises, so warning should be logged
-                mock_logger.warning.assert_called()
+        with patch("src.setup.checks.logger") as mock_logger:
+            configure_git_credential_env({"github.com", "ghes.company.com"})
+            mock_logger.debug.assert_called_once()
+            log_message = mock_logger.debug.call_args[0][0]
+            assert "ghes.company.com" in log_message
+            assert "github.com" in log_message
+
+    def test_no_log_for_empty_set(self, monkeypatch):
+        """Test that no log is produced for empty hostname set."""
+        for key in list(os.environ.keys()):
+            if key.startswith("GIT_CONFIG_"):
+                monkeypatch.delenv(key, raising=False)
+
+        with patch("src.setup.checks.logger") as mock_logger:
+            configure_git_credential_env(set())
+            mock_logger.debug.assert_not_called()
 
 
 @pytest.mark.unit
