@@ -465,19 +465,19 @@ class TestCheckClaudeInstallation:
         assert result.version == "1.0.45"
         assert result.install_method == "native"
 
-    def test_npm_installation_raises(self):
-        """Test error when claude is installed via npm."""
+    def test_npm_installation_returns_info(self):
+        """Test npm installation returns ClaudeInfo."""
         with patch("shutil.which", return_value="/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude"):
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(
                     returncode=0, stdout="claude v1.0.45\n"
                 )
-                with pytest.raises(SetupError) as exc_info:
-                    check_claude_installation()
+                result = check_claude_installation()
 
-        error = str(exc_info.value)
-        assert "npm installations are not supported" in error
-        assert "npm uninstall" in error
+        assert isinstance(result, ClaudeInfo)
+        assert result.path == "/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude"
+        assert result.version == "1.0.45"
+        assert result.install_method == "npm"
 
     def test_npm_path_detection(self):
         """Test npm path detection via /npm/ in path."""
@@ -486,24 +486,24 @@ class TestCheckClaudeInstallation:
                 mock_run.return_value = MagicMock(
                     returncode=0, stdout="claude v1.0.45\n"
                 )
-                with pytest.raises(SetupError) as exc_info:
-                    check_claude_installation()
+                result = check_claude_installation()
 
-        assert "npm installations are not supported" in str(exc_info.value)
+        assert isinstance(result, ClaudeInfo)
+        assert result.install_method == "npm"
 
-    def test_brew_installation_raises(self):
-        """Test error when claude is installed via Homebrew."""
+    def test_brew_installation_returns_info(self):
+        """Test Homebrew installation returns ClaudeInfo."""
         with patch("shutil.which", return_value="/opt/homebrew/Cellar/claude/1.0.45/bin/claude"):
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(
                     returncode=0, stdout="claude v1.0.45\n"
                 )
-                with pytest.raises(SetupError) as exc_info:
-                    check_claude_installation()
+                result = check_claude_installation()
 
-        error = str(exc_info.value)
-        assert "Homebrew installations are not supported" in error
-        assert "brew uninstall" in error
+        assert isinstance(result, ClaudeInfo)
+        assert result.path == "/opt/homebrew/Cellar/claude/1.0.45/bin/claude"
+        assert result.version == "1.0.45"
+        assert result.install_method == "brew"
 
     def test_brew_path_detection_homebrew(self):
         """Test brew path detection via /homebrew/ in path."""
@@ -512,10 +512,10 @@ class TestCheckClaudeInstallation:
                 mock_run.return_value = MagicMock(
                     returncode=0, stdout="claude v1.0.45\n"
                 )
-                with pytest.raises(SetupError) as exc_info:
-                    check_claude_installation()
+                result = check_claude_installation()
 
-        assert "Homebrew installations are not supported" in str(exc_info.value)
+        assert isinstance(result, ClaudeInfo)
+        assert result.install_method == "brew"
 
     def test_version_parsing_without_v_prefix(self):
         """Test version parsing when version doesn't have v prefix."""
