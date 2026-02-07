@@ -959,6 +959,10 @@ class Daemon:
             for item in all_items:
                 self._maybe_handle_reset(item)
 
+            # Handle recreate label: create fresh issue copy and close original
+            for item in all_items:
+                self._maybe_handle_recreate(item)
+
             # Collect items that need workflow execution
             items_to_process: list[TicketItem] = []
             for item in all_items:
@@ -1562,6 +1566,218 @@ class Daemon:
             logger.info(f"RESET: Cleared placement_status for {key}")
         except Exception as e:
             logger.warning(f"RESET: Failed to clear placement_status for {key}: {e}")
+
+    def _get_original_description(self, body: str) -> str:
+        """Extract original issue description, stripping kiln-generated sections.
+
+        Reuses regex patterns from _clear_kiln_content to remove research/plan sections.
+
+        Args:
+            body: Full issue body text
+
+        Returns:
+            Original description with kiln content removed
+        """
+        # Remove research section with <details> wrapper (most specific, try first)
+        research_details_pattern = (
+            r"\n*---\n*<details>\s*\n*<summary>.*?Research Findings.*?</summary>"
+            r"\s*\n*<!-- kiln:research -->.*?<!-- /kiln:research -->\s*\n*</details>"
+        )
+        body = re.sub(research_details_pattern, "", body, flags=re.DOTALL)
+
+        # Research with <details> wrapper, no separator
+        research_details_no_sep = (
+            r"\n*<details>\s*\n*<summary>.*?Research Findings.*?</summary>"
+            r"\s*\n*<!-- kiln:research -->.*?<!-- /kiln:research -->\s*\n*</details>"
+        )
+        body = re.sub(research_details_no_sep, "", body, flags=re.DOTALL)
+
+        # Research with <details> wrapper and legacy end marker
+        research_details_legacy = (
+            r"\n*---\n*<details>\s*\n*<summary>.*?Research Findings.*?</summary>"
+            r"\s*\n*<!-- kiln:research -->.*?<!-- /kiln -->\s*\n*</details>"
+        )
+        body = re.sub(research_details_legacy, "", body, flags=re.DOTALL)
+
+        # Research with <details> wrapper, legacy end marker, no separator
+        research_details_legacy_no_sep = (
+            r"\n*<details>\s*\n*<summary>.*?Research Findings.*?</summary>"
+            r"\s*\n*<!-- kiln:research -->.*?<!-- /kiln -->\s*\n*</details>"
+        )
+        body = re.sub(research_details_legacy_no_sep, "", body, flags=re.DOTALL)
+
+        # Remove plan section with <details> wrapper
+        plan_details_pattern = (
+            r"\n*---\n*<details>\s*\n*<summary>.*?Implementation Plan.*?</summary>"
+            r"\s*\n*<!-- kiln:plan -->.*?<!-- /kiln:plan -->\s*\n*</details>"
+        )
+        body = re.sub(plan_details_pattern, "", body, flags=re.DOTALL)
+
+        # Plan with <details> wrapper, no separator
+        plan_details_no_sep = (
+            r"\n*<details>\s*\n*<summary>.*?Implementation Plan.*?</summary>"
+            r"\s*\n*<!-- kiln:plan -->.*?<!-- /kiln:plan -->\s*\n*</details>"
+        )
+        body = re.sub(plan_details_no_sep, "", body, flags=re.DOTALL)
+
+        # Plan with <details> wrapper and legacy end marker
+        plan_details_legacy = (
+            r"\n*---\n*<details>\s*\n*<summary>.*?Implementation Plan.*?</summary>"
+            r"\s*\n*<!-- kiln:plan -->.*?<!-- /kiln -->\s*\n*</details>"
+        )
+        body = re.sub(plan_details_legacy, "", body, flags=re.DOTALL)
+
+        # Plan with <details> wrapper, legacy end marker, no separator
+        plan_details_legacy_no_sep = (
+            r"\n*<details>\s*\n*<summary>.*?Implementation Plan.*?</summary>"
+            r"\s*\n*<!-- kiln:plan -->.*?<!-- /kiln -->\s*\n*</details>"
+        )
+        body = re.sub(plan_details_legacy_no_sep, "", body, flags=re.DOTALL)
+
+        # Remove research section without <details> wrapper
+        research_pattern = r"\n*---\n*<!-- kiln:research -->.*?<!-- /kiln:research -->"
+        body = re.sub(research_pattern, "", body, flags=re.DOTALL)
+
+        # Remove plan section without <details> wrapper
+        plan_pattern = r"\n*---\n*<!-- kiln:plan -->.*?<!-- /kiln:plan -->"
+        body = re.sub(plan_pattern, "", body, flags=re.DOTALL)
+
+        # Handle case where sections don't have separator
+        research_pattern_no_sep = r"\n*<!-- kiln:research -->.*?<!-- /kiln:research -->"
+        body = re.sub(research_pattern_no_sep, "", body, flags=re.DOTALL)
+
+        plan_pattern_no_sep = r"\n*<!-- kiln:plan -->.*?<!-- /kiln:plan -->"
+        body = re.sub(plan_pattern_no_sep, "", body, flags=re.DOTALL)
+
+        # Handle legacy end marker
+        research_pattern_legacy = r"\n*---\n*<!-- kiln:research -->.*?<!-- /kiln -->"
+        body = re.sub(research_pattern_legacy, "", body, flags=re.DOTALL)
+
+        research_pattern_legacy_no_sep = r"\n*<!-- kiln:research -->.*?<!-- /kiln -->"
+        body = re.sub(research_pattern_legacy_no_sep, "", body, flags=re.DOTALL)
+
+        plan_pattern_legacy = r"\n*---\n*<!-- kiln:plan -->.*?<!-- /kiln -->"
+        body = re.sub(plan_pattern_legacy, "", body, flags=re.DOTALL)
+
+        plan_pattern_legacy_no_sep = r"\n*<!-- kiln:plan -->.*?<!-- /kiln -->"
+        body = re.sub(plan_pattern_legacy_no_sep, "", body, flags=re.DOTALL)
+
+        return body.rstrip()
+
+    def _maybe_handle_recreate(self, item: TicketItem) -> None:
+        """Handle the recreate label by creating a fresh issue copy.
+
+        When a user adds the 'recreate' label to an issue, this method:
+        1. Validates the label was added by an allowed user
+        2. Removes the 'recreate' label
+        3. Kills any running subprocess and cleans up worktree
+        4. Creates a new issue with original description + reference to old issue
+        5. Adds new issue to project with Backlog status
+        6. Closes original issue as 'not_planned'
+        7. Archives the original project item
+
+        Args:
+            item: TicketItem to check (with cached labels)
+        """
+        # Only process items with the recreate label
+        if Labels.RECREATE not in item.labels:
+            return
+
+        # Skip closed issues
+        if item.state == "CLOSED":
+            return
+
+        key = f"{item.repo}#{item.ticket_id}"
+
+        actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, Labels.RECREATE)
+        actor_category = check_actor_allowed(
+            actor, self.config.username_self, key, "RECREATE", self.config.team_usernames
+        )
+        if actor_category != ActorCategory.SELF:
+            # Only remove recreate label when actor is known but not allowed
+            if actor_category == ActorCategory.BLOCKED or actor_category == ActorCategory.TEAM:
+                self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.RECREATE)
+            return
+
+        logger.info(
+            f"RECREATE: Processing recreate for {key} in '{item.status}' "
+            f"(label added by allowed user '{actor}')"
+        )
+
+        # Remove the recreate label first
+        self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.RECREATE)
+
+        # Kill any running subprocess for this issue (before worktree cleanup)
+        if self.kill_process(key):
+            logger.info(f"RECREATE: Killed running subprocess for {key}")
+
+        # Clean up worktree if it exists
+        repo_name = item.repo.split("/")[-1]
+        worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
+        if Path(worktree_path).exists():
+            try:
+                self.workspace_manager.cleanup_workspace(repo_name, item.ticket_id)
+                logger.info(f"RECREATE: Cleaned up worktree for {key}")
+            except Exception as e:
+                logger.warning(f"RECREATE: Failed to cleanup worktree for {key}: {e}")
+
+        # Close open PRs and delete their branches (like reset does)
+        self._close_prs_and_delete_branches(item)
+
+        # Get original description
+        body = self.ticket_client.get_ticket_body(item.repo, item.ticket_id)
+        if body is None:
+            logger.error(f"RECREATE: Could not get issue body for {key}")
+            return
+
+        original_description = self._get_original_description(body)
+        new_body = f"Recreated from #{item.ticket_id}\n\n---\n\n{original_description}"
+
+        # Create new issue
+        try:
+            new_issue_num = self.ticket_client.create_issue(item.repo, item.title, new_body)
+            logger.info(f"RECREATE: Created new issue #{new_issue_num} from {key}")
+        except Exception as e:
+            logger.error(f"RECREATE: Failed to create new issue for {key}: {e}")
+            return
+
+        # Add new issue to project with Backlog status
+        hostname = self._get_hostname_from_url(item.board_url)
+        metadata = self._project_metadata.get(item.board_url)
+        if metadata and metadata.project_id:
+            new_issue_node_id = self.ticket_client.get_issue_node_id(item.repo, new_issue_num)
+            if new_issue_node_id:
+                new_item_id = self.ticket_client.add_issue_to_project(
+                    metadata.project_id, new_issue_node_id, hostname
+                )
+                if new_item_id:
+                    # Set status to Backlog
+                    try:
+                        self.ticket_client.update_item_status(
+                            new_item_id, "Backlog", hostname=hostname
+                        )
+                        logger.info(f"RECREATE: Added #{new_issue_num} to project Backlog")
+                    except Exception as e:
+                        logger.warning(
+                            f"RECREATE: Failed to set Backlog status for #{new_issue_num}: {e}"
+                        )
+                else:
+                    logger.warning(f"RECREATE: Failed to add #{new_issue_num} to project")
+            else:
+                logger.warning(f"RECREATE: Could not get node ID for #{new_issue_num}")
+        else:
+            logger.warning(
+                f"RECREATE: No project metadata for {item.board_url}, skipping project add"
+            )
+
+        # Close original issue as "not_planned"
+        self.ticket_client.close_issue(item.repo, item.ticket_id, "not_planned")
+
+        # Archive original project item
+        if metadata and metadata.project_id and self.ticket_client.archive_item(
+            metadata.project_id, item.item_id, hostname=hostname
+        ):
+            logger.info(f"RECREATE: Archived original project item for {key}")
 
     def _clear_kiln_content(self, item: TicketItem) -> None:
         """Clear kiln-generated content from an issue's body.
