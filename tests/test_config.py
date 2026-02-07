@@ -1017,9 +1017,10 @@ class TestGHESConfiguration:
             "USERNAME_SELF=testuser",
         )
 
+        # Version is now optional (auto-detected), only host is required
         with pytest.raises(
             ValueError,
-            match="Missing required configuration in .kiln/config: GITHUB_ENTERPRISE_HOST, GITHUB_ENTERPRISE_VERSION",
+            match="Missing required configuration in .kiln/config: GITHUB_ENTERPRISE_HOST",
         ):
             load_config_from_file(config_file)
 
@@ -1031,9 +1032,10 @@ class TestGHESConfiguration:
         monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
         monkeypatch.setenv("USERNAME_SELF", "testuser")
 
+        # Version is now optional (auto-detected), only host is required
         with pytest.raises(
             ValueError,
-            match="Missing required environment variables: GITHUB_ENTERPRISE_HOST, GITHUB_ENTERPRISE_VERSION",
+            match="Missing required environment variables: GITHUB_ENTERPRISE_HOST",
         ):
             load_config_from_env()
 
