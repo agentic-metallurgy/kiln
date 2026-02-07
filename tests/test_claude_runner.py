@@ -349,30 +349,6 @@ class TestRunClaude:
         with pytest.raises(ClaudeRunnerError, match="Failed to execute Claude CLI"):
             run_claude("Prompt", "/nonexistent/directory")
 
-    def test_run_claude_with_telemetry_enabled(self, mock_claude_subprocess, tmp_path):
-        """Test run_claude sets CLAUDE_CODE_ENABLE_TELEMETRY env var when enabled."""
-        result_event = json.dumps({"type": "result", "result": "Response"})
-        mock_process = self._create_mock_process([result_event + "\n"])
-        mock_claude_subprocess.return_value = mock_process
-
-        run_claude("Prompt", str(tmp_path), enable_telemetry=True)
-
-        call_args = mock_claude_subprocess.call_args
-        env = call_args[1].get("env", {})
-        assert env.get("CLAUDE_CODE_ENABLE_TELEMETRY") == "1"
-
-    def test_run_claude_with_telemetry_disabled(self, mock_claude_subprocess, tmp_path):
-        """Test run_claude does not set telemetry env var when disabled."""
-        result_event = json.dumps({"type": "result", "result": "Response"})
-        mock_process = self._create_mock_process([result_event + "\n"])
-        mock_claude_subprocess.return_value = mock_process
-
-        run_claude("Prompt", str(tmp_path), enable_telemetry=False)
-
-        call_args = mock_claude_subprocess.call_args
-        env = call_args[1].get("env", {})
-        assert env.get("CLAUDE_CODE_ENABLE_TELEMETRY") != "1"
-
     def test_run_claude_with_mcp_config_path(self, mock_claude_subprocess, tmp_path):
         """Test run_claude passes --mcp-config flag to CLI when path is provided."""
         result_event = json.dumps({"type": "result", "result": "Response with MCP"})

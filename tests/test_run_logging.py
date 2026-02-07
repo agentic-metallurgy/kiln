@@ -1113,7 +1113,7 @@ class TestRunLoggingIntegration:
         config.database_path = str(tmp_path / "test.db")
         config.workspace_dir = str(tmp_path / "worktrees")
         config.project_urls = ["https://github.com/orgs/test/projects/1"]
-        config.stage_models = {}
+
         config.github_enterprise_version = None
         config.ghes_logs_mask = False
         config.github_enterprise_host = None

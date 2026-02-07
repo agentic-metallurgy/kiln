@@ -25,7 +25,7 @@ def config_with_azure():
     config.max_concurrent_workflows = 2
     config.workspace_dir = tempfile.mkdtemp()
     config.project_urls = ["https://github.com/orgs/test/projects/1"]
-    config.stage_models = {}
+
     config.github_enterprise_version = None
     config.github_enterprise_host = None
     config.github_token = None
@@ -33,7 +33,7 @@ def config_with_azure():
     config.username_self = "test-bot"
     config.team_usernames = []
     config.ghes_logs_mask = False
-    config.claude_code_enable_telemetry = False
+
     # Azure OAuth settings
     config.azure_tenant_id = "test-tenant-id"
     config.azure_client_id = "test-client-id"
@@ -52,7 +52,7 @@ def config_without_azure():
     config.max_concurrent_workflows = 2
     config.workspace_dir = tempfile.mkdtemp()
     config.project_urls = ["https://github.com/orgs/test/projects/1"]
-    config.stage_models = {}
+
     config.github_enterprise_version = None
     config.github_enterprise_host = None
     config.github_token = None
@@ -60,7 +60,7 @@ def config_without_azure():
     config.username_self = "test-bot"
     config.team_usernames = []
     config.ghes_logs_mask = False
-    config.claude_code_enable_telemetry = False
+
     # No Azure OAuth settings
     config.azure_tenant_id = None
     config.azure_client_id = None
@@ -228,8 +228,8 @@ class TestWorkflowRunnerMCPConfig:
     def test_run_passes_mcp_config_path_to_run_claude(self):
         """Test that WorkflowRunner.run() passes mcp_config_path to run_claude()."""
         config = MagicMock()
-        config.stage_models = {"Research": "haiku"}
-        config.claude_code_enable_telemetry = False
+
+    
 
         runner = WorkflowRunner(config)
 
@@ -264,8 +264,8 @@ class TestWorkflowRunnerMCPConfig:
     def test_run_passes_none_when_no_mcp_config(self):
         """Test that WorkflowRunner.run() passes None when no MCP config."""
         config = MagicMock()
-        config.stage_models = {"Research": "haiku"}
-        config.claude_code_enable_telemetry = False
+
+    
 
         runner = WorkflowRunner(config)
 
@@ -346,7 +346,7 @@ class TestDaemonMCPStartupLogging:
         config.workspace_dir = str(tmp_path)
         config.database_path = str(tmp_path / "test.db")
         config.project_urls = ["https://github.com/orgs/test/projects/1"]
-        config.stage_models = {}
+    
         config.github_enterprise_version = None
         config.github_enterprise_host = None
         config.github_token = None
@@ -354,7 +354,7 @@ class TestDaemonMCPStartupLogging:
         config.username_self = "test-bot"
         config.team_usernames = []
         config.ghes_logs_mask = False
-        config.claude_code_enable_telemetry = False
+    
         config.azure_tenant_id = None
         config.azure_client_id = None
         config.azure_username = None

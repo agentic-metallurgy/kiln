@@ -48,7 +48,7 @@ def base_config(temp_workspace_dir):
     config.database_path = f"{temp_workspace_dir}/test.db"
     config.workspace_dir = temp_workspace_dir
     config.project_urls = ["https://github.com/orgs/test/projects/1"]
-    config.stage_models = {}
+
     config.github_enterprise_version = None
     config.github_enterprise_host = None
     config.github_token = None
@@ -56,7 +56,7 @@ def base_config(temp_workspace_dir):
     config.username_self = "test-bot"
     config.team_usernames = []
     config.ghes_logs_mask = False
-    config.claude_code_enable_telemetry = False
+
     config.azure_tenant_id = None
     config.azure_client_id = None
     config.azure_username = None
@@ -75,7 +75,7 @@ def daemon_for_workflow(temp_workspace_dir):
     config.database_path = f"{temp_workspace_dir}/test.db"
     config.workspace_dir = temp_workspace_dir
     config.project_urls = ["https://github.com/orgs/test/projects/1"]
-    config.stage_models = {}
+
     config.github_enterprise_version = None
     config.username_self = "test-bot"
     config.ghes_logs_mask = False

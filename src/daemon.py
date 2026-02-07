@@ -23,7 +23,7 @@ from tenacity import wait_exponential
 
 from src.claude_runner import run_claude
 from src.comment_processor import CommentProcessor
-from src.config import Config, load_config
+from src.config import STAGE_MODELS, Config, load_config
 from src.database import Database, ProjectMetadata, RunRecord
 from src.frontmatter import parse_issue_frontmatter
 from src.integrations.azure_oauth import AzureOAuthClient
@@ -161,7 +161,7 @@ class WorkflowRunner:
                         log_message(logger, "Prompt", prompt)
 
                         try:
-                            model = self.config.stage_models.get(workflow_name)
+                            model = STAGE_MODELS.get(workflow_name)
                             issue_context = f"{ctx.repo}#{ctx.issue_number}"
                             result = run_claude(
                                 prompt,
@@ -169,7 +169,6 @@ class WorkflowRunner:
                                 model=model,
                                 issue_context=issue_context,
                                 resume_session=resume_session,
-                                enable_telemetry=self.config.claude_code_enable_telemetry,
                                 execution_stage=workflow_name.lower(),
                                 mcp_config_path=mcp_config_path,
                                 process_registrar=process_registrar,
