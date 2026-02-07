@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import time
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
@@ -19,6 +21,101 @@ class SetupError(Exception):
     """Raised when setup validation fails."""
 
     pass
+
+
+@dataclass
+class ClaudeInfo:
+    """Information about the Claude CLI installation."""
+
+    path: str
+    version: str
+    install_method: str
+
+
+def check_claude_installation() -> ClaudeInfo:
+    """Check Claude CLI installation and validate it's the native version.
+
+    Uses shutil.which to resolve the full path, runs claude --version to get
+    the version, and detects the installation method from the path.
+
+    Returns:
+        ClaudeInfo with path, version, and install_method
+
+    Raises:
+        SetupError: If Claude is not found, or if installed via npm/brew
+    """
+    # Find claude executable
+    claude_path = shutil.which("claude")
+    if claude_path is None:
+        raise SetupError(
+            "claude CLI not found. Install from: "
+            "https://docs.anthropic.com/en/docs/claude-code/overview"
+        )
+
+    # Get version
+    try:
+        result = subprocess.run(
+            ["claude", "--version"],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+        version_output = result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        raise SetupError(f"claude CLI error: {e.stderr if e.stderr else str(e)}") from e
+
+    # Parse version (look for patterns like "v1.0.45" or "1.0.45")
+    version_match = re.search(r"v?(\d+\.\d+\.\d+)", version_output)
+    version = version_match.group(1) if version_match else version_output
+
+    # Detect installation method from path
+    path_lower = claude_path.lower()
+    if "node_modules" in path_lower or "/npm/" in path_lower or "/.npm/" in path_lower:
+        install_method = "npm"
+    elif "/cellar/" in path_lower or "/homebrew/" in path_lower:
+        install_method = "brew"
+    else:
+        install_method = "native"
+
+    # Reject npm and brew installations
+    if install_method == "npm":
+        raise SetupError(
+            f"Claude CLI installed via npm detected at: {claude_path}\n"
+            "npm installations are not supported. Please uninstall and use the native installer:\n"
+            "  npm uninstall -g @anthropic-ai/claude-code\n"
+            "Then install from: https://docs.anthropic.com/en/docs/claude-code/overview"
+        )
+
+    if install_method == "brew":
+        raise SetupError(
+            f"Claude CLI installed via Homebrew detected at: {claude_path}\n"
+            "Homebrew installations are not supported. Please uninstall and use the native installer:\n"
+            "  brew uninstall claude\n"
+            "Then install from: https://docs.anthropic.com/en/docs/claude-code/overview"
+        )
+
+    return ClaudeInfo(path=claude_path, version=version, install_method=install_method)
+
+
+def check_anthropic_env_vars() -> None:
+    """Check for ANTHROPIC_* environment variables that may interfere with Claude.
+
+    Scans os.environ for any keys starting with ANTHROPIC_ and raises an error
+    if any are found, as these can cause issues with the Claude CLI.
+
+    Raises:
+        SetupError: If any ANTHROPIC_* environment variables are found
+    """
+    anthropic_vars = [key for key in os.environ if key.startswith("ANTHROPIC_")]
+
+    if anthropic_vars:
+        unset_commands = "\n".join(f"  unset {var}" for var in sorted(anthropic_vars))
+        raise SetupError(
+            f"Found ANTHROPIC_* environment variables: {', '.join(sorted(anthropic_vars))}\n"
+            "These variables can interfere with Claude CLI operation.\n"
+            "Remove ANTHROPIC_* environment variables by running:\n"
+            f"{unset_commands}"
+        )
 
 
 def is_restricted_directory(directory: Path | None = None) -> bool:
@@ -83,16 +180,23 @@ def validate_working_directory(directory: Path | None = None) -> None:
         )
 
 
-def check_required_tools() -> None:
+def check_required_tools() -> ClaudeInfo:
     """Check that required CLI tools are available.
 
     Checks for:
+    - No ANTHROPIC_* environment variables
     - gh CLI (GitHub CLI)
-    - claude CLI (Claude Code)
+    - claude CLI (Claude Code) - must be native installation
+
+    Returns:
+        ClaudeInfo with details about the Claude CLI installation
 
     Raises:
         SetupError: If any required tool is missing with installation instructions
     """
+    # Check for interfering environment variables first
+    check_anthropic_env_vars()
+
     errors = []
 
     # Check gh CLI
@@ -107,23 +211,13 @@ def check_required_tools() -> None:
     except subprocess.CalledProcessError as e:
         errors.append(f"gh CLI error: {e.stderr.decode() if e.stderr else str(e)}")
 
-    # Check claude CLI
-    try:
-        subprocess.run(
-            ["claude", "--version"],
-            capture_output=True,
-            check=True,
-        )
-    except FileNotFoundError:
-        errors.append(
-            "claude CLI not found. Install from: "
-            "https://docs.anthropic.com/en/docs/claude-code/overview"
-        )
-    except subprocess.CalledProcessError as e:
-        errors.append(f"claude CLI error: {e.stderr.decode() if e.stderr else str(e)}")
-
     if errors:
         raise SetupError("\n".join(errors))
+
+    # Check claude CLI (includes installation method validation)
+    claude_info = check_claude_installation()
+
+    return claude_info
 
 
 FORMULA_URL = "https://raw.githubusercontent.com/agentic-metallurgy/homebrew-tap/main/Formula/kiln.rb"

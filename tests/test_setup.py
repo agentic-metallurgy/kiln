@@ -12,8 +12,11 @@ import pytest
 from src.setup.checks import (
     CACHE_FILE_NAME,
     CACHE_MAX_AGE_SECONDS,
+    ClaudeInfo,
     SetupError,
     UpdateInfo,
+    check_anthropic_env_vars,
+    check_claude_installation,
     check_for_updates,
     check_required_tools,
     configure_git_credential_env,
@@ -177,24 +180,186 @@ class TestValidateWorkingDirectory:
 
 
 @pytest.mark.unit
+class TestCheckAnthropicEnvVars:
+    """Tests for check_anthropic_env_vars()."""
+
+    def test_no_anthropic_vars(self, monkeypatch):
+        """Test no error when no ANTHROPIC_* vars are set."""
+        # Remove any existing ANTHROPIC_* vars
+        for key in list(os.environ.keys()):
+            if key.startswith("ANTHROPIC_"):
+                monkeypatch.delenv(key, raising=False)
+
+        # Should not raise
+        check_anthropic_env_vars()
+
+    def test_single_anthropic_var_raises(self, monkeypatch):
+        """Test error when a single ANTHROPIC_* var is set."""
+        for key in list(os.environ.keys()):
+            if key.startswith("ANTHROPIC_"):
+                monkeypatch.delenv(key, raising=False)
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+        with pytest.raises(SetupError) as exc_info:
+            check_anthropic_env_vars()
+
+        error = str(exc_info.value)
+        assert "ANTHROPIC_API_KEY" in error
+        assert "Remove ANTHROPIC_* environment variables" in error
+        assert "unset ANTHROPIC_API_KEY" in error
+
+    def test_multiple_anthropic_vars_raises(self, monkeypatch):
+        """Test error lists all ANTHROPIC_* vars."""
+        for key in list(os.environ.keys()):
+            if key.startswith("ANTHROPIC_"):
+                monkeypatch.delenv(key, raising=False)
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://example.com")
+
+        with pytest.raises(SetupError) as exc_info:
+            check_anthropic_env_vars()
+
+        error = str(exc_info.value)
+        assert "ANTHROPIC_API_KEY" in error
+        assert "ANTHROPIC_BASE_URL" in error
+        assert "unset ANTHROPIC_API_KEY" in error
+        assert "unset ANTHROPIC_BASE_URL" in error
+
+
+@pytest.mark.unit
+class TestCheckClaudeInstallation:
+    """Tests for check_claude_installation()."""
+
+    def test_claude_not_found(self):
+        """Test error when claude is not in PATH."""
+        with patch("shutil.which", return_value=None):
+            with pytest.raises(SetupError) as exc_info:
+                check_claude_installation()
+
+            assert "claude CLI not found" in str(exc_info.value)
+            assert "anthropic.com" in str(exc_info.value)
+
+    def test_native_installation_returns_info(self):
+        """Test native installation returns ClaudeInfo."""
+        with patch("shutil.which", return_value="/usr/local/bin/claude"):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0, stdout="claude v1.0.45 (build 12345)\n"
+                )
+                result = check_claude_installation()
+
+        assert isinstance(result, ClaudeInfo)
+        assert result.path == "/usr/local/bin/claude"
+        assert result.version == "1.0.45"
+        assert result.install_method == "native"
+
+    def test_npm_installation_raises(self):
+        """Test error when claude is installed via npm."""
+        with patch("shutil.which", return_value="/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude"):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0, stdout="claude v1.0.45\n"
+                )
+                with pytest.raises(SetupError) as exc_info:
+                    check_claude_installation()
+
+        error = str(exc_info.value)
+        assert "npm installations are not supported" in error
+        assert "npm uninstall" in error
+
+    def test_npm_path_detection(self):
+        """Test npm path detection via /npm/ in path."""
+        with patch("shutil.which", return_value="/home/user/.npm/bin/claude"):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0, stdout="claude v1.0.45\n"
+                )
+                with pytest.raises(SetupError) as exc_info:
+                    check_claude_installation()
+
+        assert "npm installations are not supported" in str(exc_info.value)
+
+    def test_brew_installation_raises(self):
+        """Test error when claude is installed via Homebrew."""
+        with patch("shutil.which", return_value="/opt/homebrew/Cellar/claude/1.0.45/bin/claude"):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0, stdout="claude v1.0.45\n"
+                )
+                with pytest.raises(SetupError) as exc_info:
+                    check_claude_installation()
+
+        error = str(exc_info.value)
+        assert "Homebrew installations are not supported" in error
+        assert "brew uninstall" in error
+
+    def test_brew_path_detection_homebrew(self):
+        """Test brew path detection via /homebrew/ in path."""
+        with patch("shutil.which", return_value="/usr/local/homebrew/bin/claude"):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0, stdout="claude v1.0.45\n"
+                )
+                with pytest.raises(SetupError) as exc_info:
+                    check_claude_installation()
+
+        assert "Homebrew installations are not supported" in str(exc_info.value)
+
+    def test_version_parsing_without_v_prefix(self):
+        """Test version parsing when version doesn't have v prefix."""
+        with patch("shutil.which", return_value="/usr/local/bin/claude"):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0, stdout="claude 2.1.0\n"
+                )
+                result = check_claude_installation()
+
+        assert result.version == "2.1.0"
+
+    def test_version_command_error(self):
+        """Test error when claude --version fails."""
+        with patch("shutil.which", return_value="/usr/local/bin/claude"):
+            with patch("subprocess.run") as mock_run:
+                mock_run.side_effect = subprocess.CalledProcessError(
+                    1, "claude", stderr="error message"
+                )
+                with pytest.raises(SetupError) as exc_info:
+                    check_claude_installation()
+
+        assert "claude CLI error" in str(exc_info.value)
+
+
+@pytest.mark.unit
 class TestCheckRequiredTools:
     """Tests for check_required_tools()."""
 
-    def test_all_tools_present(self):
-        """Test that no error is raised when all tools are present."""
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
-            # Should not raise
-            check_required_tools()
-            assert mock_run.call_count == 2
+    def test_all_tools_present(self, monkeypatch):
+        """Test that ClaudeInfo is returned when all tools are present."""
+        # Clear ANTHROPIC_* vars
+        for key in list(os.environ.keys()):
+            if key.startswith("ANTHROPIC_"):
+                monkeypatch.delenv(key, raising=False)
 
-    def test_gh_cli_missing(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="claude v1.0.45\n")
+            with patch("shutil.which", return_value="/usr/local/bin/claude"):
+                result = check_required_tools()
+
+        assert isinstance(result, ClaudeInfo)
+        assert result.path == "/usr/local/bin/claude"
+
+    def test_gh_cli_missing(self, monkeypatch):
         """Test error when gh CLI is missing."""
+        for key in list(os.environ.keys()):
+            if key.startswith("ANTHROPIC_"):
+                monkeypatch.delenv(key, raising=False)
 
         def side_effect(args, **kwargs):
             if args[0] == "gh":
                 raise FileNotFoundError()
-            return MagicMock(returncode=0)
+            return MagicMock(returncode=0, stdout="claude v1.0.45\n")
 
         with patch("subprocess.run", side_effect=side_effect):
             with pytest.raises(SetupError) as exc_info:
@@ -203,38 +368,45 @@ class TestCheckRequiredTools:
             assert "gh CLI not found" in str(exc_info.value)
             assert "https://cli.github.com/" in str(exc_info.value)
 
-    def test_claude_cli_missing(self):
+    def test_claude_cli_missing(self, monkeypatch):
         """Test error when claude CLI is missing."""
+        for key in list(os.environ.keys()):
+            if key.startswith("ANTHROPIC_"):
+                monkeypatch.delenv(key, raising=False)
 
-        def side_effect(args, **kwargs):
-            if args[0] == "claude":
-                raise FileNotFoundError()
-            return MagicMock(returncode=0)
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            with patch("shutil.which", return_value=None):
+                with pytest.raises(SetupError) as exc_info:
+                    check_required_tools()
 
-        with patch("subprocess.run", side_effect=side_effect):
-            with pytest.raises(SetupError) as exc_info:
-                check_required_tools()
+        assert "claude CLI not found" in str(exc_info.value)
+        assert "anthropic.com" in str(exc_info.value)
 
-            assert "claude CLI not found" in str(exc_info.value)
-            assert "anthropic.com" in str(exc_info.value)
+    def test_anthropic_env_vars_checked_first(self, monkeypatch):
+        """Test that ANTHROPIC_* env vars are checked before tools."""
+        for key in list(os.environ.keys()):
+            if key.startswith("ANTHROPIC_"):
+                monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
-    def test_both_tools_missing(self):
-        """Test error includes both tools when both are missing."""
-        with patch("subprocess.run", side_effect=FileNotFoundError()):
-            with pytest.raises(SetupError) as exc_info:
-                check_required_tools()
+        # Even if tools would fail, env var check should happen first
+        with pytest.raises(SetupError) as exc_info:
+            check_required_tools()
 
-            error = str(exc_info.value)
-            assert "gh CLI not found" in error
-            assert "claude CLI not found" in error
+        assert "ANTHROPIC_API_KEY" in str(exc_info.value)
+        assert "Remove ANTHROPIC_* environment variables" in str(exc_info.value)
 
-    def test_gh_cli_error(self):
+    def test_gh_cli_error(self, monkeypatch):
         """Test error when gh CLI returns an error."""
+        for key in list(os.environ.keys()):
+            if key.startswith("ANTHROPIC_"):
+                monkeypatch.delenv(key, raising=False)
 
         def side_effect(args, **kwargs):
             if args[0] == "gh":
                 raise subprocess.CalledProcessError(1, "gh", stderr=b"gh: command failed")
-            return MagicMock(returncode=0)
+            return MagicMock(returncode=0, stdout="claude v1.0.45\n")
 
         with patch("subprocess.run", side_effect=side_effect):
             with pytest.raises(SetupError) as exc_info:
