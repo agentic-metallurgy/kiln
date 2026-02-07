@@ -339,6 +339,7 @@ class Daemon:
             config=config,
             username_self=config.username_self,
             team_usernames=config.team_usernames,
+            daemon=self,
         )
 
         # Initialize Azure OAuth client if configured
