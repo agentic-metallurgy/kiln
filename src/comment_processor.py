@@ -15,6 +15,7 @@ import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from src.claude_runner import validate_session_exists
 from src.database import Database
 from src.frontmatter import parse_issue_frontmatter
 from src.integrations.slack import send_comment_processed_notification
@@ -632,13 +633,25 @@ Processed feedback for **{target_type}**. No textual changes detected (may have 
         # Look up parent session ID if applicable
         resume_session = None
         if parent_workflow:
-            resume_session = self.database.get_workflow_session_id(
+            session_id = self.database.get_workflow_session_id(
                 item.repo, item.ticket_id, parent_workflow
             )
-            if resume_session:
-                logger.info(
-                    f"Resuming {parent_workflow} session for comment: {resume_session[:8]}..."
-                )
+
+            # Validate session exists before attempting resume
+            if session_id:
+                if validate_session_exists(session_id):
+                    resume_session = session_id
+                    logger.info(
+                        f"Resuming {parent_workflow} session: {session_id[:8]}..."
+                    )
+                else:
+                    logger.warning(
+                        f"Session {session_id[:8]}... not found in Claude storage. "
+                        f"Clearing stale session and starting fresh."
+                    )
+                    self.database.clear_workflow_session_id(
+                        item.repo, item.ticket_id, parent_workflow
+                    )
             else:
                 logger.info(f"No prior {parent_workflow} session found, starting fresh for comment")
 
