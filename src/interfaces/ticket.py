@@ -250,3 +250,20 @@ class TicketClient(Protocol):
             None on error (fail-safe - don't block workflow)
         """
         ...
+
+    # Issue lifecycle operations
+    def create_issue(self, repo: str, title: str, body: str) -> int:
+        """Create a new issue and return its number.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            title: Issue title
+            body: Issue body/description
+
+        Returns:
+            The new issue number
+
+        Raises:
+            subprocess.CalledProcessError: If issue creation fails
+        """
+        ...

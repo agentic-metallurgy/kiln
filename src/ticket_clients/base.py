@@ -1534,6 +1534,35 @@ class GitHubClientBase:
             logger.warning(f"Failed to get PR state for {repo}#{pr_number}: {e}")
             return None
 
+    # Issue lifecycle operations
+
+    def create_issue(self, repo: str, title: str, body: str) -> int:
+        """Create a new issue and return its number.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            title: Issue title
+            body: Issue body/description
+
+        Returns:
+            The new issue number
+
+        Raises:
+            subprocess.CalledProcessError: If issue creation fails
+            ValueError: If issue number cannot be parsed from output
+        """
+        repo_ref = self._get_repo_ref(repo)
+        args = ["issue", "create", "--repo", repo_ref, "--title", title, "--body", body]
+        output = self._run_gh_command(args, repo=repo)
+        # gh issue create returns URL like: https://github.com/owner/repo/issues/123
+        # Extract issue number from URL
+        match = re.search(r"/issues/(\d+)", output)
+        if not match:
+            raise ValueError(f"Could not parse issue number from: {output}")
+        issue_number = int(match.group(1))
+        logger.info(f"Created issue #{issue_number} in {repo}")
+        return issue_number
+
     # Internal helpers
 
     def _parse_board_url(self, board_url: str) -> tuple[str, str, str, int]:

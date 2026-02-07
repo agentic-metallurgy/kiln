@@ -258,3 +258,72 @@ class TestGitHubTicketClientLabelMethods:
         client.remove_label("owner/repo", 42, "nonexistent-label")
 
         assert mock_gh_subprocess.call_count == 1
+
+
+@pytest.mark.integration
+class TestGitHubTicketClientIssueMethods:
+    """Integration tests for GitHubTicketClient issue lifecycle methods."""
+
+    def test_create_issue_returns_issue_number(self, mock_gh_subprocess):
+        """Test create_issue parses issue number from gh CLI output."""
+        client = GitHubTicketClient({"github.com": "test_token"})
+
+        mock_result = MagicMock()
+        mock_result.stdout = "https://github.com/owner/repo/issues/123\n"
+        mock_result.returncode = 0
+        mock_gh_subprocess.return_value = mock_result
+
+        issue_num = client.create_issue(
+            "github.com/owner/repo", "Test Issue", "Test body"
+        )
+
+        assert issue_num == 123
+        # Verify gh was called with correct arguments
+        assert mock_gh_subprocess.call_count == 1
+        call_args = mock_gh_subprocess.call_args[0][0]
+        assert "issue" in call_args
+        assert "create" in call_args
+        assert "--title" in call_args
+        assert "Test Issue" in call_args
+        assert "--body" in call_args
+        assert "Test body" in call_args
+
+    def test_create_issue_handles_ghes_url(self, mock_gh_subprocess):
+        """Test create_issue works with GitHub Enterprise Server URLs."""
+        client = GitHubTicketClient({"github.example.com": "test_token"})
+
+        mock_result = MagicMock()
+        mock_result.stdout = "https://github.example.com/owner/repo/issues/456\n"
+        mock_result.returncode = 0
+        mock_gh_subprocess.return_value = mock_result
+
+        issue_num = client.create_issue(
+            "github.example.com/owner/repo", "GHES Issue", "Body"
+        )
+
+        assert issue_num == 456
+
+    def test_create_issue_raises_on_invalid_output(self, mock_gh_subprocess):
+        """Test create_issue raises ValueError when output cannot be parsed."""
+        client = GitHubTicketClient({"github.com": "test_token"})
+
+        mock_result = MagicMock()
+        mock_result.stdout = "Something went wrong\n"
+        mock_result.returncode = 0
+        mock_gh_subprocess.return_value = mock_result
+
+        with pytest.raises(ValueError, match="Could not parse issue number"):
+            client.create_issue("github.com/owner/repo", "Test", "Body")
+
+    def test_create_issue_propagates_subprocess_error(self, mock_gh_subprocess):
+        """Test create_issue propagates CalledProcessError on gh failure."""
+        import subprocess
+
+        client = GitHubTicketClient({"github.com": "test_token"})
+
+        mock_gh_subprocess.side_effect = subprocess.CalledProcessError(
+            1, "gh", stderr="permission denied"
+        )
+
+        with pytest.raises(subprocess.CalledProcessError):
+            client.create_issue("github.com/owner/repo", "Test", "Body")
