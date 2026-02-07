@@ -386,6 +386,7 @@ class Daemon:
 
         # Initialize repo credentials manager
         self.repo_credentials_manager = RepoCredentialsManager()
+        self.repo_credentials_manager.validate_credential_paths()
 
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)

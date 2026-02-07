@@ -314,6 +314,28 @@ class RepoCredentialsManager:
         )
         return abs_dest
 
+    def validate_credential_paths(self) -> None:
+        """Validate that all configured credential files exist on disk.
+
+        Logs an error for each entry whose credential_path does not exist.
+        Does not raise exceptions — intended for startup diagnostics.
+        """
+        try:
+            entries = self.load_config()
+        except RepoCredentialsError as e:
+            logger.error(f"Failed to load credentials config: {e}")
+            return
+
+        if not entries:
+            return
+
+        for entry in entries:
+            if not Path(entry.credential_path).exists():
+                logger.error(
+                    f"Credential file not found for '{entry.title}': "
+                    f"{entry.credential_path}"
+                )
+
     def clear_cache(self) -> None:
         """Clear the cached configuration.
 
