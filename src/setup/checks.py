@@ -33,7 +33,7 @@ class ClaudeInfo:
 
 
 def check_claude_installation() -> ClaudeInfo:
-    """Check Claude CLI installation and validate it's the native version.
+    """Check Claude CLI installation and return installation info.
 
     Uses shutil.which to resolve the full path, runs claude --version to get
     the version, and detects the installation method from the path.
@@ -42,7 +42,7 @@ def check_claude_installation() -> ClaudeInfo:
         ClaudeInfo with path, version, and install_method
 
     Raises:
-        SetupError: If Claude is not found, or if installed via npm/brew
+        SetupError: If Claude is not found or version check fails
     """
     # Find claude executable
     claude_path = shutil.which("claude")
@@ -76,23 +76,6 @@ def check_claude_installation() -> ClaudeInfo:
         install_method = "brew"
     else:
         install_method = "native"
-
-    # Reject npm and brew installations
-    if install_method == "npm":
-        raise SetupError(
-            f"Claude CLI installed via npm detected at: {claude_path}\n"
-            "npm installations are not supported. Please uninstall and use the native installer:\n"
-            "  npm uninstall -g @anthropic-ai/claude-code\n"
-            "Then install from: https://docs.anthropic.com/en/docs/claude-code/overview"
-        )
-
-    if install_method == "brew":
-        raise SetupError(
-            f"Claude CLI installed via Homebrew detected at: {claude_path}\n"
-            "Homebrew installations are not supported. Please uninstall and use the native installer:\n"
-            "  brew uninstall claude\n"
-            "Then install from: https://docs.anthropic.com/en/docs/claude-code/overview"
-        )
 
     return ClaudeInfo(path=claude_path, version=version, install_method=install_method)
 
