@@ -13,11 +13,45 @@ import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from src.integrations.telemetry import LLMMetrics
 from src.logger import get_logger, log_message
 
 logger = get_logger(__name__)
+
+
+def validate_session_exists(session_id: str) -> bool:
+    """Check if a Claude session file exists in any project directory.
+
+    Claude stores session files at ~/.claude/projects/<path-hash>/sessions/<id>.jsonl
+    where path-hash is derived from the working directory. When a repository is
+    relocated, the path-hash changes and the session becomes inaccessible.
+
+    This function searches across ALL project directories to find the session,
+    which handles the case where kiln might be running from a different worktree
+    than where the session was originally created.
+
+    Args:
+        session_id: The Claude session ID to validate
+
+    Returns:
+        True if session file exists anywhere in ~/.claude/projects/, False otherwise
+    """
+    claude_projects = Path.home() / ".claude" / "projects"
+    if not claude_projects.exists():
+        logger.debug(f"Claude projects directory not found: {claude_projects}")
+        return False
+
+    session_pattern = f"**/sessions/{session_id}.jsonl"
+    matches = list(claude_projects.glob(session_pattern))
+
+    if matches:
+        logger.debug(f"Session {session_id[:8]}... found at: {matches[0]}")
+        return True
+    else:
+        logger.debug(f"Session {session_id[:8]}... not found in any project directory")
+        return False
 
 
 @dataclass

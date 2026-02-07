@@ -321,3 +321,231 @@ class TestCommentTimestampTracking:
 
         state = temp_db.get_issue_state("owner/repo", 42)
         assert state.last_processed_comment_timestamp is None
+
+
+@pytest.mark.unit
+class TestProcessingCommentsTracking:
+    """Tests for processing_comments table and methods."""
+
+    def test_processing_comments_table_created(self, temp_db):
+        """Test that processing_comments table is created on init."""
+        cursor = temp_db.conn.cursor()
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='processing_comments'
+        """)
+        result = cursor.fetchone()
+        assert result is not None
+        assert result["name"] == "processing_comments"
+
+    def test_processing_comments_table_schema(self, temp_db):
+        """Test that processing_comments table has correct schema."""
+        cursor = temp_db.conn.cursor()
+        cursor.execute("PRAGMA table_info(processing_comments)")
+        columns = {row["name"]: row for row in cursor.fetchall()}
+
+        assert "repo" in columns
+        assert "issue_number" in columns
+        assert "comment_id" in columns
+        assert "started_at" in columns
+
+        # Check primary key constraint
+        cursor.execute("""
+            SELECT sql FROM sqlite_master
+            WHERE type='table' AND name='processing_comments'
+        """)
+        schema = cursor.fetchone()["sql"]
+        assert "PRIMARY KEY (repo, issue_number, comment_id)" in schema
+
+    def test_add_processing_comment(self, temp_db):
+        """Test adding a comment to processing tracking."""
+        temp_db.add_processing_comment("github.com/owner/repo", 42, "IC_abc123")
+
+        cursor = temp_db.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM processing_comments WHERE repo = ? AND issue_number = ? AND comment_id = ?",
+            ("github.com/owner/repo", 42, "IC_abc123"),
+        )
+        row = cursor.fetchone()
+
+        assert row is not None
+        assert row["repo"] == "github.com/owner/repo"
+        assert row["issue_number"] == 42
+        assert row["comment_id"] == "IC_abc123"
+        assert row["started_at"] is not None
+
+    def test_add_processing_comment_replaces_existing(self, temp_db):
+        """Test that adding same comment updates timestamp."""
+        import time
+
+        temp_db.add_processing_comment("github.com/owner/repo", 42, "IC_abc123")
+
+        cursor = temp_db.conn.cursor()
+        cursor.execute(
+            "SELECT started_at FROM processing_comments WHERE comment_id = ?",
+            ("IC_abc123",),
+        )
+        first_timestamp = cursor.fetchone()["started_at"]
+
+        time.sleep(0.01)
+        temp_db.add_processing_comment("github.com/owner/repo", 42, "IC_abc123")
+
+        cursor.execute(
+            "SELECT started_at FROM processing_comments WHERE comment_id = ?",
+            ("IC_abc123",),
+        )
+        second_timestamp = cursor.fetchone()["started_at"]
+
+        assert second_timestamp > first_timestamp
+
+        # Should still be only one record
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM processing_comments WHERE comment_id = ?",
+            ("IC_abc123",),
+        )
+        assert cursor.fetchone()["count"] == 1
+
+    def test_remove_processing_comment(self, temp_db):
+        """Test removing a comment from processing tracking."""
+        temp_db.add_processing_comment("github.com/owner/repo", 42, "IC_abc123")
+        temp_db.remove_processing_comment("github.com/owner/repo", 42, "IC_abc123")
+
+        cursor = temp_db.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM processing_comments WHERE comment_id = ?",
+            ("IC_abc123",),
+        )
+        assert cursor.fetchone() is None
+
+    def test_remove_processing_comment_nonexistent(self, temp_db):
+        """Test removing a non-existent comment doesn't error."""
+        # Should not raise any exception
+        temp_db.remove_processing_comment("github.com/owner/repo", 42, "IC_nonexistent")
+
+    def test_get_stale_processing_comments_returns_stale(self, temp_db):
+        """Test that stale comments are returned."""
+        # Insert a comment with an old timestamp directly
+        conn = temp_db.conn
+        with conn:
+            # 2 hours ago
+            old_time = datetime.fromtimestamp(datetime.now().timestamp() - 7200)
+            conn.execute(
+                """
+                INSERT INTO processing_comments (repo, issue_number, comment_id, started_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                ("github.com/owner/repo", 42, "IC_stale", old_time.isoformat()),
+            )
+
+        stale = temp_db.get_stale_processing_comments(stale_threshold_seconds=3600)
+        assert len(stale) == 1
+        assert stale[0] == ("github.com/owner/repo", 42, "IC_stale")
+
+    def test_get_stale_processing_comments_excludes_fresh(self, temp_db):
+        """Test that fresh comments are not returned."""
+        temp_db.add_processing_comment("github.com/owner/repo", 42, "IC_fresh")
+
+        stale = temp_db.get_stale_processing_comments(stale_threshold_seconds=3600)
+        assert len(stale) == 0
+
+    def test_get_stale_processing_comments_custom_threshold(self, temp_db):
+        """Test custom threshold for staleness."""
+        import time
+
+        temp_db.add_processing_comment("github.com/owner/repo", 42, "IC_test")
+        time.sleep(0.1)
+
+        # With very short threshold, comment should be stale
+        stale = temp_db.get_stale_processing_comments(stale_threshold_seconds=0)
+        assert len(stale) == 1
+        assert stale[0][2] == "IC_test"
+
+    def test_get_stale_processing_comments_multiple(self, temp_db):
+        """Test getting multiple stale comments."""
+        conn = temp_db.conn
+        with conn:
+            old_time = datetime.fromtimestamp(datetime.now().timestamp() - 7200)
+            for i in range(3):
+                conn.execute(
+                    """
+                    INSERT INTO processing_comments (repo, issue_number, comment_id, started_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    ("github.com/owner/repo", i, f"IC_stale_{i}", old_time.isoformat()),
+                )
+
+        stale = temp_db.get_stale_processing_comments(stale_threshold_seconds=3600)
+        assert len(stale) == 3
+
+    def test_processing_comments_different_issues(self, temp_db):
+        """Test that processing comments are tracked per issue."""
+        temp_db.add_processing_comment("github.com/owner/repo", 42, "IC_abc123")
+        temp_db.add_processing_comment("github.com/owner/repo", 43, "IC_def456")
+
+        cursor = temp_db.conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM processing_comments")
+        assert cursor.fetchone()["count"] == 2
+
+        # Remove one, other should remain
+        temp_db.remove_processing_comment("github.com/owner/repo", 42, "IC_abc123")
+
+        cursor.execute("SELECT * FROM processing_comments")
+        row = cursor.fetchone()
+        assert row["comment_id"] == "IC_def456"
+
+
+@pytest.mark.unit
+class TestClearWorkflowSessionId:
+    """Tests for clearing workflow session IDs."""
+
+    def test_clear_workflow_session_id(self, temp_db):
+        """Test that clear_workflow_session_id clears a stored session ID."""
+        # Set up issue with a session ID
+        temp_db.update_issue_state(
+            "owner/repo", 42, "Research", research_session_id="abc123"
+        )
+        state = temp_db.get_issue_state("owner/repo", 42)
+        assert state.research_session_id == "abc123"
+
+        # Clear the session ID
+        temp_db.clear_workflow_session_id("owner/repo", 42, "Research")
+
+        # Verify it's cleared (empty string is stored, but get returns it as is)
+        state = temp_db.get_issue_state("owner/repo", 42)
+        assert state.research_session_id == ""
+
+    def test_clear_workflow_session_id_preserves_other_fields(self, temp_db):
+        """Test that clearing session ID doesn't affect other fields."""
+        temp_db.update_issue_state(
+            "owner/repo",
+            42,
+            "Plan",
+            branch_name="issue-42",
+            research_session_id="research-123",
+            plan_session_id="plan-456",
+        )
+
+        # Clear only the plan session
+        temp_db.clear_workflow_session_id("owner/repo", 42, "Plan")
+
+        state = temp_db.get_issue_state("owner/repo", 42)
+        assert state.status == "Plan"
+        assert state.branch_name == "issue-42"
+        assert state.research_session_id == "research-123"
+        assert state.plan_session_id == ""
+
+    def test_clear_workflow_session_id_for_implement(self, temp_db):
+        """Test clearing implement workflow session ID."""
+        temp_db.update_issue_state(
+            "owner/repo", 42, "Implement", implement_session_id="impl-789"
+        )
+
+        temp_db.clear_workflow_session_id("owner/repo", 42, "Implement")
+
+        state = temp_db.get_issue_state("owner/repo", 42)
+        assert state.implement_session_id == ""
+
+    def test_clear_workflow_session_id_nonexistent_issue(self, temp_db):
+        """Test that clearing session ID for non-existent issue is a no-op."""
+        # Should not raise an error
+        temp_db.clear_workflow_session_id("owner/repo", 999, "Research")
