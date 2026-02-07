@@ -267,3 +267,16 @@ class TicketClient(Protocol):
             subprocess.CalledProcessError: If issue creation fails
         """
         ...
+
+    def close_issue(self, repo: str, ticket_id: int, reason: str = "not_planned") -> bool:
+        """Close an issue with a state reason.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            ticket_id: Issue number
+            reason: Close reason ('completed' or 'not_planned')
+
+        Returns:
+            True if closed successfully, False otherwise
+        """
+        ...

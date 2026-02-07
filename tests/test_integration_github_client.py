@@ -327,3 +327,68 @@ class TestGitHubTicketClientIssueMethods:
 
         with pytest.raises(subprocess.CalledProcessError):
             client.create_issue("github.com/owner/repo", "Test", "Body")
+
+    def test_close_issue_returns_true_on_success(self, mock_gh_subprocess):
+        """Test close_issue returns True when issue is closed successfully."""
+        client = GitHubTicketClient({"github.com": "test_token"})
+
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        mock_result.returncode = 0
+        mock_gh_subprocess.return_value = mock_result
+
+        result = client.close_issue("github.com/owner/repo", 42, "not_planned")
+
+        assert result is True
+        # Verify gh was called with correct arguments
+        assert mock_gh_subprocess.call_count == 1
+        call_args = mock_gh_subprocess.call_args[0][0]
+        assert "issue" in call_args
+        assert "close" in call_args
+        assert "42" in call_args
+        assert "--reason" in call_args
+        assert "not_planned" in call_args
+
+    def test_close_issue_uses_completed_reason(self, mock_gh_subprocess):
+        """Test close_issue uses completed reason when specified."""
+        client = GitHubTicketClient({"github.com": "test_token"})
+
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        mock_result.returncode = 0
+        mock_gh_subprocess.return_value = mock_result
+
+        result = client.close_issue("github.com/owner/repo", 99, "completed")
+
+        assert result is True
+        call_args = mock_gh_subprocess.call_args[0][0]
+        assert "completed" in call_args
+
+    def test_close_issue_returns_false_on_failure(self, mock_gh_subprocess):
+        """Test close_issue returns False when gh CLI fails."""
+        import subprocess
+
+        client = GitHubTicketClient({"github.com": "test_token"})
+
+        mock_gh_subprocess.side_effect = subprocess.CalledProcessError(
+            1, "gh", stderr="issue not found"
+        )
+
+        result = client.close_issue("github.com/owner/repo", 999, "not_planned")
+
+        assert result is False
+
+    def test_close_issue_handles_ghes_url(self, mock_gh_subprocess):
+        """Test close_issue works with GitHub Enterprise Server URLs."""
+        client = GitHubTicketClient({"github.example.com": "test_token"})
+
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        mock_result.returncode = 0
+        mock_gh_subprocess.return_value = mock_result
+
+        result = client.close_issue("github.example.com/owner/repo", 123, "not_planned")
+
+        assert result is True
+        call_args = mock_gh_subprocess.call_args[0][0]
+        assert "https://github.example.com/owner/repo" in " ".join(call_args)

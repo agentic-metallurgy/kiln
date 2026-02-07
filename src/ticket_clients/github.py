@@ -1746,6 +1746,29 @@ class GitHubTicketClient:
         logger.info(f"Created issue #{issue_number} in {repo}")
         return issue_number
 
+    def close_issue(self, repo: str, ticket_id: int, reason: str = "not_planned") -> bool:
+        """Close an issue with a state reason.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            ticket_id: Issue number
+            reason: Close reason ('completed' or 'not_planned')
+
+        Returns:
+            True if closed successfully, False otherwise
+        """
+        repo_ref = self._get_repo_ref(repo)
+        try:
+            self._run_gh_command(
+                ["issue", "close", str(ticket_id), "--repo", repo_ref, "--reason", reason],
+                repo=repo,
+            )
+            logger.info(f"Closed issue #{ticket_id} in {repo} as '{reason}'")
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Failed to close issue #{ticket_id} in {repo}: {e.stderr}")
+            return False
+
     # Internal helpers
 
     def _parse_board_url(self, board_url: str) -> tuple[str, str, str, int]:
