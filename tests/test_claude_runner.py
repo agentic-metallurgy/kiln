@@ -1,6 +1,7 @@
 """Unit tests for the claude_runner module."""
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +12,7 @@ from src.claude_runner import (
     ClaudeTimeoutError,
     enhance_claude_error,
     run_claude,
+    validate_session_exists,
 )
 from src.integrations.telemetry import LLMMetrics
 
@@ -559,6 +561,78 @@ class TestRunClaudeJsonStreamParsing:
         # before checking isinstance(data, dict)
         with pytest.raises(ClaudeRunnerError, match="Unexpected error"):
             run_claude("Prompt", str(tmp_path))
+
+
+@pytest.mark.unit
+class TestValidateSessionExists:
+    """Tests for validate_session_exists function."""
+
+    def test_returns_false_when_claude_projects_dir_not_exists(self, tmp_path):
+        """Test returns False when ~/.claude/projects doesn't exist."""
+        # Use a non-existent home directory
+        with patch.object(Path, "home", return_value=tmp_path / "nonexistent"):
+            result = validate_session_exists("some-session-id")
+            assert result is False
+
+    def test_returns_false_when_session_file_not_found(self, tmp_path):
+        """Test returns False when session file doesn't exist in any project."""
+        # Create Claude projects directory structure without the session file
+        claude_projects = tmp_path / ".claude" / "projects"
+        project_dir = claude_projects / "test-project-hash"
+        sessions_dir = project_dir / "sessions"
+        sessions_dir.mkdir(parents=True)
+
+        # Create a different session file
+        (sessions_dir / "other-session.jsonl").touch()
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            result = validate_session_exists("missing-session-id")
+            assert result is False
+
+    def test_returns_true_when_session_file_exists(self, tmp_path):
+        """Test returns True when session file exists."""
+        # Create Claude projects directory structure with the session file
+        claude_projects = tmp_path / ".claude" / "projects"
+        project_dir = claude_projects / "test-project-hash"
+        sessions_dir = project_dir / "sessions"
+        sessions_dir.mkdir(parents=True)
+
+        session_id = "abc123-test-session"
+        (sessions_dir / f"{session_id}.jsonl").touch()
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            result = validate_session_exists(session_id)
+            assert result is True
+
+    def test_finds_session_in_any_project_directory(self, tmp_path):
+        """Test finds session file across multiple project directories."""
+        # Create Claude projects directory structure with multiple projects
+        claude_projects = tmp_path / ".claude" / "projects"
+
+        # Create first project without the session
+        project1_sessions = claude_projects / "project-1-hash" / "sessions"
+        project1_sessions.mkdir(parents=True)
+        (project1_sessions / "other-session.jsonl").touch()
+
+        # Create second project with the session
+        project2_sessions = claude_projects / "project-2-hash" / "sessions"
+        project2_sessions.mkdir(parents=True)
+
+        session_id = "target-session-id"
+        (project2_sessions / f"{session_id}.jsonl").touch()
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            result = validate_session_exists(session_id)
+            assert result is True
+
+    def test_returns_false_for_empty_projects_directory(self, tmp_path):
+        """Test returns False when projects directory is empty."""
+        claude_projects = tmp_path / ".claude" / "projects"
+        claude_projects.mkdir(parents=True)
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            result = validate_session_exists("any-session-id")
+            assert result is False
 
 
 @pytest.mark.unit

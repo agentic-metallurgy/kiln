@@ -492,3 +492,60 @@ class TestProcessingCommentsTracking:
         cursor.execute("SELECT * FROM processing_comments")
         row = cursor.fetchone()
         assert row["comment_id"] == "IC_def456"
+
+
+@pytest.mark.unit
+class TestClearWorkflowSessionId:
+    """Tests for clearing workflow session IDs."""
+
+    def test_clear_workflow_session_id(self, temp_db):
+        """Test that clear_workflow_session_id clears a stored session ID."""
+        # Set up issue with a session ID
+        temp_db.update_issue_state(
+            "owner/repo", 42, "Research", research_session_id="abc123"
+        )
+        state = temp_db.get_issue_state("owner/repo", 42)
+        assert state.research_session_id == "abc123"
+
+        # Clear the session ID
+        temp_db.clear_workflow_session_id("owner/repo", 42, "Research")
+
+        # Verify it's cleared (empty string is stored, but get returns it as is)
+        state = temp_db.get_issue_state("owner/repo", 42)
+        assert state.research_session_id == ""
+
+    def test_clear_workflow_session_id_preserves_other_fields(self, temp_db):
+        """Test that clearing session ID doesn't affect other fields."""
+        temp_db.update_issue_state(
+            "owner/repo",
+            42,
+            "Plan",
+            branch_name="issue-42",
+            research_session_id="research-123",
+            plan_session_id="plan-456",
+        )
+
+        # Clear only the plan session
+        temp_db.clear_workflow_session_id("owner/repo", 42, "Plan")
+
+        state = temp_db.get_issue_state("owner/repo", 42)
+        assert state.status == "Plan"
+        assert state.branch_name == "issue-42"
+        assert state.research_session_id == "research-123"
+        assert state.plan_session_id == ""
+
+    def test_clear_workflow_session_id_for_implement(self, temp_db):
+        """Test clearing implement workflow session ID."""
+        temp_db.update_issue_state(
+            "owner/repo", 42, "Implement", implement_session_id="impl-789"
+        )
+
+        temp_db.clear_workflow_session_id("owner/repo", 42, "Implement")
+
+        state = temp_db.get_issue_state("owner/repo", 42)
+        assert state.implement_session_id == ""
+
+    def test_clear_workflow_session_id_nonexistent_issue(self, temp_db):
+        """Test that clearing session ID for non-existent issue is a no-op."""
+        # Should not raise an error
+        temp_db.clear_workflow_session_id("owner/repo", 999, "Research")

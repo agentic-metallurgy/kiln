@@ -1366,3 +1366,154 @@ class TestCommentProcessorEditingLabelTracking:
             # Verify the label value was Labels.EDITING
             assert len(label_value_captured) == 1
             assert label_value_captured[0] == Labels.EDITING
+
+
+@pytest.mark.unit
+class TestCommentProcessorStaleSessionHandling:
+    """Tests for stale session handling when repo is relocated."""
+
+    def test_stale_session_cleared_when_not_found(self):
+        """Test that stale session IDs are cleared when session file doesn't exist."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        processor = CommentProcessor(
+            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+        )
+
+        # Mock database to return stored state with a session ID
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Mock get_workflow_session_id to return a stale session ID
+        stale_session_id = "stale-session-abc123"
+        database.get_workflow_session_id.return_value = stale_session_id
+
+        # Create a comment from the allowed user
+        user_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="Apply this feedback",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="allowed_user",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [user_comment]
+
+        # Create a ticket item with Research status
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Research",
+            title="Test Issue",
+            comment_count=1,
+        )
+
+        response_comment = Comment(
+            id="IC_2",
+            database_id=456,
+            body="response",
+            created_at=datetime(2024, 1, 15, 12, 0, 0),
+            author="test-user",
+        )
+
+        # Mock runner.run to return a new session ID
+        runner.run.return_value = "new-session-after-stale"
+
+        # Mock validate_session_exists to return False (session file not found)
+        with (
+            patch.object(processor, "_get_target_type", return_value="research"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(processor, "_generate_diff", return_value="-old\n+new"),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+            patch("src.comment_processor.validate_session_exists", return_value=False),
+        ):
+            ticket_client.add_comment.return_value = response_comment
+
+            processor.process(item)
+
+            # Verify clear_workflow_session_id was called to clear the stale session
+            database.clear_workflow_session_id.assert_called_once_with(
+                "owner/repo", 42, "Research"
+            )
+
+    def test_valid_session_not_cleared(self):
+        """Test that valid session IDs are NOT cleared when session file exists."""
+        ticket_client = Mock()
+        database = Mock()
+        runner = Mock()
+
+        processor = CommentProcessor(
+            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+        )
+
+        # Mock database to return stored state with a session ID
+        stored_state = Mock()
+        stored_state.last_processed_comment_timestamp = "2024-01-14T10:00:00+00:00"
+        stored_state.last_known_comment_count = 0
+        database.get_issue_state.return_value = stored_state
+
+        # Mock get_workflow_session_id to return a valid session ID
+        valid_session_id = "valid-session-xyz789"
+        database.get_workflow_session_id.return_value = valid_session_id
+
+        # Create a comment from the allowed user
+        user_comment = Comment(
+            id="IC_1",
+            database_id=1,
+            body="Apply this feedback",
+            created_at=datetime(2024, 1, 15, 10, 0, 0),
+            author="allowed_user",
+            is_processed=False,
+            is_processing=False,
+        )
+
+        ticket_client.get_comments_since.return_value = [user_comment]
+
+        # Create a ticket item with Research status
+        item = TicketItem(
+            item_id="PVTI_123",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=42,
+            repo="owner/repo",
+            status="Research",
+            title="Test Issue",
+            comment_count=1,
+        )
+
+        response_comment = Comment(
+            id="IC_2",
+            database_id=456,
+            body="response",
+            created_at=datetime(2024, 1, 15, 12, 0, 0),
+            author="test-user",
+        )
+
+        # Mock runner.run to return a session ID
+        runner.run.return_value = "returned-session-id"
+
+        # Mock validate_session_exists to return True (session file exists)
+        with (
+            patch.object(processor, "_get_target_type", return_value="research"),
+            patch.object(processor, "_extract_section_content", return_value="content"),
+            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(processor, "_generate_diff", return_value="-old\n+new"),
+            patch("src.comment_processor.set_issue_context"),
+            patch("src.comment_processor.clear_issue_context"),
+            patch("src.comment_processor.validate_session_exists", return_value=True),
+        ):
+            ticket_client.add_comment.return_value = response_comment
+
+            processor.process(item)
+
+            # Verify clear_workflow_session_id was NOT called
+            database.clear_workflow_session_id.assert_not_called()

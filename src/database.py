@@ -511,6 +511,20 @@ class Database:
         elif field_name == "implement_session_id":
             self.update_issue_state(repo, issue_number, state.status, implement_session_id=session_id)
 
+    def clear_workflow_session_id(self, repo: str, issue_number: int, workflow: str) -> None:
+        """
+        Clear the session ID for a specific workflow.
+
+        Used to remove stale session IDs when the session file no longer exists,
+        such as after repository relocation where the Claude path-hash changes.
+
+        Args:
+            repo: Repository name
+            issue_number: GitHub issue number
+            workflow: Workflow name ("Research", "Plan", "Implement")
+        """
+        self.set_workflow_session_id(repo, issue_number, workflow, "")
+
     def insert_run_record(self, record: RunRecord) -> int:
         """
         Insert a new run record and return its ID.
