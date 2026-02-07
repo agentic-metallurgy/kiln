@@ -1,6 +1,7 @@
 """Unit tests for the claude_runner module."""
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,7 +10,9 @@ from src.claude_runner import (
     ClaudeResult,
     ClaudeRunnerError,
     ClaudeTimeoutError,
+    enhance_claude_error,
     run_claude,
+    validate_session_exists,
 )
 from src.integrations.telemetry import LLMMetrics
 
@@ -558,3 +561,310 @@ class TestRunClaudeJsonStreamParsing:
         # before checking isinstance(data, dict)
         with pytest.raises(ClaudeRunnerError, match="Unexpected error"):
             run_claude("Prompt", str(tmp_path))
+
+
+@pytest.mark.unit
+class TestValidateSessionExists:
+    """Tests for validate_session_exists function."""
+
+    def test_returns_false_when_claude_projects_dir_not_exists(self, tmp_path):
+        """Test returns False when ~/.claude/projects doesn't exist."""
+        # Use a non-existent home directory
+        with patch.object(Path, "home", return_value=tmp_path / "nonexistent"):
+            result = validate_session_exists("some-session-id")
+            assert result is False
+
+    def test_returns_false_when_session_file_not_found(self, tmp_path):
+        """Test returns False when session file doesn't exist in any project."""
+        # Create Claude projects directory structure without the session file
+        claude_projects = tmp_path / ".claude" / "projects"
+        project_dir = claude_projects / "test-project-hash"
+        sessions_dir = project_dir / "sessions"
+        sessions_dir.mkdir(parents=True)
+
+        # Create a different session file
+        (sessions_dir / "other-session.jsonl").touch()
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            result = validate_session_exists("missing-session-id")
+            assert result is False
+
+    def test_returns_true_when_session_file_exists(self, tmp_path):
+        """Test returns True when session file exists."""
+        # Create Claude projects directory structure with the session file
+        claude_projects = tmp_path / ".claude" / "projects"
+        project_dir = claude_projects / "test-project-hash"
+        sessions_dir = project_dir / "sessions"
+        sessions_dir.mkdir(parents=True)
+
+        session_id = "abc123-test-session"
+        (sessions_dir / f"{session_id}.jsonl").touch()
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            result = validate_session_exists(session_id)
+            assert result is True
+
+    def test_finds_session_in_any_project_directory(self, tmp_path):
+        """Test finds session file across multiple project directories."""
+        # Create Claude projects directory structure with multiple projects
+        claude_projects = tmp_path / ".claude" / "projects"
+
+        # Create first project without the session
+        project1_sessions = claude_projects / "project-1-hash" / "sessions"
+        project1_sessions.mkdir(parents=True)
+        (project1_sessions / "other-session.jsonl").touch()
+
+        # Create second project with the session
+        project2_sessions = claude_projects / "project-2-hash" / "sessions"
+        project2_sessions.mkdir(parents=True)
+
+        session_id = "target-session-id"
+        (project2_sessions / f"{session_id}.jsonl").touch()
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            result = validate_session_exists(session_id)
+            assert result is True
+
+    def test_returns_false_for_empty_projects_directory(self, tmp_path):
+        """Test returns False when projects directory is empty."""
+        claude_projects = tmp_path / ".claude" / "projects"
+        claude_projects.mkdir(parents=True)
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            result = validate_session_exists("any-session-id")
+            assert result is False
+
+
+@pytest.mark.unit
+class TestEnhanceClaudeError:
+    """Tests for enhance_claude_error function."""
+
+    def test_no_matching_patterns_returns_unchanged(self):
+        """Test that errors with no matching patterns are returned unchanged."""
+        original = "Some random error message"
+        result = enhance_claude_error(original)
+        assert result == original
+
+    def test_anthropic_api_key_pattern(self):
+        """Test detection of ANTHROPIC_API_KEY in error message."""
+        original = "Error: ANTHROPIC_API_KEY is not supported"
+        result = enhance_claude_error(original)
+
+        assert "Next steps:" in result
+        assert "unset ANTHROPIC_API_KEY" in result
+        assert "https://docs.anthropic.com/en/docs/claude-code/troubleshooting" in result
+
+    def test_authentication_pattern_401(self):
+        """Test detection of 401 authentication error."""
+        original = "Request failed with status 401 Unauthorized"
+        result = enhance_claude_error(original)
+
+        assert "Next steps:" in result
+        assert "gh auth login" in result
+
+    def test_authentication_pattern_unauthorized(self):
+        """Test detection of 'unauthorized' in error message."""
+        original = "Error: unauthorized access to API"
+        result = enhance_claude_error(original)
+
+        assert "gh auth login" in result
+
+    def test_network_connection_pattern(self):
+        """Test detection of network/connection errors."""
+        original = "Error: connection refused by server"
+        result = enhance_claude_error(original)
+
+        assert "Check network connectivity" in result
+
+    def test_network_timeout_pattern(self):
+        """Test detection of timeout errors."""
+        original = "ETIMEDOUT: request timed out"
+        result = enhance_claude_error(original)
+
+        assert "Check network connectivity" in result
+
+    def test_rate_limit_429_pattern(self):
+        """Test detection of rate limit 429 error."""
+        original = "Request failed with status 429"
+        result = enhance_claude_error(original)
+
+        assert "Rate limited" in result
+        assert "wait a few minutes" in result
+
+    def test_rate_limit_text_pattern(self):
+        """Test detection of rate limit text in error."""
+        original = "Error: rate limit exceeded"
+        result = enhance_claude_error(original)
+
+        assert "Rate limited" in result
+
+    def test_command_not_found_pattern(self):
+        """Test detection of command not found errors."""
+        original = "Error: command not found: claude"
+        result = enhance_claude_error(original)
+
+        assert "Reinstall Claude Code" in result
+        assert "anthropic.com" in result
+
+    def test_permission_denied_pattern(self):
+        """Test detection of permission denied errors."""
+        original = "Error: permission denied: /path/to/file"
+        result = enhance_claude_error(original)
+
+        assert "Check file/directory permissions" in result
+
+    def test_eacces_pattern(self):
+        """Test detection of EACCES (permission) errors."""
+        original = "EACCES: permission denied"
+        result = enhance_claude_error(original)
+
+        assert "Check file/directory permissions" in result
+
+    def test_model_not_available_pattern(self):
+        """Test detection of model not available errors."""
+        original = "Error: model opus is not available for your account"
+        result = enhance_claude_error(original)
+
+        assert "Check that the specified model is available" in result
+
+    def test_token_limit_pattern(self):
+        """Test detection of token limit errors."""
+        original = "Error: context length exceeded maximum allowed"
+        result = enhance_claude_error(original)
+
+        assert "token limits" in result
+        assert "breaking into smaller tasks" in result
+
+    def test_multiple_patterns_all_included(self):
+        """Test that multiple matching patterns all add suggestions."""
+        original = "Error: ANTHROPIC_API_KEY detected and connection timeout"
+        result = enhance_claude_error(original)
+
+        assert "unset ANTHROPIC_API_KEY" in result
+        assert "Check network connectivity" in result
+        # Both suggestions should appear
+        assert result.count("  - ") >= 2
+
+    def test_case_insensitive_matching(self):
+        """Test that pattern matching is case insensitive."""
+        original = "Error: NETWORK CONNECTION FAILED"
+        result = enhance_claude_error(original)
+
+        assert "Check network connectivity" in result
+
+    def test_troubleshooting_link_included(self):
+        """Test that troubleshooting link is included when patterns match."""
+        original = "Error: authentication failed"
+        result = enhance_claude_error(original)
+
+        assert "https://docs.anthropic.com/en/docs/claude-code/troubleshooting" in result
+
+    def test_original_error_preserved(self):
+        """Test that original error message is preserved in output."""
+        original = "Critical error: something went wrong with auth"
+        result = enhance_claude_error(original)
+
+        assert result.startswith(original)
+
+    def test_no_duplicate_suggestions(self):
+        """Test that duplicate suggestions are not added."""
+        # A message that might match the same pattern multiple times
+        original = "Error: authentication failed, unauthorized access, 401"
+        result = enhance_claude_error(original)
+
+        # The auth suggestion should only appear once
+        assert result.count("gh auth login") == 1
+
+
+@pytest.mark.unit
+class TestRunClaudeErrorEnhancement:
+    """Tests for error enhancement integration in run_claude."""
+
+    def _create_mock_process(self, stdout_lines, return_code=0, stderr_output=""):
+        """Helper to create a mock process with specified output."""
+        mock_process = MagicMock()
+        mock_process.stdin = MagicMock()
+        mock_process.stdout = MagicMock()
+        mock_process.stderr = MagicMock()
+
+        line_index = [0]
+
+        def readline():
+            if line_index[0] < len(stdout_lines):
+                line = stdout_lines[line_index[0]]
+                line_index[0] += 1
+                return line
+            return ""
+
+        mock_process.stdout.readline = readline
+        mock_process.stderr.read.return_value = stderr_output
+
+        poll_values = [None] * len(stdout_lines) + [return_code]
+        mock_process.poll.side_effect = poll_values
+        mock_process.wait.return_value = return_code
+
+        return mock_process
+
+    def test_nonzero_exit_includes_suggestions(self, mock_claude_subprocess, tmp_path):
+        """Test that non-zero exit errors include suggestions when patterns match."""
+        mock_process = self._create_mock_process(
+            ["Non-JSON output\n"],
+            return_code=1,
+            stderr_output="Error: authentication failed",
+        )
+        mock_claude_subprocess.return_value = mock_process
+
+        with pytest.raises(ClaudeRunnerError) as exc_info:
+            run_claude("Prompt", str(tmp_path))
+
+        error_msg = str(exc_info.value)
+        assert "Next steps:" in error_msg
+        assert "gh auth login" in error_msg
+
+    def test_error_event_includes_suggestions(self, mock_claude_subprocess, tmp_path):
+        """Test that error events include suggestions when patterns match."""
+        error_event = json.dumps({
+            "type": "error",
+            "message": "ANTHROPIC_API_KEY detected in environment"
+        })
+        mock_process = self._create_mock_process([error_event + "\n"])
+        mock_claude_subprocess.return_value = mock_process
+
+        with pytest.raises(ClaudeRunnerError) as exc_info:
+            run_claude("Prompt", str(tmp_path))
+
+        error_msg = str(exc_info.value)
+        assert "Next steps:" in error_msg
+        assert "unset ANTHROPIC_API_KEY" in error_msg
+
+    def test_file_not_found_error_includes_suggestions(self, mock_claude_subprocess, tmp_path):
+        """Test that FileNotFoundError includes suggestions when pattern matches."""
+        # The pattern matches "not found" or "command not found", not "No such file"
+        # So we need to test with a message that matches the pattern
+        mock_claude_subprocess.side_effect = FileNotFoundError(
+            "claude: command not found"
+        )
+
+        with pytest.raises(ClaudeRunnerError) as exc_info:
+            run_claude("Prompt", str(tmp_path))
+
+        error_msg = str(exc_info.value)
+        assert "Next steps:" in error_msg
+        assert "Reinstall Claude Code" in error_msg
+
+    def test_no_suggestions_for_non_matching_error(self, mock_claude_subprocess, tmp_path):
+        """Test that errors with no matching patterns don't get Next steps section."""
+        mock_process = self._create_mock_process(
+            ["Non-JSON output\n"],
+            return_code=1,
+            stderr_output="Some generic error without known patterns",
+        )
+        mock_claude_subprocess.return_value = mock_process
+
+        with pytest.raises(ClaudeRunnerError) as exc_info:
+            run_claude("Prompt", str(tmp_path))
+
+        error_msg = str(exc_info.value)
+        # Should contain the error but not Next steps
+        assert "Some generic error" in error_msg
+        assert "Next steps:" not in error_msg

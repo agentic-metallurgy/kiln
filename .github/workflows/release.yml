@@ -160,6 +160,13 @@ jobs:
               bin.install binary_name => "kiln"
             end
 
+            def post_uninstall
+              # Remove credential helper entries that older Kiln versions added to global git config
+              # Use quiet mode and ignore errors (entry may not exist)
+              system "git", "config", "--global", "--unset-all",
+                     "credential.https://github.com.helper", "!gh auth git-credential"
+            end
+
             test do
               assert_match version.to_s, shell_output("#{bin}/kiln --version")
             end
