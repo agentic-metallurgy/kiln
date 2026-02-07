@@ -321,7 +321,192 @@ def test_auth_error_gh_auth_login_simple(self, github_client):
 
 ---
 
-## 4. Substance and Behavioral Coverage
+## 4. Quantitative Coverage Analysis
+
+### Coverage Tooling and Configuration
+
+| Setting | Value | Location |
+|---------|-------|----------|
+| Tool | pytest-cov 4.0+ | `pyproject.toml:40` |
+| Source | `src/` | `pyproject.toml:125` |
+| Branch Coverage | Enabled | `pyproject.toml:126` |
+| Threshold | 80% | `pyproject.toml:135` |
+| Exclusions | `pragma: no cover`, `TYPE_CHECKING`, `NotImplementedError` | `pyproject.toml:130-134` |
+
+**How to run:**
+```bash
+pytest --cov=src --cov-report=html --cov-report=term-missing
+```
+
+### Current Coverage Summary
+
+**Overall: 72.18%** (below 80% threshold)
+
+| Category | Coverage | Assessment |
+|----------|----------|------------|
+| Core workflows | 92-97% | Excellent |
+| GitHub client | 93% | Excellent |
+| Security | 100% | Complete |
+| Database | 84% | Good |
+| Configuration | 94% | Excellent |
+| Daemon orchestrator | 63% | **Needs improvement** |
+| CLI | 67% | **Needs improvement** |
+| Telemetry | 44% | **Low** |
+
+### Low-Coverage Critical Modules
+
+#### 1. `src/ticket_clients/base.py` - 11% Coverage
+
+**Reason:** Most methods are overridden by `github.py` (93% coverage) and GHES-specific clients. The base class contains:
+- Abstract method stubs (untested by design)
+- Fallback implementations rarely exercised
+- Common utilities called through subclasses
+
+**Risk Level:** LOW - Actual behavior tested via concrete subclasses.
+
+**Action:** Consider restructuring to separate abstract interfaces from implementations, or accept low coverage as architectural artifact.
+
+#### 2. `src/daemon.py` - 63% Coverage (350 lines uncovered)
+
+**Untested critical flows:**
+
+| Lines | Function | Risk |
+|-------|----------|------|
+| 875-996 | `_poll()` main loop | HIGH - Core daemon logic |
+| 1012-1086 | `_should_trigger_workflow()` | MEDIUM - Workflow gating |
+| 1300-1375 | `_maybe_handle_reset()` | MEDIUM - State cleanup |
+| 1391-1446 | `_yolo_advance()` | LOW - Auto-progression |
+| 2227-2244 | Cleanup methods | MEDIUM - Resource management |
+| 2401-2479 | Signal handlers | LOW - Shutdown paths |
+
+**Key gaps:**
+- Full poll cycle with multiple items
+- Stale workflow detection (lines 877-886)
+- YOLO auto-progression flow
+- Error recovery after partial failures
+
+#### 3. `src/cli.py` - 67% Coverage (129 lines uncovered)
+
+**Untested areas:**
+
+| Lines | Description |
+|-------|-------------|
+| 277-421 | `run` subcommand entry point |
+| 724-798 | `logs` subcommand |
+| 616-674 | Resource extraction and setup |
+
+**Reason:** CLI entry points are difficult to unit test; require integration/e2e testing.
+
+**Action:** Add CLI smoke tests using subprocess or Click's CliRunner.
+
+#### 4. `src/integrations/telemetry.py` - 44% Coverage
+
+**Untested areas:**
+- Lines 81-122: OpenTelemetry span creation and attribute setting
+- Lines 150-171: Metric export and trace completion
+
+**Reason:** Telemetry is difficult to test without mocking OTLP exporters.
+
+**Action:** Add tests with mocked TracerProvider; consider marking as optional coverage.
+
+#### 5. `src/ticket_clients/github_enterprise_3_14.py` - 13% Coverage
+
+**Reason:** Legacy GHES version with limited deployments. Most methods are overrides of base class already tested elsewhere.
+
+**Risk Level:** LOW - Limited real-world usage.
+
+### CI Coverage Enforcement
+
+**Current state:** Coverage is NOT enforced in CI.
+
+The test workflow at `.github/workflows/test.yml:27` runs:
+```yaml
+- name: Run tests
+  run: pytest -m "not slow" --tb=short
+```
+
+**Gap:** The `--cov` flag is not included, so the 80% threshold is only enforced locally.
+
+**Recommendation:** Add coverage enforcement to CI:
+```yaml
+- name: Run tests with coverage
+  run: pytest -m "not slow" --cov=src --cov-fail-under=80
+```
+
+---
+
+## 5. Gap Analysis and Risk Register
+
+### Qualitative Gap Audit
+
+#### A. Untested Critical Flows
+
+| Flow | Location | Impact |
+|------|----------|--------|
+| Full daemon poll cycle | `daemon.py:875-996` | Core functionality |
+| Multi-project iteration | `daemon.py:892-899` | Production use case |
+| Stale workflow cleanup | `daemon.py:877-886` | Crash recovery |
+| Comment processor integration | `daemon.py:925-927` | User feedback handling |
+| YOLO auto-advance | `daemon.py:929-957` | Automation feature |
+
+#### B. Tests Asserting Implementation Details
+
+| Test | Concern |
+|------|---------|
+| `test_backoff_increases_on_consecutive_failures` | Tests internal `_backoff_state` dict structure |
+| `test_running_labels_tracking` | Relies on `_running_labels` internal dict |
+
+**Risk:** Tests may break on refactoring without indicating actual bugs.
+
+#### C. Missing Contract Tests
+
+| External Dependency | Current Testing | Gap |
+|---------------------|-----------------|-----|
+| GitHub GraphQL API | Mocked responses | No contract verification |
+| GitHub REST API | Mocked responses | Schema changes undetected |
+| Claude CLI | Mocked subprocess | Output format changes |
+| MCP servers | Connection tests only | Protocol compliance |
+
+### Risk Register
+
+| # | Risk | Severity | Likelihood | Current Protection | Recommended Test Type |
+|---|------|----------|------------|-------------------|----------------------|
+| 1 | **Daemon fails to process items after crash** | HIGH | MEDIUM | None - stale workflow cleanup untested | Integration test with simulated crash |
+| 2 | **GitHub API schema change breaks parsing** | HIGH | MEDIUM | Mocked tests only | Contract tests with recorded responses |
+| 3 | **Race condition in multi-actor scenario** | HIGH | LOW | `test_race_detected_different_actor_aborts_workflow` | ✅ Covered |
+| 4 | **Token scope changes silently** | MEDIUM | LOW | `test_validate_scopes_*` tests | ✅ Covered |
+| 5 | **CLI fails on unusual input** | MEDIUM | MEDIUM | Limited CLI tests | E2E tests with Click CliRunner |
+| 6 | **Comment processing corrupts issue body** | MEDIUM | LOW | `test_comment_processor.py` tests | ✅ Covered |
+| 7 | **Database corruption on concurrent access** | MEDIUM | LOW | Thread-local connections | Stress test with concurrent writes |
+| 8 | **Workspace cleanup fails leaving orphaned worktrees** | MEDIUM | LOW | Basic cleanup tests | Add forced cleanup failure tests |
+| 9 | **Telemetry export fails silently** | LOW | MEDIUM | No coverage | Mock OTLP exporter tests |
+| 10 | **GHES version detection fails** | LOW | LOW | `test_enterprise.py` | ✅ Covered |
+
+### Top 5 Unprotected Risks (Prioritized)
+
+1. **Daemon poll cycle resilience** (Lines 875-996)
+   - No tests verify the daemon continues processing after individual item failures
+   - A single exception could halt the entire daemon
+
+2. **CI coverage enforcement missing**
+   - Code can be merged that reduces coverage below 80%
+   - Threshold is only checked locally
+
+3. **CLI entry points untested**
+   - Users could encounter runtime errors on common commands
+   - Error messages and help text not validated
+
+4. **GitHub API contract drift**
+   - Mock responses may not match current API behavior
+   - No automated verification of schema compatibility
+
+5. **Stale workflow detection**
+   - Crashed workflows may never be cleaned up
+   - Could lead to issues stuck in "running" state
+
+---
+
+## 6. Substance and Behavioral Coverage
 
 ### Happy Path Coverage: A
 
@@ -373,7 +558,7 @@ Tested transitions:
 
 ---
 
-## 5. Prioritized Recommendations
+## 7. Prioritized Recommendations
 
 ### Quick Wins (0-1 day)
 
@@ -501,7 +686,7 @@ def test_config_parsing_performance(benchmark):
 
 ---
 
-## 6. Appendix: Files Inspected
+## 8. Appendix: Files Inspected
 
 ### Configuration Files
 - `pyproject.toml` - pytest, coverage, ruff, mypy, mutmut config
