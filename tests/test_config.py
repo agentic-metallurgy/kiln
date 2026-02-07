@@ -1706,3 +1706,222 @@ class TestDetermineWorkspaceDir:
         (workspaces / ".gitkeep").touch()
 
         assert determine_workspace_dir() == "worktrees"
+
+
+@pytest.mark.unit
+class TestGHESVersionAutoDetection:
+    """Tests for GHES version auto-detection functionality."""
+
+    def _write_config(self, tmp_path, content):
+        """Helper to write a config file."""
+        config_file = tmp_path / "config"
+        config_file.write_text(content)
+        return config_file
+
+    def test_detect_ghes_version_successful(self, monkeypatch):
+        """Test successful version detection with mock subprocess."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import _detect_ghes_version
+
+        mock_result = MagicMock()
+        mock_result.stdout = '{"installed_version": "3.18.0"}'
+        mock_result.returncode = 0
+
+        with patch("src.config.subprocess.run", return_value=mock_result) as mock_run:
+            version = _detect_ghes_version("github.mycompany.com", "ghp_token")
+
+            assert version == "3.18"
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args
+            assert call_args[0][0] == ["gh", "api", "--hostname", "github.mycompany.com", "meta"]
+
+    def test_detect_ghes_version_parses_full_version(self, monkeypatch):
+        """Test detection with full version string parsed to major.minor."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import _detect_ghes_version
+
+        mock_result = MagicMock()
+        mock_result.stdout = '{"installed_version": "3.17.2"}'
+        mock_result.returncode = 0
+
+        with patch("src.config.subprocess.run", return_value=mock_result):
+            version = _detect_ghes_version("github.mycompany.com", "ghp_token")
+
+            assert version == "3.17"
+
+    def test_detect_ghes_version_network_failure(self, monkeypatch):
+        """Test network failure handling (subprocess error)."""
+        import subprocess
+        from unittest.mock import patch
+
+        from src.config import _detect_ghes_version
+
+        with patch(
+            "src.config.subprocess.run",
+            side_effect=subprocess.CalledProcessError(1, "gh", stderr="Connection refused"),
+        ):
+            with pytest.raises(
+                ValueError, match="Failed to detect GHES version for github.mycompany.com"
+            ):
+                _detect_ghes_version("github.mycompany.com", "ghp_token")
+
+    def test_detect_ghes_version_invalid_json(self, monkeypatch):
+        """Test invalid JSON response handling."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import _detect_ghes_version
+
+        mock_result = MagicMock()
+        mock_result.stdout = "not valid json"
+        mock_result.returncode = 0
+
+        with patch("src.config.subprocess.run", return_value=mock_result):
+            with pytest.raises(ValueError, match="Invalid response from GHES meta endpoint"):
+                _detect_ghes_version("github.mycompany.com", "ghp_token")
+
+    def test_detect_ghes_version_missing_installed_version(self, monkeypatch):
+        """Test missing installed_version field handling."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import _detect_ghes_version
+
+        mock_result = MagicMock()
+        mock_result.stdout = '{"some_other_field": "value"}'
+        mock_result.returncode = 0
+
+        with patch("src.config.subprocess.run", return_value=mock_result):
+            with pytest.raises(
+                ValueError, match="did not return installed_version"
+            ):
+                _detect_ghes_version("github.mycompany.com", "ghp_token")
+
+    def test_detect_ghes_version_unsupported(self, monkeypatch):
+        """Test unsupported version detection (e.g., '3.13')."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import _detect_ghes_version
+
+        mock_result = MagicMock()
+        mock_result.stdout = '{"installed_version": "3.13.0"}'
+        mock_result.returncode = 0
+
+        with patch("src.config.subprocess.run", return_value=mock_result):
+            with pytest.raises(
+                ValueError, match="Detected GHES version 3.13 is not supported"
+            ):
+                _detect_ghes_version("github.mycompany.com", "ghp_token")
+
+    def test_explicit_version_takes_precedence_file(self, tmp_path, monkeypatch):
+        """Test explicit version takes precedence over detection in file config."""
+        from unittest.mock import patch
+
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
+            "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
+            "GITHUB_ENTERPRISE_VERSION=3.16\n"
+            "PROJECT_URLS=https://github.mycompany.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        # Mock should NOT be called since explicit version is provided
+        with patch("src.config._detect_ghes_version") as mock_detect:
+            config = load_config_from_file(config_file)
+
+            mock_detect.assert_not_called()
+            assert config.github_enterprise_version == "3.16"
+
+    def test_explicit_version_takes_precedence_env(self, monkeypatch):
+        """Test explicit version takes precedence over detection in env config."""
+        from unittest.mock import patch
+
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.setenv("GITHUB_ENTERPRISE_HOST", "github.mycompany.com")
+        monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_enterprise")
+        monkeypatch.setenv("GITHUB_ENTERPRISE_VERSION", "3.17")
+        monkeypatch.setenv("PROJECT_URLS", "https://github.mycompany.com/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+
+        # Mock should NOT be called since explicit version is provided
+        with patch("src.config._detect_ghes_version") as mock_detect:
+            config = load_config_from_env()
+
+            mock_detect.assert_not_called()
+            assert config.github_enterprise_version == "3.17"
+
+    def test_file_config_auto_detects_version(self, tmp_path, monkeypatch):
+        """Test file config with only host+token auto-detects version."""
+        from unittest.mock import patch
+
+        config_file = self._write_config(
+            tmp_path,
+            "GITHUB_ENTERPRISE_HOST=github.mycompany.com\n"
+            "GITHUB_ENTERPRISE_TOKEN=ghp_enterprise\n"
+            "PROJECT_URLS=https://github.mycompany.com/orgs/test/projects/1\n"
+            "USERNAME_SELF=testuser",
+        )
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+        with patch("src.config._detect_ghes_version", return_value="3.18") as mock_detect:
+            config = load_config_from_file(config_file)
+
+            mock_detect.assert_called_once_with("github.mycompany.com", "ghp_enterprise")
+            assert config.github_enterprise_version == "3.18"
+
+    def test_env_config_auto_detects_version(self, monkeypatch):
+        """Test env config with only host+token auto-detects version."""
+        from unittest.mock import patch
+
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        monkeypatch.setenv("GITHUB_ENTERPRISE_HOST", "github.enterprise.io")
+        monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "ghp_ent_token")
+        monkeypatch.delenv("GITHUB_ENTERPRISE_VERSION", raising=False)
+        monkeypatch.setenv("PROJECT_URLS", "https://github.enterprise.io/orgs/test/projects/1")
+        monkeypatch.setenv("USERNAME_SELF", "testuser")
+
+        with patch("src.config._detect_ghes_version", return_value="3.19") as mock_detect:
+            config = load_config_from_env()
+
+            mock_detect.assert_called_once_with("github.enterprise.io", "ghp_ent_token")
+            assert config.github_enterprise_version == "3.19"
+
+    def test_detect_ghes_version_gh_not_installed(self, monkeypatch):
+        """Test error when gh CLI is not installed."""
+        from unittest.mock import patch
+
+        from src.config import _detect_ghes_version
+
+        with patch("src.config.subprocess.run", side_effect=FileNotFoundError()):
+            with pytest.raises(ValueError, match="GitHub CLI \\(gh\\) is not installed"):
+                _detect_ghes_version("github.mycompany.com", "ghp_token")
+
+    def test_detect_ghes_version_invalid_format(self, monkeypatch):
+        """Test handling of invalid version format (single number)."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import _detect_ghes_version
+
+        mock_result = MagicMock()
+        mock_result.stdout = '{"installed_version": "3"}'
+        mock_result.returncode = 0
+
+        with patch("src.config.subprocess.run", return_value=mock_result):
+            with pytest.raises(ValueError, match="Invalid GHES version format"):
+                _detect_ghes_version("github.mycompany.com", "ghp_token")
+
+    def test_detect_ghes_version_empty_installed_version(self, monkeypatch):
+        """Test handling of empty installed_version field."""
+        from unittest.mock import MagicMock, patch
+
+        from src.config import _detect_ghes_version
+
+        mock_result = MagicMock()
+        mock_result.stdout = '{"installed_version": ""}'
+        mock_result.returncode = 0
+
+        with patch("src.config.subprocess.run", return_value=mock_result):
+            with pytest.raises(ValueError, match="did not return installed_version"):
+                _detect_ghes_version("github.mycompany.com", "ghp_token")
