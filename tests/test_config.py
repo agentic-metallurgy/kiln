@@ -285,11 +285,11 @@ class TestLoadConfig:
         config = load_config_from_env()
 
         assert config.stage_models == {
-            "Prepare": "haiku",
-            "Research": "opus",
-            "Plan": "opus",
-            "Implement": "opus",
-            "process_comments": "sonnet",
+            "Prepare": "claude-haiku-4-5-20251001",
+            "Research": "claude-opus-4-5-20251101",
+            "Plan": "claude-opus-4-5-20251101",
+            "Implement": "claude-opus-4-5-20251101",
+            "process_comments": "claude-sonnet-4-5-20250929",
         }
 
     def test_load_config_custom_stage_models(self, monkeypatch):

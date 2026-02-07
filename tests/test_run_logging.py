@@ -1118,6 +1118,7 @@ class TestRunLoggingIntegration:
         config.ghes_logs_mask = False
         config.github_enterprise_host = None
         config.log_file = str(tmp_path / ".kiln/logs/kiln.log")
+        config.username_self = "test-user"
 
         # Create directories
         (tmp_path / "worktrees").mkdir()
@@ -1135,6 +1136,8 @@ class TestRunLoggingIntegration:
             mock_client.validate_connection.return_value = True
             mock_client.validate_scopes.return_value = True
             mock_client.client_description = "MockGitHubClient"
+            # Mock get_label_actor to return our username for post-claim verification
+            mock_client.get_label_actor.return_value = "test-user"
             mock_get_client.return_value = mock_client
 
             daemon = Daemon(config)

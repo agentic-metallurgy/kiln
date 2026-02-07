@@ -1038,7 +1038,7 @@ class Daemon:
 
         # Skip if already running (has running_label) - use cached labels
         if running_label in item.labels:
-            logger.debug(f"Skipping {key} - has '{running_label}' label (workflow running)")
+            logger.info(f"Skipping {key} - workflow already running ('{running_label}' label present)")
             return False
 
         # Skip if already complete (has complete_label)
@@ -1583,12 +1583,70 @@ class Daemon:
 
         original_body = body
 
-        # Remove research section (including separator before it)
+        # Remove research section with <details> wrapper (most specific, try first)
+        # Pattern: separator + <details> with Research Findings summary + kiln markers + </details>
+        research_details_pattern = (
+            r"\n*---\n*<details>\s*\n*<summary>.*?Research Findings.*?</summary>"
+            r"\s*\n*<!-- kiln:research -->.*?<!-- /kiln:research -->\s*\n*</details>"
+        )
+        body = re.sub(research_details_pattern, "", body, flags=re.DOTALL)
+
+        # Research with <details> wrapper, no separator
+        research_details_no_sep = (
+            r"\n*<details>\s*\n*<summary>.*?Research Findings.*?</summary>"
+            r"\s*\n*<!-- kiln:research -->.*?<!-- /kiln:research -->\s*\n*</details>"
+        )
+        body = re.sub(research_details_no_sep, "", body, flags=re.DOTALL)
+
+        # Research with <details> wrapper and legacy end marker
+        research_details_legacy = (
+            r"\n*---\n*<details>\s*\n*<summary>.*?Research Findings.*?</summary>"
+            r"\s*\n*<!-- kiln:research -->.*?<!-- /kiln -->\s*\n*</details>"
+        )
+        body = re.sub(research_details_legacy, "", body, flags=re.DOTALL)
+
+        # Research with <details> wrapper, legacy end marker, no separator
+        research_details_legacy_no_sep = (
+            r"\n*<details>\s*\n*<summary>.*?Research Findings.*?</summary>"
+            r"\s*\n*<!-- kiln:research -->.*?<!-- /kiln -->\s*\n*</details>"
+        )
+        body = re.sub(research_details_legacy_no_sep, "", body, flags=re.DOTALL)
+
+        # Remove plan section with <details> wrapper (most specific, try first)
+        # Pattern: separator + <details> with Implementation Plan summary + kiln markers + </details>
+        plan_details_pattern = (
+            r"\n*---\n*<details>\s*\n*<summary>.*?Implementation Plan.*?</summary>"
+            r"\s*\n*<!-- kiln:plan -->.*?<!-- /kiln:plan -->\s*\n*</details>"
+        )
+        body = re.sub(plan_details_pattern, "", body, flags=re.DOTALL)
+
+        # Plan with <details> wrapper, no separator
+        plan_details_no_sep = (
+            r"\n*<details>\s*\n*<summary>.*?Implementation Plan.*?</summary>"
+            r"\s*\n*<!-- kiln:plan -->.*?<!-- /kiln:plan -->\s*\n*</details>"
+        )
+        body = re.sub(plan_details_no_sep, "", body, flags=re.DOTALL)
+
+        # Plan with <details> wrapper and legacy end marker
+        plan_details_legacy = (
+            r"\n*---\n*<details>\s*\n*<summary>.*?Implementation Plan.*?</summary>"
+            r"\s*\n*<!-- kiln:plan -->.*?<!-- /kiln -->\s*\n*</details>"
+        )
+        body = re.sub(plan_details_legacy, "", body, flags=re.DOTALL)
+
+        # Plan with <details> wrapper, legacy end marker, no separator
+        plan_details_legacy_no_sep = (
+            r"\n*<details>\s*\n*<summary>.*?Implementation Plan.*?</summary>"
+            r"\s*\n*<!-- kiln:plan -->.*?<!-- /kiln -->\s*\n*</details>"
+        )
+        body = re.sub(plan_details_legacy_no_sep, "", body, flags=re.DOTALL)
+
+        # Remove research section without <details> wrapper (original patterns)
         # Pattern: optional separator (---) followed by research section
         research_pattern = r"\n*---\n*<!-- kiln:research -->.*?<!-- /kiln:research -->"
         body = re.sub(research_pattern, "", body, flags=re.DOTALL)
 
-        # Remove plan section (including separator before it)
+        # Remove plan section without <details> wrapper (original patterns)
         plan_pattern = r"\n*---\n*<!-- kiln:plan -->.*?<!-- /kiln:plan -->"
         body = re.sub(plan_pattern, "", body, flags=re.DOTALL)
 
@@ -1854,6 +1912,34 @@ class Daemon:
                 with self._running_labels_lock:
                     self._running_labels[key] = running_label
                 logger.debug(f"Added '{running_label}' label to {key}")
+
+                # POST-CLAIM VERIFICATION: Wait for GitHub timeline and verify we were first
+                # This prevents race conditions when multiple kiln instances try to claim the same workflow
+                time.sleep(5)  # Allow GitHub API timeline to propagate
+
+                actor = self.ticket_client.get_label_actor(item.repo, item.ticket_id, running_label)
+
+                if actor is None:
+                    logger.error(
+                        f"Could not verify label actor for '{running_label}' on {key}, aborting workflow"
+                    )
+                    # Do NOT remove the label - could be stale, humans resolve manually
+                    # Remove from shutdown cleanup tracking since we didn't actually claim it
+                    with self._running_labels_lock:
+                        self._running_labels.pop(key, None)
+                    return
+
+                if actor != self.config.username_self:
+                    logger.warning(
+                        f"Race detected: '{actor}' claimed '{running_label}' on {key} before us, aborting workflow"
+                    )
+                    # Do NOT remove the label - let the winner keep it
+                    # Remove from shutdown cleanup tracking since we didn't actually claim it
+                    with self._running_labels_lock:
+                        self._running_labels.pop(key, None)
+                    return
+
+                logger.info(f"Verified we claimed '{running_label}' on {key}, proceeding with workflow")
 
             # Write MCP config to worktree if configured
             mcp_config_path: str | None = None
