@@ -282,7 +282,7 @@ def run_daemon(daemon_mode: bool = False) -> None:
         SetupError,
         check_for_updates,
         check_required_tools,
-        configure_git_credential_helper,
+        configure_git_credential_env,
         get_hostnames_from_project_urls,
         validate_project_columns,
     )
@@ -293,9 +293,9 @@ def run_daemon(daemon_mode: bool = False) -> None:
     try:
         # Phase 1: Check required CLI tools
         startup_print("Checking required tools...", "glow")
-        check_required_tools()
+        claude_info = check_required_tools()
         startup_print("  ✓ gh CLI found", "glow")
-        startup_print("  ✓ claude CLI found", "glow")
+        startup_print(f"  ✓ claude CLI found at {claude_info.path} ({claude_info.install_method}) v{claude_info.version}", "glow")
 
         # Check for updates (non-blocking, fail-silent)
         update_info = check_for_updates(kiln_dir=get_kiln_dir())
@@ -329,8 +329,8 @@ def run_daemon(daemon_mode: bool = False) -> None:
         # Phase 3b: Configure git credentials
         startup_print("Configuring git credentials...", "fire")
         hostnames = get_hostnames_from_project_urls(config.project_urls)
+        configure_git_credential_env(hostnames)
         for hostname in sorted(hostnames):
-            configure_git_credential_helper(hostname)
             startup_print(f"  ✓ Configured credential helper for {hostname}", "fire")
         print()
 

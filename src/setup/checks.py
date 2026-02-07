@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import subprocess
 import time
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
@@ -18,6 +21,178 @@ class SetupError(Exception):
     """Raised when setup validation fails."""
 
     pass
+
+
+@dataclass
+class ClaudeInfo:
+    """Information about the Claude CLI installation."""
+
+    path: str
+    version: str
+    install_method: str
+
+
+def check_claude_installation() -> ClaudeInfo:
+    """Check Claude CLI installation and validate it's the native version.
+
+    Uses shutil.which to resolve the full path, runs claude --version to get
+    the version, and detects the installation method from the path.
+
+    Returns:
+        ClaudeInfo with path, version, and install_method
+
+    Raises:
+        SetupError: If Claude is not found, or if installed via npm/brew
+    """
+    # Find claude executable
+    claude_path = shutil.which("claude")
+    if claude_path is None:
+        raise SetupError(
+            "claude CLI not found. Install from: "
+            "https://docs.anthropic.com/en/docs/claude-code/overview"
+        )
+
+    # Get version
+    try:
+        result = subprocess.run(
+            ["claude", "--version"],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+        version_output = result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        raise SetupError(f"claude CLI error: {e.stderr if e.stderr else str(e)}") from e
+
+    # Parse version (look for patterns like "v1.0.45" or "1.0.45")
+    version_match = re.search(r"v?(\d+\.\d+\.\d+)", version_output)
+    version = version_match.group(1) if version_match else version_output
+
+    # Detect installation method from path
+    path_lower = claude_path.lower()
+    if "node_modules" in path_lower or "/npm/" in path_lower or "/.npm/" in path_lower:
+        install_method = "npm"
+    elif "/cellar/" in path_lower or "/homebrew/" in path_lower:
+        install_method = "brew"
+    else:
+        install_method = "native"
+
+    # Reject npm and brew installations
+    if install_method == "npm":
+        raise SetupError(
+            f"Claude CLI installed via npm detected at: {claude_path}\n"
+            "npm installations are not supported. Please uninstall and use the native installer:\n"
+            "  npm uninstall -g @anthropic-ai/claude-code\n"
+            "Then install from: https://docs.anthropic.com/en/docs/claude-code/overview"
+        )
+
+    if install_method == "brew":
+        raise SetupError(
+            f"Claude CLI installed via Homebrew detected at: {claude_path}\n"
+            "Homebrew installations are not supported. Please uninstall and use the native installer:\n"
+            "  brew uninstall claude\n"
+            "Then install from: https://docs.anthropic.com/en/docs/claude-code/overview"
+        )
+
+    return ClaudeInfo(path=claude_path, version=version, install_method=install_method)
+
+
+@dataclass
+class ShellConfigVar:
+    """Information about an environment variable found in a shell config file."""
+
+    var: str
+    file: str
+    line: int
+
+
+def scan_shell_configs_for_anthropic() -> list[ShellConfigVar]:
+    """Scan common shell config files for ANTHROPIC_* variable definitions.
+
+    Checks ~/.zshrc, ~/.bashrc, ~/.bash_profile, and ~/.profile for lines
+    that export ANTHROPIC_* environment variables.
+
+    Returns:
+        List of ShellConfigVar with var name, file path, and line number
+        for each detected variable. Empty list if no variables found or
+        if files are missing/unreadable.
+    """
+    home = Path.home()
+    config_files = [
+        home / ".zshrc",
+        home / ".bashrc",
+        home / ".bash_profile",
+        home / ".profile",
+    ]
+
+    # Pattern to match: export ANTHROPIC_VARNAME= (with optional quotes/values)
+    pattern = re.compile(r"^\s*export\s+(ANTHROPIC_\w+)=")
+
+    found_vars: list[ShellConfigVar] = []
+
+    for config_file in config_files:
+        try:
+            if not config_file.exists():
+                continue
+
+            with config_file.open("r", encoding="utf-8", errors="ignore") as f:
+                for line_num, line in enumerate(f, start=1):
+                    match = pattern.search(line)
+                    if match:
+                        var_name = match.group(1)
+                        # Use ~ notation for user-friendly display
+                        display_path = f"~/{config_file.relative_to(home)}"
+                        found_vars.append(
+                            ShellConfigVar(var=var_name, file=display_path, line=line_num)
+                        )
+        except (PermissionError, OSError):
+            # Skip files that can't be read
+            continue
+
+    return found_vars
+
+
+def check_anthropic_env_vars() -> None:
+    """Check for ANTHROPIC_* environment variables that may interfere with Claude.
+
+    Scans os.environ for any keys starting with ANTHROPIC_ and also scans
+    common shell config files for ANTHROPIC_* variable definitions.
+    Raises an error if any are found, as these can cause issues with the
+    Claude CLI.
+
+    Raises:
+        SetupError: If any ANTHROPIC_* environment variables are found
+    """
+    # Check current environment
+    env_vars = [key for key in os.environ if key.startswith("ANTHROPIC_")]
+
+    # Check shell config files
+    shell_config_vars = scan_shell_configs_for_anthropic()
+
+    if not env_vars and not shell_config_vars:
+        return
+
+    # Build error message
+    error_lines = ["ANTHROPIC_* environment variables detected:"]
+
+    # List env vars from current environment
+    for var in sorted(env_vars):
+        error_lines.append(f"  - {var} (set in current environment)")
+
+    # List vars from shell config files
+    for config_var in shell_config_vars:
+        error_lines.append(f"  - {config_var.var} (defined in {config_var.file} line {config_var.line})")
+
+    error_lines.append("")
+    error_lines.append("These variables conflict with Kiln's Claude integration.")
+    error_lines.append("Please remove them from your shell config and run:")
+
+    # Collect unique variable names for unset commands
+    all_vars = set(env_vars) | {cv.var for cv in shell_config_vars}
+    for var in sorted(all_vars):
+        error_lines.append(f"  unset {var}")
+
+    raise SetupError("\n".join(error_lines))
 
 
 def is_restricted_directory(directory: Path | None = None) -> bool:
@@ -82,16 +257,23 @@ def validate_working_directory(directory: Path | None = None) -> None:
         )
 
 
-def check_required_tools() -> None:
+def check_required_tools() -> ClaudeInfo:
     """Check that required CLI tools are available.
 
     Checks for:
+    - No ANTHROPIC_* environment variables
     - gh CLI (GitHub CLI)
-    - claude CLI (Claude Code)
+    - claude CLI (Claude Code) - must be native installation
+
+    Returns:
+        ClaudeInfo with details about the Claude CLI installation
 
     Raises:
         SetupError: If any required tool is missing with installation instructions
     """
+    # Check for interfering environment variables first
+    check_anthropic_env_vars()
+
     errors = []
 
     # Check gh CLI
@@ -106,23 +288,13 @@ def check_required_tools() -> None:
     except subprocess.CalledProcessError as e:
         errors.append(f"gh CLI error: {e.stderr.decode() if e.stderr else str(e)}")
 
-    # Check claude CLI
-    try:
-        subprocess.run(
-            ["claude", "--version"],
-            capture_output=True,
-            check=True,
-        )
-    except FileNotFoundError:
-        errors.append(
-            "claude CLI not found. Install from: "
-            "https://docs.anthropic.com/en/docs/claude-code/overview"
-        )
-    except subprocess.CalledProcessError as e:
-        errors.append(f"claude CLI error: {e.stderr.decode() if e.stderr else str(e)}")
-
     if errors:
         raise SetupError("\n".join(errors))
+
+    # Check claude CLI (includes installation method validation)
+    claude_info = check_claude_installation()
+
+    return claude_info
 
 
 FORMULA_URL = "https://raw.githubusercontent.com/agentic-metallurgy/homebrew-tap/main/Formula/kiln.rb"
@@ -195,45 +367,42 @@ def check_for_updates(kiln_dir: Path | None = None) -> UpdateInfo | None:
         return None
 
 
-def configure_git_credential_helper(hostname: str = "github.com") -> None:
-    """Configure gh CLI as git credential helper for a hostname.
+def configure_git_credential_env(hostnames: set[str]) -> None:
+    """Configure gh CLI as git credential helper via environment variables.
 
-    Sets up git to use `gh auth git-credential` for HTTPS authentication.
-    This is equivalent to running `gh auth setup-git` but supports per-hostname
-    configuration for GitHub Enterprise Server.
+    Sets GIT_CONFIG_COUNT/GIT_CONFIG_KEY_*/GIT_CONFIG_VALUE_* to inject
+    credential helper configuration into the current process environment.
+    Child processes (git, claude, gh) inherit these variables automatically.
 
-    The function clears any existing credential helpers for the hostname before
-    adding the gh CLI helper to avoid stacking multiple helpers.
+    This approach is preferred over `git config --global` as it:
+    - Does not modify the user's ~/.gitconfig
+    - Only affects Kiln's process tree
+    - Leaves external terminals unaffected
+
+    Requires Git 2.31+ (released March 2021).
 
     Args:
-        hostname: GitHub hostname (e.g., "github.com" or "github.mycompany.com")
+        hostnames: Set of GitHub hostnames (e.g., {"github.com", "ghes.company.com"})
 
     Example:
-        >>> configure_git_credential_helper("github.com")
-        >>> configure_git_credential_helper("github.enterprise.example.com")
+        >>> configure_git_credential_env({"github.com", "ghes.company.com"})
 
-        After calling, `git config --global --get credential.https://github.com.helper`
-        will return `!gh auth git-credential`.
+        After calling, environment variables will be set:
+        - GIT_CONFIG_COUNT=2
+        - GIT_CONFIG_KEY_0=credential.https://ghes.company.com.helper
+        - GIT_CONFIG_VALUE_0=!gh auth git-credential
+        - GIT_CONFIG_KEY_1=credential.https://github.com.helper
+        - GIT_CONFIG_VALUE_1=!gh auth git-credential
     """
-    credential_key = f"credential.https://{hostname}.helper"
+    sorted_hostnames = sorted(hostnames)
+    os.environ["GIT_CONFIG_COUNT"] = str(len(sorted_hostnames))
 
-    try:
-        # Clear any existing helpers for this hostname to avoid stacking
-        subprocess.run(
-            ["git", "config", "--global", credential_key, ""],
-            check=False,  # Don't fail if no existing config
-            capture_output=True,
-        )
+    for i, hostname in enumerate(sorted_hostnames):
+        os.environ[f"GIT_CONFIG_KEY_{i}"] = f"credential.https://{hostname}.helper"
+        os.environ[f"GIT_CONFIG_VALUE_{i}"] = "!gh auth git-credential"
 
-        # Add gh as credential helper
-        subprocess.run(
-            ["git", "config", "--global", "--add", credential_key, "!gh auth git-credential"],
-            check=True,
-            capture_output=True,
-        )
-    except subprocess.CalledProcessError as e:
-        # Log but don't fail - user might have different setup
-        logger.warning(f"Could not configure git credential helper for {hostname}: {e}")
+    if sorted_hostnames:
+        logger.debug(f"Configured git credential env vars for: {', '.join(sorted_hostnames)}")
 
 
 def get_hostnames_from_project_urls(project_urls: list[str]) -> set[str]:

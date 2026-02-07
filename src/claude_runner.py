@@ -8,6 +8,7 @@ JSON output and proper error handling.
 import contextlib
 import json
 import os
+import re
 import subprocess
 import time
 from collections.abc import Callable
@@ -37,6 +38,74 @@ class ClaudeTimeoutError(ClaudeRunnerError):
     """Exception raised when Claude execution times out."""
 
     pass
+
+
+# Error patterns for user-friendly troubleshooting suggestions
+# Each tuple is (regex_pattern, suggestion_message)
+ERROR_PATTERNS = [
+    (
+        r"ANTHROPIC_API_KEY",
+        "Remove ANTHROPIC_* environment variables: unset ANTHROPIC_API_KEY",
+    ),
+    (
+        r"authentication|unauthorized|401|auth.*fail",
+        "Re-authenticate with GitHub: gh auth login",
+    ),
+    (
+        r"network|connection|timeout|ETIMEDOUT|ECONNREFUSED|ENOTFOUND",
+        "Check network connectivity and try again",
+    ),
+    (
+        r"rate.?limit|429|too many requests",
+        "Rate limited - wait a few minutes before retrying",
+    ),
+    (
+        r"not found|command not found|ENOENT",
+        "Reinstall Claude Code: https://docs.anthropic.com/en/docs/claude-code/overview",
+    ),
+    (
+        r"permission denied|EACCES",
+        "Check file/directory permissions in the worktree",
+    ),
+    (
+        r"model.*not.*available|invalid.*model",
+        "Check that the specified model is available for your account",
+    ),
+    (
+        r"context.*length|token.*limit|too.*long",
+        "The prompt or response exceeded token limits - try breaking into smaller tasks",
+    ),
+]
+
+
+def enhance_claude_error(original_error: str) -> str:
+    """Enhance a Claude error message with user-friendly troubleshooting suggestions.
+
+    Scans the original error message for known patterns and appends relevant
+    "Next steps:" suggestions to help users resolve common issues.
+
+    Args:
+        original_error: The raw error message from Claude CLI
+
+    Returns:
+        The original error message with appended troubleshooting suggestions
+        if any patterns matched, otherwise the original message unchanged.
+    """
+    suggestions = []
+
+    for pattern, suggestion in ERROR_PATTERNS:
+        if re.search(pattern, original_error, re.IGNORECASE) and suggestion not in suggestions:
+            suggestions.append(suggestion)
+
+    if suggestions:
+        next_steps = "\n".join(f"  - {s}" for s in suggestions)
+        return (
+            f"{original_error}\n\n"
+            f"Next steps:\n{next_steps}\n\n"
+            f"For more help: https://docs.anthropic.com/en/docs/claude-code/troubleshooting"
+        )
+
+    return original_error
 
 
 def run_claude(
@@ -251,7 +320,8 @@ def run_claude(
                     elif data.get("type") == "error":
                         error_msg = data.get("message", data.get("text", "Unknown error"))
                         logger.error(f"Claude returned error: {error_msg}")
-                        raise ClaudeRunnerError(f"Claude error: {error_msg}")
+                        enhanced_error = enhance_claude_error(f"Claude error: {error_msg}")
+                        raise ClaudeRunnerError(enhanced_error)
 
             except json.JSONDecodeError as e:
                 # Capture non-JSON output for error reporting (e.g., early CLI errors)
@@ -293,9 +363,9 @@ def run_claude(
                     error_details = f"{error_details}\nStdout: {non_json_str}"
                 else:
                     error_details = non_json_str
-            raise ClaudeRunnerError(
-                f"Claude process failed with exit code {return_code}: {error_details}"
-            )
+            raw_error = f"Claude process failed with exit code {return_code}: {error_details}"
+            enhanced_error = enhance_claude_error(raw_error)
+            raise ClaudeRunnerError(enhanced_error)
 
         # Combine response parts
         final_response = "".join(response_parts)
@@ -304,7 +374,8 @@ def run_claude(
             logger.warning("No response text extracted from Claude output")
             if stderr_output:
                 logger.error(f"Stderr: {stderr_output}")
-            raise ClaudeRunnerError("No response received from Claude")
+            enhanced_error = enhance_claude_error("No response received from Claude")
+            raise ClaudeRunnerError(enhanced_error)
 
         stage_info = f" {execution_stage}" if execution_stage else ""
         logger.info(
@@ -314,7 +385,8 @@ def run_claude(
 
     except FileNotFoundError as e:
         logger.error(f"Command or directory not found: {e}")
-        raise ClaudeRunnerError(f"Failed to execute Claude CLI: {e}") from e
+        enhanced_error = enhance_claude_error(f"Failed to execute Claude CLI: {e}")
+        raise ClaudeRunnerError(enhanced_error) from e
 
     except subprocess.TimeoutExpired as e:
         logger.error(f"Process wait timeout: {e}")
@@ -325,4 +397,5 @@ def run_claude(
         if isinstance(e, (ClaudeRunnerError, ClaudeTimeoutError)):
             raise
         logger.error(f"Unexpected error running Claude: {e}", exc_info=True)
-        raise ClaudeRunnerError(f"Unexpected error: {e}") from e
+        enhanced_error = enhance_claude_error(f"Unexpected error: {e}")
+        raise ClaudeRunnerError(enhanced_error) from e
