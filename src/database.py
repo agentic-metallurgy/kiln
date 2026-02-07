@@ -224,6 +224,18 @@ class Database:
                     CREATE INDEX IF NOT EXISTS idx_run_history_repo_issue
                     ON run_history (repo, issue_number)
                 """)
+
+                # Create processing_comments table for tracking active comment processing
+                # Used to detect stale eyes reactions from crashes
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS processing_comments (
+                        repo TEXT NOT NULL,
+                        issue_number INTEGER NOT NULL,
+                        comment_id TEXT NOT NULL,
+                        started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (repo, issue_number, comment_id)
+                    )
+                """)
             self._initialized = True
 
     def get_issue_state(self, repo: str, issue_number: int) -> IssueState | None:
@@ -661,6 +673,77 @@ class Database:
                 log_path=row["log_path"],
             )
         return None
+
+    def add_processing_comment(self, repo: str, issue_number: int, comment_id: str) -> None:
+        """Record that a comment is being processed.
+
+        Args:
+            repo: Repository name (e.g., "github.com/owner/repo")
+            issue_number: GitHub issue number
+            comment_id: GraphQL node ID for the comment
+        """
+        conn = self._get_conn()
+        with conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO processing_comments
+                (repo, issue_number, comment_id, started_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (repo, issue_number, comment_id, datetime.now().isoformat()),
+            )
+
+    def remove_processing_comment(self, repo: str, issue_number: int, comment_id: str) -> None:
+        """Remove a comment from processing tracking.
+
+        Called when comment processing completes (success or failure).
+
+        Args:
+            repo: Repository name (e.g., "github.com/owner/repo")
+            issue_number: GitHub issue number
+            comment_id: GraphQL node ID for the comment
+        """
+        conn = self._get_conn()
+        with conn:
+            conn.execute(
+                """
+                DELETE FROM processing_comments
+                WHERE repo = ? AND issue_number = ? AND comment_id = ?
+                """,
+                (repo, issue_number, comment_id),
+            )
+
+    def get_stale_processing_comments(
+        self, stale_threshold_seconds: int = 3600
+    ) -> list[tuple[str, int, str]]:
+        """Get comments that have been processing longer than threshold.
+
+        Used on daemon startup to detect and clean up eyes reactions left
+        over from crashes.
+
+        Args:
+            stale_threshold_seconds: Seconds after which a processing comment
+                is considered stale (default: 3600 = 1 hour)
+
+        Returns:
+            List of (repo, issue_number, comment_id) tuples for stale comments
+        """
+        from datetime import timedelta
+
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        # Calculate threshold as ISO timestamp for direct comparison
+        threshold_time = (datetime.now() - timedelta(seconds=stale_threshold_seconds)).isoformat()
+        cursor.execute(
+            """
+            SELECT repo, issue_number, comment_id
+            FROM processing_comments
+            WHERE started_at < ?
+            """,
+            (threshold_time,),
+        )
+
+        return [(row["repo"], row["issue_number"], row["comment_id"]) for row in cursor.fetchall()]
 
     def close(self) -> None:
         """
