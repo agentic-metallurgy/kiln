@@ -1363,3 +1363,494 @@ class TestResetWithRunningWorkflow:
         mock_running_process_2.wait.assert_not_called()
         assert key2 in daemon._running_processes
         assert daemon._running_processes[key2] is mock_running_process_2
+
+
+# ============================================================================
+# Integration Tests for Recreate Label
+# ============================================================================
+
+
+@pytest.mark.integration
+class TestDaemonRecreate:
+    """Integration tests for recreate label behavior.
+
+    These tests verify the end-to-end recreate behavior:
+    - New issue is created with original description
+    - New issue is added to project with Backlog status
+    - Original issue is closed as "not_planned"
+    - Original project item is archived
+    - Running subprocess is terminated
+    - Worktree is cleaned up
+    - Open PRs are closed and branches deleted
+    """
+
+    @pytest.fixture
+    def daemon(self, temp_workspace_dir):
+        """Create a daemon instance for testing with process tracking."""
+        config = MagicMock()
+        config.poll_interval = 60
+        config.watched_statuses = ["Research", "Plan", "Implement"]
+        config.max_concurrent_workflows = 2
+        config.database_path = f"{temp_workspace_dir}/test.db"
+        config.workspace_dir = temp_workspace_dir
+        config.project_urls = ["https://github.com/orgs/test/projects/1"]
+        config.stage_models = {}
+        config.github_enterprise_version = None
+        config.team_usernames = []
+        config.username_self = "kiln-bot"
+
+        with patch("src.ticket_clients.github.GitHubTicketClient"):
+            daemon = Daemon(config)
+            daemon.ticket_client = MagicMock()
+            daemon.workspace_manager = MagicMock()
+            daemon.comment_processor.ticket_client = daemon.ticket_client
+            # Setup project metadata
+            from src.database import ProjectMetadata
+            daemon._project_metadata = {
+                "https://github.com/orgs/test/projects/1": ProjectMetadata(
+                    project_url="https://github.com/orgs/test/projects/1",
+                    project_id="PVT_123",
+                    status_field_id="PVTSSF_456",
+                    status_options={
+                        "Backlog": "backlog_opt_id",
+                        "Research": "research_opt_id",
+                        "Plan": "plan_opt_id",
+                        "Implement": "implement_opt_id",
+                        "Done": "done_opt_id",
+                        "Failed": "failed_opt_id",
+                    },
+                )
+            }
+            yield daemon
+            daemon.stop()
+
+    @pytest.fixture
+    def item_with_recreate_label(self):
+        """Create a TicketItem with recreate label."""
+        return TicketItem(
+            item_id="PVI_300",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=300,
+            title="Issue to Recreate",
+            repo="github.com/owner/repo",
+            status="Plan",
+            labels=["recreate", "plan_ready"],
+        )
+
+    @pytest.fixture
+    def mock_running_process(self):
+        """Create a mock subprocess that appears to be running."""
+        process = MagicMock(spec=subprocess.Popen)
+        process.pid = 12345
+        process.poll.return_value = None  # Still running
+        return process
+
+    def test_recreate_creates_new_issue_with_original_description(
+        self, daemon, item_with_recreate_label
+    ):
+        """Test that recreate creates a new issue with original description."""
+        item = item_with_recreate_label
+        original_description = "This is the original issue description."
+        kiln_content = """
+---
+<!-- kiln:research -->
+## Research Findings
+Some research content here.
+<!-- /kiln:research -->
+
+---
+<!-- kiln:plan -->
+## Implementation Plan
+Step 1: Do something
+<!-- /kiln:plan -->"""
+        body_with_kiln = original_description + kiln_content
+
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_ticket_body.return_value = body_with_kiln
+        daemon.ticket_client.create_issue.return_value = 301
+        daemon.ticket_client.get_issue_node_id.return_value = "I_new_node_id"
+        daemon.ticket_client.add_issue_to_project.return_value = "PVI_new_item"
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        daemon._maybe_handle_recreate(item)
+
+        # Verify issue was created with cleaned body
+        daemon.ticket_client.create_issue.assert_called_once()
+        call_args = daemon.ticket_client.create_issue.call_args
+        assert call_args[0][0] == item.repo
+        assert call_args[0][1] == item.title
+        new_body = call_args[0][2]
+
+        # Check the new body contains reference and original description
+        assert "Recreated from #300" in new_body
+        assert original_description in new_body
+        # Check kiln content was stripped
+        assert "kiln:research" not in new_body
+        assert "kiln:plan" not in new_body
+        assert "Research Findings" not in new_body
+        assert "Implementation Plan" not in new_body
+
+    def test_recreate_closes_original_as_not_planned(
+        self, daemon, item_with_recreate_label
+    ):
+        """Test that recreate closes the original issue as not_planned."""
+        item = item_with_recreate_label
+
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_ticket_body.return_value = "Original description"
+        daemon.ticket_client.create_issue.return_value = 301
+        daemon.ticket_client.get_issue_node_id.return_value = "I_new_node_id"
+        daemon.ticket_client.add_issue_to_project.return_value = "PVI_new_item"
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        daemon._maybe_handle_recreate(item)
+
+        daemon.ticket_client.close_issue.assert_called_once_with(
+            item.repo, item.ticket_id, "not_planned"
+        )
+
+    def test_recreate_adds_new_issue_to_project_backlog(
+        self, daemon, item_with_recreate_label
+    ):
+        """Test that recreate adds the new issue to project with Backlog status."""
+        item = item_with_recreate_label
+
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_ticket_body.return_value = "Original description"
+        daemon.ticket_client.create_issue.return_value = 301
+        daemon.ticket_client.get_issue_node_id.return_value = "I_new_node_id"
+        daemon.ticket_client.add_issue_to_project.return_value = "PVI_new_item"
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        daemon._maybe_handle_recreate(item)
+
+        # Verify get_issue_node_id was called for the new issue
+        daemon.ticket_client.get_issue_node_id.assert_called_once_with(item.repo, 301)
+
+        # Verify add_issue_to_project was called
+        daemon.ticket_client.add_issue_to_project.assert_called_once_with(
+            "PVT_123", "I_new_node_id", "github.com"
+        )
+
+        # Verify status was set to Backlog
+        daemon.ticket_client.update_item_status.assert_called_once_with(
+            "PVI_new_item", "Backlog", hostname="github.com"
+        )
+
+    def test_recreate_archives_original_project_item(
+        self, daemon, item_with_recreate_label
+    ):
+        """Test that recreate archives the original project item."""
+        item = item_with_recreate_label
+
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_ticket_body.return_value = "Original description"
+        daemon.ticket_client.create_issue.return_value = 301
+        daemon.ticket_client.get_issue_node_id.return_value = "I_new_node_id"
+        daemon.ticket_client.add_issue_to_project.return_value = "PVI_new_item"
+        daemon.ticket_client.archive_item.return_value = True
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        daemon._maybe_handle_recreate(item)
+
+        daemon.ticket_client.archive_item.assert_called_once_with(
+            "PVT_123", item.item_id, hostname="github.com"
+        )
+
+    def test_recreate_strips_kiln_content_from_new_issue(
+        self, daemon, item_with_recreate_label
+    ):
+        """Test that recreate strips all kiln markers from the new issue body."""
+        item = item_with_recreate_label
+        original_description = "My original issue description."
+        body_with_details = """My original issue description.
+---
+<details>
+<summary><h2>Research Findings</h2></summary>
+
+<!-- kiln:research -->
+## Research Findings
+
+Research content here.
+<!-- /kiln:research -->
+
+</details>
+
+---
+<details>
+<summary><h2>Implementation Plan</h2></summary>
+
+<!-- kiln:plan -->
+# Implementation Plan
+
+Plan content here.
+<!-- /kiln:plan -->
+
+</details>"""
+
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_ticket_body.return_value = body_with_details
+        daemon.ticket_client.create_issue.return_value = 301
+        daemon.ticket_client.get_issue_node_id.return_value = "I_new_node_id"
+        daemon.ticket_client.add_issue_to_project.return_value = "PVI_new_item"
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        daemon._maybe_handle_recreate(item)
+
+        call_args = daemon.ticket_client.create_issue.call_args
+        new_body = call_args[0][2]
+
+        # Original description preserved
+        assert original_description in new_body
+        # All kiln markers removed
+        assert "kiln:research" not in new_body
+        assert "kiln:plan" not in new_body
+        assert "<details>" not in new_body
+        assert "</details>" not in new_body
+
+    def test_recreate_includes_reference_to_original_issue(
+        self, daemon, item_with_recreate_label
+    ):
+        """Test that recreate includes a reference to the original issue."""
+        item = item_with_recreate_label
+
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_ticket_body.return_value = "Original description"
+        daemon.ticket_client.create_issue.return_value = 301
+        daemon.ticket_client.get_issue_node_id.return_value = "I_new_node_id"
+        daemon.ticket_client.add_issue_to_project.return_value = "PVI_new_item"
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        daemon._maybe_handle_recreate(item)
+
+        call_args = daemon.ticket_client.create_issue.call_args
+        new_body = call_args[0][2]
+
+        # Check for reference format
+        assert f"Recreated from #{item.ticket_id}" in new_body
+        assert "---" in new_body  # Separator between reference and description
+
+    def test_recreate_terminates_running_subprocess(
+        self, daemon, item_with_recreate_label, mock_running_process
+    ):
+        """Test that recreate terminates any running subprocess for the issue."""
+        item = item_with_recreate_label
+        key = f"{item.repo}#{item.ticket_id}"
+
+        # Register a running process
+        daemon.register_process(key, mock_running_process)
+        assert key in daemon._running_processes
+
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_ticket_body.return_value = "Original description"
+        daemon.ticket_client.create_issue.return_value = 301
+        daemon.ticket_client.get_issue_node_id.return_value = "I_new_node_id"
+        daemon.ticket_client.add_issue_to_project.return_value = "PVI_new_item"
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        daemon._maybe_handle_recreate(item)
+
+        # Verify process was killed
+        mock_running_process.kill.assert_called_once()
+        mock_running_process.wait.assert_called_once_with(timeout=5)
+        assert key not in daemon._running_processes
+
+    def test_recreate_cleans_up_worktree(
+        self, daemon, item_with_recreate_label, temp_workspace_dir
+    ):
+        """Test that recreate cleans up the worktree for the issue."""
+        item = item_with_recreate_label
+
+        # Create fake worktree
+        worktree_path = Path(temp_workspace_dir) / "repo-issue-300"
+        worktree_path.mkdir()
+        (worktree_path / "test_file.txt").write_text("test content")
+
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_ticket_body.return_value = "Original description"
+        daemon.ticket_client.create_issue.return_value = 301
+        daemon.ticket_client.get_issue_node_id.return_value = "I_new_node_id"
+        daemon.ticket_client.add_issue_to_project.return_value = "PVI_new_item"
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        daemon._maybe_handle_recreate(item)
+
+        # Verify cleanup_workspace was called
+        daemon.workspace_manager.cleanup_workspace.assert_called_once_with("repo", 300)
+
+    def test_recreate_blocked_for_non_self_actor(self, daemon, item_with_recreate_label):
+        """Test that recreate is blocked when the actor is not allowed."""
+        item = item_with_recreate_label
+
+        # Actor is some other user, not the bot
+        daemon.ticket_client.get_label_actor.return_value = "random-user"
+
+        daemon._maybe_handle_recreate(item)
+
+        # Label should be removed (blocked actor)
+        daemon.ticket_client.remove_label.assert_called_once_with(
+            item.repo, item.ticket_id, "recreate"
+        )
+        # Issue should NOT be created
+        daemon.ticket_client.create_issue.assert_not_called()
+        daemon.ticket_client.close_issue.assert_not_called()
+
+    def test_recreate_skips_closed_issues(self, daemon):
+        """Test that recreate skips closed issues."""
+        item = TicketItem(
+            item_id="PVI_301",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=301,
+            title="Closed Issue",
+            repo="github.com/owner/repo",
+            status="Done",
+            state="CLOSED",
+            labels=["recreate"],
+        )
+
+        daemon._maybe_handle_recreate(item)
+
+        # Nothing should be called for closed issues
+        daemon.ticket_client.get_label_actor.assert_not_called()
+        daemon.ticket_client.create_issue.assert_not_called()
+
+    def test_recreate_removes_label_first(self, daemon, item_with_recreate_label):
+        """Test that recreate removes the label before other operations."""
+        item = item_with_recreate_label
+        operation_order = []
+
+        def track_remove_label(*args):
+            operation_order.append("remove_label")
+
+        def track_create_issue(*args):
+            operation_order.append("create_issue")
+            return 301
+
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_ticket_body.return_value = "Original description"
+        daemon.ticket_client.remove_label.side_effect = track_remove_label
+        daemon.ticket_client.create_issue.side_effect = track_create_issue
+        daemon.ticket_client.get_issue_node_id.return_value = "I_new_node_id"
+        daemon.ticket_client.add_issue_to_project.return_value = "PVI_new_item"
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        daemon._maybe_handle_recreate(item)
+
+        # Verify label removed before issue created
+        assert operation_order.index("remove_label") < operation_order.index("create_issue")
+
+    def test_recreate_closes_prs_and_deletes_branches(
+        self, daemon, item_with_recreate_label
+    ):
+        """Test that recreate closes open PRs and deletes their branches."""
+        item = item_with_recreate_label
+
+        linked_prs = [
+            LinkedPullRequest(
+                number=100,
+                url="https://github.com/owner/repo/pull/100",
+                body="Closes #300",
+                state="OPEN",
+                merged=False,
+                branch_name="300-feature-branch",
+            )
+        ]
+
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_ticket_body.return_value = "Original description"
+        daemon.ticket_client.create_issue.return_value = 301
+        daemon.ticket_client.get_issue_node_id.return_value = "I_new_node_id"
+        daemon.ticket_client.add_issue_to_project.return_value = "PVI_new_item"
+        daemon.ticket_client.get_linked_prs.return_value = linked_prs
+        daemon.ticket_client.close_pr.return_value = True
+        daemon.ticket_client.get_pr_state.return_value = "CLOSED"
+        daemon.ticket_client.delete_branch.return_value = True
+
+        daemon._maybe_handle_recreate(item)
+
+        # Verify PRs were closed and branches deleted
+        daemon.ticket_client.close_pr.assert_called_once_with(item.repo, 100)
+        daemon.ticket_client.delete_branch.assert_called_once_with(
+            item.repo, "300-feature-branch"
+        )
+
+    def test_recreate_handles_missing_project_metadata(self, daemon):
+        """Test that recreate handles missing project metadata gracefully."""
+        item = TicketItem(
+            item_id="PVI_302",
+            board_url="https://github.com/orgs/unknown/projects/99",
+            ticket_id=302,
+            title="Issue in Unknown Project",
+            repo="github.com/owner/repo",
+            status="Plan",
+            labels=["recreate"],
+        )
+
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_ticket_body.return_value = "Original description"
+        daemon.ticket_client.create_issue.return_value = 303
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        # Should not raise
+        daemon._maybe_handle_recreate(item)
+
+        # Issue should still be created
+        daemon.ticket_client.create_issue.assert_called_once()
+        # Issue should still be closed
+        daemon.ticket_client.close_issue.assert_called_once_with(
+            item.repo, item.ticket_id, "not_planned"
+        )
+        # But project operations should not be attempted
+        daemon.ticket_client.get_issue_node_id.assert_not_called()
+        daemon.ticket_client.add_issue_to_project.assert_not_called()
+
+    def test_recreate_handles_issue_creation_failure(
+        self, daemon, item_with_recreate_label
+    ):
+        """Test that recreate handles issue creation failure gracefully."""
+        item = item_with_recreate_label
+
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_ticket_body.return_value = "Original description"
+        daemon.ticket_client.create_issue.side_effect = Exception("API error")
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        # Should not raise
+        daemon._maybe_handle_recreate(item)
+
+        # Original issue should NOT be closed if creation failed
+        daemon.ticket_client.close_issue.assert_not_called()
+        daemon.ticket_client.archive_item.assert_not_called()
+
+    def test_recreate_handles_get_body_failure(self, daemon, item_with_recreate_label):
+        """Test that recreate handles get_ticket_body returning None."""
+        item = item_with_recreate_label
+
+        daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
+        daemon.ticket_client.get_ticket_body.return_value = None
+        daemon.ticket_client.get_linked_prs.return_value = []
+
+        # Should not raise
+        daemon._maybe_handle_recreate(item)
+
+        # Nothing should happen after body fetch failure
+        daemon.ticket_client.create_issue.assert_not_called()
+        daemon.ticket_client.close_issue.assert_not_called()
+
+    def test_recreate_without_recreate_label_does_nothing(self, daemon):
+        """Test that items without recreate label are skipped."""
+        item = TicketItem(
+            item_id="PVI_303",
+            board_url="https://github.com/orgs/test/projects/1",
+            ticket_id=303,
+            title="Regular Issue",
+            repo="github.com/owner/repo",
+            status="Plan",
+            labels=["plan_ready"],  # No recreate label
+        )
+
+        daemon._maybe_handle_recreate(item)
+
+        # Nothing should be called
+        daemon.ticket_client.get_label_actor.assert_not_called()
+        daemon.ticket_client.create_issue.assert_not_called()
