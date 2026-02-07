@@ -392,3 +392,186 @@ class TestGitHubTicketClientIssueMethods:
         assert result is True
         call_args = mock_gh_subprocess.call_args[0][0]
         assert "https://github.example.com/owner/repo" in " ".join(call_args)
+
+
+@pytest.mark.integration
+class TestGitHubTicketClientProjectMethods:
+    """Integration tests for GitHubTicketClient project-related methods."""
+
+    def test_get_issue_node_id_returns_node_id(self, mock_gh_subprocess):
+        """Test get_issue_node_id returns the issue node ID on success."""
+        client = GitHubTicketClient({"github.com": "test_token"})
+
+        mock_response = {
+            "data": {
+                "repository": {
+                    "issue": {
+                        "id": "I_kwDOABCDEF12345"
+                    }
+                }
+            }
+        }
+        mock_result = MagicMock()
+        mock_result.stdout = json.dumps(mock_response)
+        mock_result.returncode = 0
+        mock_gh_subprocess.return_value = mock_result
+
+        node_id = client.get_issue_node_id("github.com/owner/repo", 42)
+
+        assert node_id == "I_kwDOABCDEF12345"
+        # Verify gh was called with correct GraphQL command
+        assert mock_gh_subprocess.call_count == 1
+        call_args = mock_gh_subprocess.call_args[0][0]
+        assert "api" in call_args
+        assert "graphql" in call_args
+
+    def test_get_issue_node_id_returns_none_for_missing_issue(self, mock_gh_subprocess):
+        """Test get_issue_node_id returns None when issue doesn't exist."""
+        client = GitHubTicketClient({"github.com": "test_token"})
+
+        mock_response = {
+            "data": {
+                "repository": {
+                    "issue": None
+                }
+            }
+        }
+        mock_result = MagicMock()
+        mock_result.stdout = json.dumps(mock_response)
+        mock_result.returncode = 0
+        mock_gh_subprocess.return_value = mock_result
+
+        node_id = client.get_issue_node_id("github.com/owner/repo", 999)
+
+        assert node_id is None
+
+    def test_get_issue_node_id_returns_none_on_error(self, mock_gh_subprocess):
+        """Test get_issue_node_id returns None on GraphQL error."""
+        import subprocess
+
+        client = GitHubTicketClient({"github.com": "test_token"})
+
+        mock_gh_subprocess.side_effect = subprocess.CalledProcessError(
+            1, "gh", stderr="network error"
+        )
+
+        node_id = client.get_issue_node_id("github.com/owner/repo", 42)
+
+        assert node_id is None
+
+    def test_get_issue_node_id_handles_ghes_url(self, mock_gh_subprocess):
+        """Test get_issue_node_id works with GitHub Enterprise Server URLs."""
+        client = GitHubTicketClient({"github.example.com": "test_token"})
+
+        mock_response = {
+            "data": {
+                "repository": {
+                    "issue": {
+                        "id": "I_kwGHES12345"
+                    }
+                }
+            }
+        }
+        mock_result = MagicMock()
+        mock_result.stdout = json.dumps(mock_response)
+        mock_result.returncode = 0
+        mock_gh_subprocess.return_value = mock_result
+
+        node_id = client.get_issue_node_id("github.example.com/owner/repo", 42)
+
+        assert node_id == "I_kwGHES12345"
+
+    def test_add_issue_to_project_returns_item_id(self, mock_gh_subprocess):
+        """Test add_issue_to_project returns the project item ID on success."""
+        client = GitHubTicketClient({"github.com": "test_token"})
+
+        mock_response = {
+            "data": {
+                "addProjectV2ItemById": {
+                    "item": {
+                        "id": "PVTI_lADOABCDEF12345"
+                    }
+                }
+            }
+        }
+        mock_result = MagicMock()
+        mock_result.stdout = json.dumps(mock_response)
+        mock_result.returncode = 0
+        mock_gh_subprocess.return_value = mock_result
+
+        item_id = client.add_issue_to_project(
+            "PVT_project123", "I_kwDOABCDEF12345", "github.com"
+        )
+
+        assert item_id == "PVTI_lADOABCDEF12345"
+        # Verify gh was called with correct GraphQL command
+        assert mock_gh_subprocess.call_count == 1
+        call_args = mock_gh_subprocess.call_args[0][0]
+        assert "api" in call_args
+        assert "graphql" in call_args
+
+    def test_add_issue_to_project_returns_none_on_failure(self, mock_gh_subprocess):
+        """Test add_issue_to_project returns None when mutation fails."""
+        client = GitHubTicketClient({"github.com": "test_token"})
+
+        mock_response = {
+            "data": {
+                "addProjectV2ItemById": {
+                    "item": None
+                }
+            }
+        }
+        mock_result = MagicMock()
+        mock_result.stdout = json.dumps(mock_response)
+        mock_result.returncode = 0
+        mock_gh_subprocess.return_value = mock_result
+
+        item_id = client.add_issue_to_project(
+            "PVT_project123", "I_kwDOABCDEF12345", "github.com"
+        )
+
+        assert item_id is None
+
+    def test_add_issue_to_project_returns_none_on_error(self, mock_gh_subprocess):
+        """Test add_issue_to_project returns None on GraphQL error."""
+        import subprocess
+
+        client = GitHubTicketClient({"github.com": "test_token"})
+
+        mock_gh_subprocess.side_effect = subprocess.CalledProcessError(
+            1, "gh", stderr="permission denied"
+        )
+
+        item_id = client.add_issue_to_project(
+            "PVT_project123", "I_kwDOABCDEF12345", "github.com"
+        )
+
+        assert item_id is None
+
+    def test_add_issue_to_project_handles_ghes(self, mock_gh_subprocess):
+        """Test add_issue_to_project works with GitHub Enterprise Server."""
+        client = GitHubTicketClient({"github.example.com": "test_token"})
+
+        mock_response = {
+            "data": {
+                "addProjectV2ItemById": {
+                    "item": {
+                        "id": "PVTI_ghes12345"
+                    }
+                }
+            }
+        }
+        mock_result = MagicMock()
+        mock_result.stdout = json.dumps(mock_response)
+        mock_result.returncode = 0
+        mock_gh_subprocess.return_value = mock_result
+
+        item_id = client.add_issue_to_project(
+            "PVT_project123", "I_kwGHES12345", "github.example.com"
+        )
+
+        assert item_id == "PVTI_ghes12345"
+        # Verify the hostname was passed correctly
+        call_args = mock_gh_subprocess.call_args[0][0]
+        assert "--hostname" in call_args
+        assert "github.example.com" in call_args

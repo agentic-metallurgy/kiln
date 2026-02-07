@@ -280,3 +280,30 @@ class TicketClient(Protocol):
             True if closed successfully, False otherwise
         """
         ...
+
+    def get_issue_node_id(self, repo: str, ticket_id: int) -> str | None:
+        """Get the node ID for an issue.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            ticket_id: Issue number
+
+        Returns:
+            Issue node ID, or None if not found
+        """
+        ...
+
+    def add_issue_to_project(
+        self, project_id: str, issue_node_id: str, hostname: str = "github.com"
+    ) -> str | None:
+        """Add an issue to a project.
+
+        Args:
+            project_id: Project node ID
+            issue_node_id: Issue node ID
+            hostname: GitHub hostname
+
+        Returns:
+            Project item ID if successful, None otherwise
+        """
+        ...

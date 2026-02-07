@@ -1586,6 +1586,82 @@ class GitHubClientBase:
         logger.info(f"Created issue #{issue_number} in {repo}")
         return issue_number
 
+    def get_issue_node_id(self, repo: str, ticket_id: int) -> str | None:
+        """Get the node ID for an issue.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' format
+            ticket_id: Issue number
+
+        Returns:
+            Issue node ID, or None if not found
+        """
+        _, owner, repo_name = self._parse_repo(repo)
+
+        query = """
+        query($owner: String!, $repo: String!, $issueNumber: Int!) {
+          repository(owner: $owner, name: $repo) {
+            issue(number: $issueNumber) {
+              id
+            }
+          }
+        }
+        """
+
+        try:
+            response = self._execute_graphql_query(
+                query,
+                {"owner": owner, "repo": repo_name, "issueNumber": ticket_id},
+                repo=repo,
+            )
+            issue_data = response.get("data", {}).get("repository", {}).get("issue")
+            if issue_data:
+                node_id: str | None = issue_data.get("id")
+                return node_id
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get node ID for {repo}#{ticket_id}: {e}")
+            return None
+
+    def add_issue_to_project(
+        self, project_id: str, issue_node_id: str, hostname: str = "github.com"
+    ) -> str | None:
+        """Add an issue to a project.
+
+        Args:
+            project_id: Project node ID
+            issue_node_id: Issue node ID
+            hostname: GitHub hostname
+
+        Returns:
+            Project item ID if successful, None otherwise
+        """
+        mutation = """
+        mutation($projectId: ID!, $contentId: ID!) {
+          addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+            item {
+              id
+            }
+          }
+        }
+        """
+
+        try:
+            response = self._execute_graphql_query(
+                mutation,
+                {"projectId": project_id, "contentId": issue_node_id},
+                hostname=hostname,
+            )
+            item_data = response.get("data", {}).get("addProjectV2ItemById", {}).get("item")
+            if item_data:
+                item_id: str | None = item_data.get("id")
+                logger.info(f"Added issue to project, item ID: {item_id}")
+                return item_id
+            return None
+        except Exception as e:
+            logger.error(f"Failed to add issue to project: {e}")
+            return None
+
     # Internal helpers
 
     def _parse_board_url(self, board_url: str) -> tuple[str, str, str, int]:
