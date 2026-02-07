@@ -97,25 +97,102 @@ def check_claude_installation() -> ClaudeInfo:
     return ClaudeInfo(path=claude_path, version=version, install_method=install_method)
 
 
+@dataclass
+class ShellConfigVar:
+    """Information about an environment variable found in a shell config file."""
+
+    var: str
+    file: str
+    line: int
+
+
+def scan_shell_configs_for_anthropic() -> list[ShellConfigVar]:
+    """Scan common shell config files for ANTHROPIC_* variable definitions.
+
+    Checks ~/.zshrc, ~/.bashrc, ~/.bash_profile, and ~/.profile for lines
+    that export ANTHROPIC_* environment variables.
+
+    Returns:
+        List of ShellConfigVar with var name, file path, and line number
+        for each detected variable. Empty list if no variables found or
+        if files are missing/unreadable.
+    """
+    home = Path.home()
+    config_files = [
+        home / ".zshrc",
+        home / ".bashrc",
+        home / ".bash_profile",
+        home / ".profile",
+    ]
+
+    # Pattern to match: export ANTHROPIC_VARNAME= (with optional quotes/values)
+    pattern = re.compile(r"^\s*export\s+(ANTHROPIC_\w+)=")
+
+    found_vars: list[ShellConfigVar] = []
+
+    for config_file in config_files:
+        try:
+            if not config_file.exists():
+                continue
+
+            with config_file.open("r", encoding="utf-8", errors="ignore") as f:
+                for line_num, line in enumerate(f, start=1):
+                    match = pattern.search(line)
+                    if match:
+                        var_name = match.group(1)
+                        # Use ~ notation for user-friendly display
+                        display_path = f"~/{config_file.relative_to(home)}"
+                        found_vars.append(
+                            ShellConfigVar(var=var_name, file=display_path, line=line_num)
+                        )
+        except (PermissionError, OSError):
+            # Skip files that can't be read
+            continue
+
+    return found_vars
+
+
 def check_anthropic_env_vars() -> None:
     """Check for ANTHROPIC_* environment variables that may interfere with Claude.
 
-    Scans os.environ for any keys starting with ANTHROPIC_ and raises an error
-    if any are found, as these can cause issues with the Claude CLI.
+    Scans os.environ for any keys starting with ANTHROPIC_ and also scans
+    common shell config files for ANTHROPIC_* variable definitions.
+    Raises an error if any are found, as these can cause issues with the
+    Claude CLI.
 
     Raises:
         SetupError: If any ANTHROPIC_* environment variables are found
     """
-    anthropic_vars = [key for key in os.environ if key.startswith("ANTHROPIC_")]
+    # Check current environment
+    env_vars = [key for key in os.environ if key.startswith("ANTHROPIC_")]
 
-    if anthropic_vars:
-        unset_commands = "\n".join(f"  unset {var}" for var in sorted(anthropic_vars))
-        raise SetupError(
-            f"Found ANTHROPIC_* environment variables: {', '.join(sorted(anthropic_vars))}\n"
-            "These variables can interfere with Claude CLI operation.\n"
-            "Remove ANTHROPIC_* environment variables by running:\n"
-            f"{unset_commands}"
-        )
+    # Check shell config files
+    shell_config_vars = scan_shell_configs_for_anthropic()
+
+    if not env_vars and not shell_config_vars:
+        return
+
+    # Build error message
+    error_lines = ["ANTHROPIC_* environment variables detected:"]
+
+    # List env vars from current environment
+    for var in sorted(env_vars):
+        error_lines.append(f"  - {var} (set in current environment)")
+
+    # List vars from shell config files
+    for config_var in shell_config_vars:
+        error_lines.append(f"  - {config_var.var} (defined in {config_var.file} line {config_var.line})")
+
+    error_lines.append("")
+    error_lines.append("These variables conflict with Kiln's Claude integration.")
+    error_lines.append("Please remove them from your shell config and run:")
+
+    # Collect unique variable names for unset commands
+    all_vars = set(env_vars) | {cv.var for cv in shell_config_vars}
+    for var in sorted(all_vars):
+        error_lines.append(f"  unset {var}")
+
+    raise SetupError("\n".join(error_lines))
 
 
 def is_restricted_directory(directory: Path | None = None) -> bool:

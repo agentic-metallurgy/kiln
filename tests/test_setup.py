@@ -14,6 +14,7 @@ from src.setup.checks import (
     CACHE_MAX_AGE_SECONDS,
     ClaudeInfo,
     SetupError,
+    ShellConfigVar,
     UpdateInfo,
     check_anthropic_env_vars,
     check_claude_installation,
@@ -22,6 +23,7 @@ from src.setup.checks import (
     configure_git_credential_env,
     get_hostnames_from_project_urls,
     is_restricted_directory,
+    scan_shell_configs_for_anthropic,
     validate_working_directory,
 )
 from src.setup.project import (
@@ -180,24 +182,178 @@ class TestValidateWorkingDirectory:
 
 
 @pytest.mark.unit
+class TestScanShellConfigsForAnthropic:
+    """Tests for scan_shell_configs_for_anthropic()."""
+
+    def test_finds_anthropic_var_in_zshrc(self, tmp_path, monkeypatch):
+        """Test detection of ANTHROPIC_* in .zshrc."""
+        from pathlib import Path
+
+        # Create mock home directory with .zshrc
+        mock_home = tmp_path / "home"
+        mock_home.mkdir()
+        zshrc = mock_home / ".zshrc"
+        zshrc.write_text("# Some config\nexport ANTHROPIC_API_KEY=sk-abc123\n")
+
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        result = scan_shell_configs_for_anthropic()
+
+        assert len(result) == 1
+        assert result[0].var == "ANTHROPIC_API_KEY"
+        assert result[0].file == "~/.zshrc"
+        assert result[0].line == 2
+
+    def test_finds_anthropic_var_in_bashrc(self, tmp_path, monkeypatch):
+        """Test detection of ANTHROPIC_* in .bashrc."""
+        from pathlib import Path
+
+        mock_home = tmp_path / "home"
+        mock_home.mkdir()
+        bashrc = mock_home / ".bashrc"
+        bashrc.write_text("export ANTHROPIC_MODEL=claude-3\n")
+
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        result = scan_shell_configs_for_anthropic()
+
+        assert len(result) == 1
+        assert result[0].var == "ANTHROPIC_MODEL"
+        assert result[0].file == "~/.bashrc"
+        assert result[0].line == 1
+
+    def test_finds_multiple_vars_across_files(self, tmp_path, monkeypatch):
+        """Test detection across multiple config files."""
+        from pathlib import Path
+
+        mock_home = tmp_path / "home"
+        mock_home.mkdir()
+
+        zshrc = mock_home / ".zshrc"
+        zshrc.write_text("export ANTHROPIC_API_KEY=key1\n")
+
+        bashrc = mock_home / ".bashrc"
+        bashrc.write_text("export ANTHROPIC_BASE_URL=https://api.anthropic.com\n")
+
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        result = scan_shell_configs_for_anthropic()
+
+        assert len(result) == 2
+        vars_found = {r.var for r in result}
+        assert vars_found == {"ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"}
+
+    def test_no_false_positives(self, tmp_path, monkeypatch):
+        """Test that non-ANTHROPIC_* vars are not detected."""
+        from pathlib import Path
+
+        mock_home = tmp_path / "home"
+        mock_home.mkdir()
+        zshrc = mock_home / ".zshrc"
+        zshrc.write_text(
+            "export PATH=/usr/bin\n"
+            "export OPENAI_API_KEY=sk-openai\n"
+            "# export ANTHROPIC_API_KEY=commented\n"  # Commented line
+            "export GITHUB_TOKEN=ghp_xxx\n"
+        )
+
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        result = scan_shell_configs_for_anthropic()
+
+        # Commented line should not be detected (pattern expects start of line)
+        assert len(result) == 0
+
+    def test_handles_missing_files_gracefully(self, tmp_path, monkeypatch):
+        """Test that missing config files don't cause errors."""
+        from pathlib import Path
+
+        mock_home = tmp_path / "home"
+        mock_home.mkdir()
+        # Don't create any config files
+
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        result = scan_shell_configs_for_anthropic()
+
+        assert result == []
+
+    def test_handles_unreadable_files_gracefully(self, tmp_path, monkeypatch):
+        """Test that unreadable files are skipped."""
+        from pathlib import Path
+
+        mock_home = tmp_path / "home"
+        mock_home.mkdir()
+        zshrc = mock_home / ".zshrc"
+        zshrc.write_text("export ANTHROPIC_API_KEY=key\n")
+        zshrc.chmod(0o000)  # Make unreadable
+
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        try:
+            result = scan_shell_configs_for_anthropic()
+            # Should not raise, should return empty or skip the file
+            assert isinstance(result, list)
+        finally:
+            # Restore permissions for cleanup
+            zshrc.chmod(0o644)
+
+    def test_detects_var_with_leading_whitespace(self, tmp_path, monkeypatch):
+        """Test detection of export with leading whitespace."""
+        from pathlib import Path
+
+        mock_home = tmp_path / "home"
+        mock_home.mkdir()
+        zshrc = mock_home / ".zshrc"
+        zshrc.write_text("  export ANTHROPIC_API_KEY=key\n")
+
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        result = scan_shell_configs_for_anthropic()
+
+        assert len(result) == 1
+        assert result[0].var == "ANTHROPIC_API_KEY"
+
+    def test_shell_config_var_dataclass(self):
+        """Test ShellConfigVar dataclass."""
+        var = ShellConfigVar(var="ANTHROPIC_API_KEY", file="~/.zshrc", line=42)
+        assert var.var == "ANTHROPIC_API_KEY"
+        assert var.file == "~/.zshrc"
+        assert var.line == 42
+
+
+@pytest.mark.unit
 class TestCheckAnthropicEnvVars:
     """Tests for check_anthropic_env_vars()."""
 
-    def test_no_anthropic_vars(self, monkeypatch):
+    def test_no_anthropic_vars(self, tmp_path, monkeypatch):
         """Test no error when no ANTHROPIC_* vars are set."""
+        from pathlib import Path
+
         # Remove any existing ANTHROPIC_* vars
         for key in list(os.environ.keys()):
             if key.startswith("ANTHROPIC_"):
                 monkeypatch.delenv(key, raising=False)
 
+        # Mock home with no config files
+        mock_home = tmp_path / "home"
+        mock_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
         # Should not raise
         check_anthropic_env_vars()
 
-    def test_single_anthropic_var_raises(self, monkeypatch):
+    def test_single_anthropic_var_raises(self, tmp_path, monkeypatch):
         """Test error when a single ANTHROPIC_* var is set."""
+        from pathlib import Path
+
         for key in list(os.environ.keys()):
             if key.startswith("ANTHROPIC_"):
                 monkeypatch.delenv(key, raising=False)
+
+        mock_home = tmp_path / "home"
+        mock_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
 
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
@@ -206,14 +362,20 @@ class TestCheckAnthropicEnvVars:
 
         error = str(exc_info.value)
         assert "ANTHROPIC_API_KEY" in error
-        assert "Remove ANTHROPIC_* environment variables" in error
+        assert "set in current environment" in error
         assert "unset ANTHROPIC_API_KEY" in error
 
-    def test_multiple_anthropic_vars_raises(self, monkeypatch):
+    def test_multiple_anthropic_vars_raises(self, tmp_path, monkeypatch):
         """Test error lists all ANTHROPIC_* vars."""
+        from pathlib import Path
+
         for key in list(os.environ.keys()):
             if key.startswith("ANTHROPIC_"):
                 monkeypatch.delenv(key, raising=False)
+
+        mock_home = tmp_path / "home"
+        mock_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
 
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
         monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://example.com")
@@ -226,6 +388,54 @@ class TestCheckAnthropicEnvVars:
         assert "ANTHROPIC_BASE_URL" in error
         assert "unset ANTHROPIC_API_KEY" in error
         assert "unset ANTHROPIC_BASE_URL" in error
+
+    def test_shell_config_var_detected(self, tmp_path, monkeypatch):
+        """Test error when ANTHROPIC_* var is in shell config."""
+        from pathlib import Path
+
+        for key in list(os.environ.keys()):
+            if key.startswith("ANTHROPIC_"):
+                monkeypatch.delenv(key, raising=False)
+
+        mock_home = tmp_path / "home"
+        mock_home.mkdir()
+        zshrc = mock_home / ".zshrc"
+        zshrc.write_text("export ANTHROPIC_API_KEY=sk-xxx\n")
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        with pytest.raises(SetupError) as exc_info:
+            check_anthropic_env_vars()
+
+        error = str(exc_info.value)
+        assert "ANTHROPIC_API_KEY" in error
+        assert "~/.zshrc line 1" in error
+        assert "unset ANTHROPIC_API_KEY" in error
+
+    def test_both_env_and_config_detected(self, tmp_path, monkeypatch):
+        """Test error when ANTHROPIC_* var is in both env and config."""
+        from pathlib import Path
+
+        for key in list(os.environ.keys()):
+            if key.startswith("ANTHROPIC_"):
+                monkeypatch.delenv(key, raising=False)
+
+        mock_home = tmp_path / "home"
+        mock_home.mkdir()
+        zshrc = mock_home / ".zshrc"
+        zshrc.write_text("export ANTHROPIC_MODEL=claude-3\n")
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+        with pytest.raises(SetupError) as exc_info:
+            check_anthropic_env_vars()
+
+        error = str(exc_info.value)
+        assert "ANTHROPIC_API_KEY" in error
+        assert "set in current environment" in error
+        assert "ANTHROPIC_MODEL" in error
+        assert "~/.zshrc line 1" in error
+        assert "conflict with Kiln's Claude integration" in error
 
 
 @pytest.mark.unit
@@ -383,19 +593,26 @@ class TestCheckRequiredTools:
         assert "claude CLI not found" in str(exc_info.value)
         assert "anthropic.com" in str(exc_info.value)
 
-    def test_anthropic_env_vars_checked_first(self, monkeypatch):
+    def test_anthropic_env_vars_checked_first(self, tmp_path, monkeypatch):
         """Test that ANTHROPIC_* env vars are checked before tools."""
+        from pathlib import Path
+
         for key in list(os.environ.keys()):
             if key.startswith("ANTHROPIC_"):
                 monkeypatch.delenv(key, raising=False)
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+        # Mock home with no config files
+        mock_home = tmp_path / "home"
+        mock_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: mock_home)
 
         # Even if tools would fail, env var check should happen first
         with pytest.raises(SetupError) as exc_info:
             check_required_tools()
 
         assert "ANTHROPIC_API_KEY" in str(exc_info.value)
-        assert "Remove ANTHROPIC_* environment variables" in str(exc_info.value)
+        assert "conflict with Kiln's Claude integration" in str(exc_info.value)
 
     def test_gh_cli_error(self, monkeypatch):
         """Test error when gh CLI returns an error."""
