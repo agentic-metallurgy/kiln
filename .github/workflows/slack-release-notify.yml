@@ -1,0 +1,21 @@
+name: Slack Release Notification
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  notify-slack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Slack notification
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_RELEASE_WEBHOOK_URL }}
+        run: |
+          curl -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-type: application/json' \
+            --data '{
+              "text": "🚀 *Kiln ${{ github.event.release.tag_name }}* has been released!\n${{ github.event.release.html_url }}",
+              "unfurl_links": false,
+              "unfurl_media": false
+            }'
