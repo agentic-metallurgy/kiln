@@ -776,24 +776,24 @@ class TestImplementWorkflow:
             # Should not raise - just logs a warning
             workflow._mark_pr_ready("github.com/owner/repo", 42)
 
-    def test_run_prompt_uses_stage_model_from_config(self, workflow_context):
-        """Test that _run_prompt selects model from config.stage_models for the stage."""
+    def test_run_prompt_uses_stage_model_from_constant(self, workflow_context):
+        """Test that _run_prompt selects model from STAGE_MODELS for the stage."""
         from unittest.mock import MagicMock, patch
 
         from src.config import Config
 
         workflow = ImplementWorkflow()
 
-        # Create a mock config with specific stage_models
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {
+
+        test_models = {
             "implement": "sonnet",
             "prepare_implementation": "haiku",
-            "Implement": "opus",  # Fallback
+            "Implement": "opus",
         }
-        mock_config.claude_code_enable_telemetry = False
 
-        with patch("src.workflows.implement.run_claude") as mock_run_claude:
+        with patch("src.workflows.implement.run_claude") as mock_run_claude, \
+             patch("src.workflows.implement.STAGE_MODELS", test_models):
             workflow._run_prompt(
                 prompt="/kiln-implement_github for issue",
                 ctx=workflow_context,
@@ -803,35 +803,33 @@ class TestImplementWorkflow:
 
             mock_run_claude.assert_called_once()
             call_kwargs = mock_run_claude.call_args
-            # Model should be "sonnet" from stage_models["implement"]
             assert call_kwargs.kwargs["model"] == "sonnet"
 
     def test_run_prompt_falls_back_to_implement_model(self, workflow_context):
-        """Test that _run_prompt falls back to 'Implement' model when stage not in config."""
+        """Test that _run_prompt falls back to 'Implement' model when stage not found."""
         from unittest.mock import MagicMock, patch
 
         from src.config import Config
 
         workflow = ImplementWorkflow()
 
-        # Create a mock config without the specific stage
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {
-            "Implement": "opus",  # Only the fallback is defined
-        }
-        mock_config.claude_code_enable_telemetry = False
 
-        with patch("src.workflows.implement.run_claude") as mock_run_claude:
+        test_models = {
+            "Implement": "opus",
+        }
+
+        with patch("src.workflows.implement.run_claude") as mock_run_claude, \
+             patch("src.workflows.implement.STAGE_MODELS", test_models):
             workflow._run_prompt(
                 prompt="/kiln-implement_github for issue",
                 ctx=workflow_context,
                 config=mock_config,
-                stage_name="unknown_stage",  # Not in stage_models
+                stage_name="unknown_stage",
             )
 
             mock_run_claude.assert_called_once()
             call_kwargs = mock_run_claude.call_args
-            # Model should fall back to "opus" from stage_models["Implement"]
             assert call_kwargs.kwargs["model"] == "opus"
 
     def test_execute_creates_pr_when_none_exists(self, workflow_context):
@@ -844,8 +842,8 @@ class TestImplementWorkflow:
 
         # Mock config
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"prepare_implementation": "sonnet", "implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 0
 
         # First call: no PR found
@@ -888,8 +886,8 @@ class TestImplementWorkflow:
 
         # Mock config
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"prepare_implementation": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
 
         # Always return None (no PR found)
         with (
@@ -915,8 +913,8 @@ class TestImplementWorkflow:
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 0
 
         # PR with 3 TASKs and always-incomplete checkboxes
@@ -968,8 +966,8 @@ class TestImplementWorkflow:
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 0
 
         # PR with 5 TASKs that never makes progress after first task
@@ -1023,8 +1021,8 @@ class TestImplementWorkflow:
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 0
 
         # PR with 2 TASKs, starts incomplete, then becomes complete after 1 implementation
@@ -1074,8 +1072,8 @@ class TestImplementWorkflow:
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 0
 
         # PR exists initially with 2 TASKs, then disappears in loop
@@ -1110,8 +1108,8 @@ class TestImplementWorkflow:
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 0
 
         # PR with no checkbox tasks
@@ -1150,8 +1148,8 @@ Some other content here.
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 0
 
         # PR with 1 TASK that never makes progress
@@ -1179,8 +1177,8 @@ Some other content here.
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 0  # No limit
 
         # PR with 2 TASKs, progress made on each iteration, completes on iteration 4
@@ -1249,8 +1247,8 @@ Some other content here.
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 0  # No limit
 
         # PR with 3 TASKs, 2 completed, 1 never completes (stays at 2/3)
@@ -1300,8 +1298,8 @@ Some other content here.
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 0  # No limit
 
         # PR with 3 TASKs, completes on iteration 4 (past max_iterations=3)
@@ -1360,8 +1358,8 @@ Some other content here.
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 2  # Allow up to 2 appended TASKs
 
         # Start with 2 TASKs, add 1 more (within limit of 2)
@@ -1416,8 +1414,8 @@ Some other content here.
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 2  # Allow max 2 appended TASKs
 
         # Start with 3 TASKs, then add 3 more (exceeds limit of 2)
@@ -1464,8 +1462,8 @@ Some other content here.
 
         # Mock config
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"prepare_implementation": "sonnet", "implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 0
 
         # Create context with parent_branch set
@@ -1519,8 +1517,8 @@ Some other content here.
 
         # Mock config
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"prepare_implementation": "sonnet", "implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 0
 
         # workflow_context fixture does NOT have parent_branch set
@@ -1641,8 +1639,8 @@ Some other content here.
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-        mock_config.stage_models = {"implement": "sonnet"}
-        mock_config.claude_code_enable_telemetry = False
+
+
         mock_config.safety_allow_appended_tasks = 0
 
         # Track calls to _get_pr_for_issue

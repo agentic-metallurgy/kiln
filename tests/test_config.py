@@ -275,77 +275,6 @@ class TestLoadConfig:
 
         assert config.project_urls == ["https://github.com/orgs/test/projects/1"]
 
-    def test_load_config_default_stage_models(self, monkeypatch):
-        """Test load_config applies default stage models."""
-        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
-        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("USERNAME_SELF", "testuser")
-        monkeypatch.delenv("STAGE_MODELS", raising=False)
-
-        config = load_config_from_env()
-
-        assert config.stage_models == {
-            "Prepare": "claude-haiku-4-5-20251001",
-            "Research": "claude-opus-4-5-20251101",
-            "Plan": "claude-opus-4-5-20251101",
-            "Implement": "claude-opus-4-5-20251101",
-            "process_comments": "claude-sonnet-4-5-20250929",
-        }
-
-    def test_load_config_custom_stage_models(self, monkeypatch):
-        """Test load_config parses STAGE_MODELS JSON correctly."""
-        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
-        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("USERNAME_SELF", "testuser")
-        monkeypatch.setenv("STAGE_MODELS", '{"Prepare": "haiku", "Plan": "opus"}')
-
-        config = load_config_from_env()
-
-        assert config.stage_models == {"Prepare": "haiku", "Plan": "opus"}
-
-    def test_load_config_invalid_stage_models_json(self, monkeypatch):
-        """Test load_config raises ValueError for invalid STAGE_MODELS JSON."""
-        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
-        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("USERNAME_SELF", "testuser")
-        monkeypatch.setenv("STAGE_MODELS", "not valid json")
-
-        with pytest.raises(ValueError, match="STAGE_MODELS must be valid JSON"):
-            load_config_from_env()
-
-    def test_load_config_claude_code_enable_telemetry_default(self, monkeypatch):
-        """Test claude_code_enable_telemetry defaults to False."""
-        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
-        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("USERNAME_SELF", "testuser")
-        monkeypatch.delenv("CLAUDE_CODE_ENABLE_TELEMETRY", raising=False)
-
-        config = load_config_from_env()
-
-        assert config.claude_code_enable_telemetry is False
-
-    def test_load_config_claude_code_enable_telemetry_enabled(self, monkeypatch):
-        """Test claude_code_enable_telemetry parses '1' as True."""
-        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
-        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("USERNAME_SELF", "testuser")
-        monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
-
-        config = load_config_from_env()
-
-        assert config.claude_code_enable_telemetry is True
-
-    def test_load_config_claude_code_enable_telemetry_disabled_explicit(self, monkeypatch):
-        """Test claude_code_enable_telemetry parses '0' as False."""
-        monkeypatch.setenv("GITHUB_TOKEN", "test_token")
-        monkeypatch.setenv("PROJECT_URLS", "https://github.com/orgs/test/projects/1")
-        monkeypatch.setenv("USERNAME_SELF", "testuser")
-        monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "0")
-
-        config = load_config_from_env()
-
-        assert config.claude_code_enable_telemetry is False
-
     # Tests for GHES_LOGS_MASK
 
     def test_load_config_ghes_logs_mask_default(self, monkeypatch):
@@ -720,34 +649,6 @@ class TestLoadConfigFromFile:
         assert config.watched_statuses == ["Research", "Plan", "Implement"]
         assert config.max_concurrent_workflows == 6
 
-    def test_load_config_from_file_parses_stage_models_json(self, tmp_path, monkeypatch):
-        """Test STAGE_MODELS JSON parsing."""
-        config_file = tmp_path / "config"
-        config_file.write_text(
-            "GITHUB_TOKEN=ghp_test\n"
-            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "USERNAME_SELF=testuser\n"
-            'STAGE_MODELS={"Prepare": "haiku", "Plan": "sonnet"}'
-        )
-        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-
-        config = load_config_from_file(config_file)
-
-        assert config.stage_models == {"Prepare": "haiku", "Plan": "sonnet"}
-
-    def test_load_config_from_file_raises_on_invalid_stage_models_json(self, tmp_path):
-        """Test ValueError for malformed STAGE_MODELS JSON."""
-        config_file = tmp_path / "config"
-        config_file.write_text(
-            "GITHUB_TOKEN=ghp_test\n"
-            "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
-            "USERNAME_SELF=testuser\n"
-            "STAGE_MODELS=not valid json"
-        )
-
-        with pytest.raises(ValueError, match="STAGE_MODELS must be valid JSON"):
-            load_config_from_file(config_file)
-
     def test_load_config_from_file_sets_env_vars(self, tmp_path, monkeypatch):
         """Test that tokens are set in environment for subprocess access."""
         import os
@@ -765,15 +666,14 @@ class TestLoadConfigFromFile:
         assert os.environ.get("GITHUB_TOKEN") == "ghp_env_test"
 
     def test_load_config_from_file_parses_telemetry_settings(self, tmp_path, monkeypatch):
-        """Test OTEL and telemetry settings parsing."""
+        """Test OTEL settings parsing."""
         config_file = tmp_path / "config"
         config_file.write_text(
             "GITHUB_TOKEN=ghp_test\n"
             "PROJECT_URLS=https://github.com/orgs/test/projects/1\n"
             "USERNAME_SELF=testuser\n"
             "OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317\n"
-            "OTEL_SERVICE_NAME=kiln-test\n"
-            "CLAUDE_CODE_ENABLE_TELEMETRY=1"
+            "OTEL_SERVICE_NAME=kiln-test"
         )
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
@@ -781,7 +681,6 @@ class TestLoadConfigFromFile:
 
         assert config.otel_endpoint == "http://localhost:4317"
         assert config.otel_service_name == "kiln-test"
-        assert config.claude_code_enable_telemetry is True
 
     def test_load_config_from_file_max_concurrent_workflows(self, tmp_path, monkeypatch):
         """Test MAX_CONCURRENT_WORKFLOWS parsing."""
