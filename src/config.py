@@ -8,11 +8,86 @@ fallback to environment variables for backward compatibility.
 import json
 import logging
 import os
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
+from src.ticket_clients import GHES_VERSION_CLIENTS
+
 logger = logging.getLogger(__name__)
+
+
+def _detect_ghes_version(hostname: str, token: str) -> str:
+    """Auto-detect GHES version via /meta endpoint.
+
+    Args:
+        hostname: GHES hostname (e.g., "github.mycompany.com")
+        token: GHES personal access token
+
+    Returns:
+        Version string (e.g., "3.18")
+
+    Raises:
+        ValueError: If version cannot be detected or is unsupported
+    """
+    cmd = ["gh", "api", "--hostname", hostname, "meta"]
+    env = {**os.environ, "GH_ENTERPRISE_TOKEN": token, "GITHUB_TOKEN": token}
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+        )
+    except subprocess.CalledProcessError as e:
+        raise ValueError(
+            f"Failed to detect GHES version for {hostname}. "
+            f"Ensure the host is reachable or set GITHUB_ENTERPRISE_VERSION explicitly. "
+            f"Error: {e.stderr}"
+        ) from e
+    except FileNotFoundError as e:
+        raise ValueError(
+            "GitHub CLI (gh) is not installed. Please install it from https://cli.github.com/"
+        ) from e
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Invalid response from GHES meta endpoint for {hostname}: {e}"
+        ) from e
+
+    full_version = data.get("installed_version", "")
+    if not full_version:
+        raise ValueError(
+            f"GHES at {hostname} did not return installed_version. "
+            f"Please set GITHUB_ENTERPRISE_VERSION explicitly."
+        )
+
+    # Extract major.minor (e.g., "3.18.0" -> "3.18")
+    parts = full_version.split(".")
+    if len(parts) < 2:
+        raise ValueError(
+            f"Invalid GHES version format: {full_version}. "
+            f"Please set GITHUB_ENTERPRISE_VERSION explicitly."
+        )
+
+    version = f"{parts[0]}.{parts[1]}"
+
+    # Validate against supported versions
+    if version not in GHES_VERSION_CLIENTS:
+        supported = ", ".join(sorted(GHES_VERSION_CLIENTS.keys()))
+        raise ValueError(
+            f"Detected GHES version {version} is not supported. "
+            f"Supported versions: {supported}"
+        )
+
+    logger.info(f"Auto-detected GHES version: {version} (from {full_version})")
+    return version
+
 
 # Default paths relative to .kiln directory
 KILN_DIR = ".kiln"
@@ -203,13 +278,12 @@ def load_config_from_file(config_path: Path) -> Config:
         # No github.com token - check GHES configuration
         has_any_ghes = github_enterprise_host or github_enterprise_token or github_enterprise_version
         if has_any_ghes:
-            # Attempting GHES - need all three vars
+            # Attempting GHES - need host and token at minimum
             if not github_enterprise_host:
                 missing_vars.append("GITHUB_ENTERPRISE_HOST")
             if not github_enterprise_token:
                 missing_vars.append("GITHUB_ENTERPRISE_TOKEN")
-            if not github_enterprise_version:
-                missing_vars.append("GITHUB_ENTERPRISE_VERSION")
+            # Version can be auto-detected if host and token are present
         else:
             # No auth configured at all
             missing_vars.append("GITHUB_TOKEN")
@@ -238,6 +312,16 @@ def load_config_from_file(config_path: Path) -> Config:
     if missing_vars:
         raise ValueError(
             f"Missing required configuration in .kiln/config: {', '.join(missing_vars)}"
+        )
+
+    # Auto-detect GHES version if not provided but host+token are present
+    if (
+        github_enterprise_host
+        and github_enterprise_token
+        and not github_enterprise_version
+    ):
+        github_enterprise_version = _detect_ghes_version(
+            github_enterprise_host, github_enterprise_token
         )
 
     # Validate PROJECT_URLS hostnames match the configured GitHub host
@@ -410,13 +494,12 @@ def load_config_from_env() -> Config:
         # No github.com token - check GHES configuration
         has_any_ghes = github_enterprise_host or github_enterprise_token or github_enterprise_version
         if has_any_ghes:
-            # Attempting GHES - need all three vars
+            # Attempting GHES - need host and token at minimum
             if not github_enterprise_host:
                 missing_vars.append("GITHUB_ENTERPRISE_HOST")
             if not github_enterprise_token:
                 missing_vars.append("GITHUB_ENTERPRISE_TOKEN")
-            if not github_enterprise_version:
-                missing_vars.append("GITHUB_ENTERPRISE_VERSION")
+            # Version can be auto-detected if host and token are present
         else:
             # No auth configured at all
             missing_vars.append("GITHUB_TOKEN")
@@ -448,6 +531,16 @@ def load_config_from_env() -> Config:
     if missing_vars:
         raise ValueError(
             f"Missing required environment variables: {', '.join(missing_vars)}"
+        )
+
+    # Auto-detect GHES version if not provided but host+token are present
+    if (
+        github_enterprise_host
+        and github_enterprise_token
+        and not github_enterprise_version
+    ):
+        github_enterprise_version = _detect_ghes_version(
+            github_enterprise_host, github_enterprise_token
         )
 
     # Validate PROJECT_URLS hostnames match the configured GitHub host
