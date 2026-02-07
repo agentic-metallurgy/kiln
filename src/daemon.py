@@ -1077,8 +1077,25 @@ class Daemon:
 
         # Skip if already running (has running_label) - use cached labels
         if running_label in item.labels:
-            logger.info(f"Skipping {key} - workflow already running ('{running_label}' label present)")
-            return False
+            # Check if there's actually a subprocess running for this issue
+            with self._running_processes_lock:
+                has_process = key in self._running_processes
+            if has_process:
+                logger.info(
+                    f"Skipping {key} - workflow actually running ('{running_label}' label present)"
+                )
+                return False
+            else:
+                # Label exists but no subprocess - this is a stale label from interrupted workflow
+                logger.warning(
+                    f"Stale '{running_label}' label detected on {key} - "
+                    "removing and allowing workflow to restart"
+                )
+                self.ticket_client.remove_label(item.repo, item.ticket_id, running_label)
+                # Also clean up _running_labels tracking if present
+                with self._running_labels_lock:
+                    self._running_labels.pop(key, None)
+                # Allow workflow to trigger by continuing past this check
 
         # Skip if already complete (has complete_label)
         if complete_label and complete_label in item.labels:
