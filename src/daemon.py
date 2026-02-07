@@ -1572,7 +1572,7 @@ class Daemon:
         if self.kill_process(key):
             logger.info(f"RESET: Killed running subprocess for {key}")
 
-        # Clean up worktree if it exists (prevents rebase failures on subsequent Research runs)
+        # Clean up worktree if it exists (ensures clean slate for subsequent Research runs)
         repo_name = item.repo.split("/")[-1]
         worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
         if Path(worktree_path).exists():
@@ -2383,14 +2383,14 @@ class Daemon:
         # Determine workspace path based on workflow
         workspace_path = self._get_worktree_path(item.repo, item.ticket_id)
 
-        # Rebase on first Research run (no research_ready label yet) - use cached labels
+        # Sync worktree with main on first Research run (no research_ready label yet) - use cached labels
         if workflow_name == "Research":
             research_complete_label = self.WORKFLOW_CONFIG["Research"]["complete_label"]
             if research_complete_label not in item.labels:
-                logger.info("Rebasing worktree from origin/main (first Research run)")
-                if not self.workspace_manager.rebase_from_main(workspace_path):
+                logger.info("Syncing worktree with origin/main (first Research run)")
+                if not self.workspace_manager.sync_worktree_with_main(workspace_path):
                     raise WorkspaceError(
-                        f"Rebase failed due to conflicts. Resolve manually in {workspace_path}"
+                        f"Sync with origin/main failed. Check network and retry. Path: {workspace_path}"
                     )
 
         logger.debug(f"Workflow cwd: {workspace_path}")
