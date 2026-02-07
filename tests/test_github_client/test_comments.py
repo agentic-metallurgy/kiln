@@ -432,6 +432,49 @@ class TestAddReaction:
 
 
 @pytest.mark.unit
+class TestRemoveReaction:
+    """Tests for GitHubTicketClient.remove_reaction() method."""
+
+    def test_remove_reaction_success(self, github_client):
+        """Test removing a reaction from a comment."""
+        mock_response = {"data": {"removeReaction": {"reaction": {"content": "THUMBS_UP"}}}}
+
+        with patch.object(
+            github_client, "_execute_graphql_query", return_value=mock_response
+        ) as mock_query:
+            github_client.remove_reaction("IC_comment123", "THUMBS_UP")
+
+        call_args = mock_query.call_args
+        assert "removeReaction" in call_args[0][0]
+        assert call_args[0][1]["subjectId"] == "IC_comment123"
+        assert call_args[0][1]["content"] == "THUMBS_UP"
+
+    def test_remove_reaction_eyes(self, github_client):
+        """Test removing eyes reaction."""
+        mock_response = {"data": {"removeReaction": {"reaction": {"content": "EYES"}}}}
+
+        with patch.object(
+            github_client, "_execute_graphql_query", return_value=mock_response
+        ) as mock_query:
+            github_client.remove_reaction("IC_comment123", "EYES")
+
+        call_args = mock_query.call_args
+        assert call_args[0][1]["content"] == "EYES"
+
+    def test_remove_reaction_with_repo(self, github_client):
+        """Test removing a reaction with repo parameter for GHE support."""
+        mock_response = {"data": {"removeReaction": {"reaction": {"content": "EYES"}}}}
+
+        with patch.object(
+            github_client, "_execute_graphql_query", return_value=mock_response
+        ) as mock_query:
+            github_client.remove_reaction("IC_comment123", "EYES", repo="github.example.com/owner/repo")
+
+        call_args = mock_query.call_args
+        assert call_args.kwargs.get("repo") == "github.example.com/owner/repo"
+
+
+@pytest.mark.unit
 class TestGetComments:
     """Tests for GitHubTicketClient.get_comments() GraphQL method."""
 

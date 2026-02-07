@@ -6,6 +6,7 @@ This module handles processing user comments on GitHub issues, including:
 - Generating and posting diff responses
 """
 
+import contextlib
 import difflib
 import html
 import json
@@ -26,7 +27,7 @@ from src.workflows import PrepareWorkflow, ProcessCommentsWorkflow, WorkflowCont
 
 if TYPE_CHECKING:
     from src.config import Config
-    from src.daemon import WorkflowRunner
+    from src.daemon import Daemon, WorkflowRunner
 
 logger = get_logger(__name__)
 
@@ -68,6 +69,7 @@ class CommentProcessor:
         config: "Config",
         username_self: str | None = None,
         team_usernames: list[str] | None = None,
+        daemon: "Daemon | None" = None,
     ) -> None:
         """Initialize the comment processor.
 
@@ -79,6 +81,7 @@ class CommentProcessor:
             config: Application configuration
             username_self: Username allowed to trigger comment processing
             team_usernames: List of team member usernames (logged at DEBUG, not WARNING)
+            daemon: Reference to daemon for tracking EDITING label in _running_labels
         """
         self.ticket_client = ticket_client
         self.database = database
@@ -87,6 +90,7 @@ class CommentProcessor:
         self.config = config
         self.username_self = username_self
         self.team_usernames = team_usernames or []
+        self.daemon = daemon
         logger.debug("CommentProcessor initialized")
 
     def _get_worktree_path(self, repo: str, issue_number: int) -> str:
@@ -268,11 +272,18 @@ class CommentProcessor:
 
             # Add editing label to indicate we're processing comments
             self.ticket_client.add_label(item.repo, item.ticket_id, Labels.EDITING)
+            # Track EDITING label in daemon's _running_labels for cleanup on shutdown
+            key = f"{item.repo}#{item.ticket_id}"
+            if self.daemon is not None:
+                with self.daemon._running_labels_lock:
+                    self.daemon._running_labels[key] = Labels.EDITING
 
             # Add eyes reaction to all comments to indicate we're processing them
+            # Also track in database for stale detection on daemon restart
             for comment in user_comments:
                 try:
                     self.ticket_client.add_reaction(comment.id, "EYES", repo=item.repo)
+                    self.database.add_processing_comment(item.repo, item.ticket_id, comment.id)
                 except Exception as e:
                     logger.warning(f"Failed to add eyes reaction to {comment.database_id}: {e}")
 
@@ -371,7 +382,25 @@ Processed feedback for **{target_type}**. No textual changes detected (may have 
                     )
             except Exception as e:
                 logger.error(f"Failed to process comments: {e}")
+                # Clean up eyes reactions on failure so comments can be retried
+                for comment in user_comments:
+                    try:
+                        self.ticket_client.remove_reaction(comment.id, "EYES", repo=item.repo)
+                    except Exception as cleanup_error:
+                        logger.warning(
+                            f"Failed to remove eyes reaction from {comment.database_id}: {cleanup_error}"
+                        )
             finally:
+                # Clean up database tracking for all comments (success or failure)
+                for comment in user_comments:
+                    with contextlib.suppress(Exception):
+                        self.database.remove_processing_comment(
+                            item.repo, item.ticket_id, comment.id
+                        )
+                # Remove EDITING label from daemon's _running_labels tracking
+                if self.daemon is not None:
+                    with self.daemon._running_labels_lock:
+                        self.daemon._running_labels.pop(key, None)
                 # Always remove editing label when done (success or failure)
                 try:
                     self.ticket_client.remove_label(item.repo, item.ticket_id, Labels.EDITING)
