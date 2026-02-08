@@ -163,6 +163,25 @@ class WorkspaceManager:
                     f"forbidden path component '{pattern}'"
                 )
 
+    def _get_repo_identifier(self, repo: str) -> str:
+        """Get a unique, filesystem-safe identifier for a repository.
+
+        Converts 'hostname/owner/repo' or 'owner/repo' to 'owner_repo'.
+        This ensures repos with the same name but different owners have unique paths.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' or 'owner/repo' format
+
+        Returns:
+            Filesystem-safe identifier like 'owner_repo'
+        """
+        parts = repo.split("/")
+        if len(parts) >= 2:
+            # Take last two segments: owner and repo
+            return f"{parts[-2]}_{parts[-1]}"
+        # Fallback for unexpected format
+        return parts[-1]
+
     def _ensure_repo_cloned(self, repo_url: str, repo_name: str) -> Path:
         """
         Ensure the main repository is cloned.

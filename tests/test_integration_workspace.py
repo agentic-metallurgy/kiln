@@ -343,6 +343,69 @@ class TestGetWorktreeBranch:
 
 
 @pytest.mark.integration
+class TestGetRepoIdentifier:
+    """Tests for _get_repo_identifier method."""
+
+    def test_full_hostname_owner_repo_format(self, temp_workspace_dir):
+        """Test _get_repo_identifier with full hostname/owner/repo format."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        result = manager._get_repo_identifier("github.com/agentic-metallurgy/kiln")
+        assert result == "agentic-metallurgy_kiln"
+
+    def test_owner_repo_format(self, temp_workspace_dir):
+        """Test _get_repo_identifier with owner/repo format."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        result = manager._get_repo_identifier("chronoboost/quell-ios")
+        assert result == "chronoboost_quell-ios"
+
+    def test_single_segment_fallback(self, temp_workspace_dir):
+        """Test _get_repo_identifier falls back to single segment when no slashes."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        result = manager._get_repo_identifier("my-repo")
+        assert result == "my-repo"
+
+    def test_prevents_collision_same_repo_name_different_owners(self, temp_workspace_dir):
+        """Test that repos with same name but different owners get unique identifiers."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Two repos with the same final name but different owners
+        id1 = manager._get_repo_identifier("github.com/org-a/my-app")
+        id2 = manager._get_repo_identifier("github.com/org-b/my-app")
+
+        assert id1 != id2
+        assert id1 == "org-a_my-app"
+        assert id2 == "org-b_my-app"
+
+    def test_handles_enterprise_github_urls(self, temp_workspace_dir):
+        """Test _get_repo_identifier with enterprise GitHub URLs."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        result = manager._get_repo_identifier("github.mycompany.com/team/project")
+        assert result == "team_project"
+
+    def test_handles_deep_path_structure(self, temp_workspace_dir):
+        """Test _get_repo_identifier with deeply nested paths."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Only takes last two segments regardless of depth
+        result = manager._get_repo_identifier("some/deep/nested/owner/repo")
+        assert result == "owner_repo"
+
+    def test_identifier_is_filesystem_safe(self, temp_workspace_dir):
+        """Test that identifier doesn't contain slashes."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        result = manager._get_repo_identifier("github.com/owner/repo")
+
+        # Should not contain any path separators
+        assert "/" not in result
+        assert "\\" not in result
+
+
+@pytest.mark.integration
 class TestIsValidWorktree:
     """Tests for _is_valid_worktree and is_valid_worktree methods."""
 
