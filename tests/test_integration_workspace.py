@@ -55,7 +55,9 @@ class TestWorkspaceManagerIntegration:
 
         assert manager._extract_repo_name_from_url("https://github.com/org/repo") == "repo"
         assert manager._extract_repo_name_from_url("https://github.com/org/repo.git") == "repo"
-        assert manager._extract_repo_name_from_url("https://github.com/org/my-repo.git") == "my-repo"
+        assert (
+            manager._extract_repo_name_from_url("https://github.com/org/my-repo.git") == "my-repo"
+        )
 
     def test_extract_repo_name_from_url_ssh(self):
         """Test _extract_repo_name_from_url parses SSH URLs."""

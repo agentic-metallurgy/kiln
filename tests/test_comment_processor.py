@@ -86,9 +86,12 @@ class TestCommentProcessorIsKilnPost:
     def processor(self):
         """Create a CommentProcessor instance for testing."""
         return CommentProcessor(
-            Mock(), Mock(), Mock(), "/worktrees",
+            Mock(),
+            Mock(),
+            Mock(),
+            "/worktrees",
             config=_create_mock_config(),
-            workspace_manager=_create_mock_workspace_manager()
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
     def test_is_kiln_post_with_research_marker(self, processor):
@@ -130,9 +133,12 @@ class TestCommentProcessorIsKilnResponse:
     def processor(self):
         """Create a CommentProcessor instance for testing."""
         return CommentProcessor(
-            Mock(), Mock(), Mock(), "/worktrees",
+            Mock(),
+            Mock(),
+            Mock(),
+            "/worktrees",
             config=_create_mock_config(),
-            workspace_manager=_create_mock_workspace_manager()
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
     def test_is_kiln_response_with_marker(self, processor):
@@ -159,9 +165,12 @@ class TestCommentProcessorGenerateDiff:
     def processor(self):
         """Create a CommentProcessor instance for testing."""
         return CommentProcessor(
-            Mock(), Mock(), Mock(), "/worktrees",
+            Mock(),
+            Mock(),
+            Mock(),
+            "/worktrees",
             config=_create_mock_config(),
-            workspace_manager=_create_mock_workspace_manager()
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
     def test_generate_diff_with_additions(self, processor):
@@ -193,9 +202,12 @@ class TestCommentProcessorGetTargetType:
     def processor(self):
         """Create a CommentProcessor instance for testing."""
         return CommentProcessor(
-            Mock(), Mock(), Mock(), "/worktrees",
+            Mock(),
+            Mock(),
+            Mock(),
+            "/worktrees",
             config=_create_mock_config(),
-            workspace_manager=_create_mock_workspace_manager()
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
     def test_get_target_type_plan_status(self, processor):
@@ -222,9 +234,12 @@ class TestCommentProcessorInitializeCommentTimestamp:
     def processor(self):
         """Create a CommentProcessor instance for testing."""
         return CommentProcessor(
-            Mock(), Mock(), Mock(), "/worktrees",
+            Mock(),
+            Mock(),
+            Mock(),
+            "/worktrees",
             config=_create_mock_config(),
-            workspace_manager=_create_mock_workspace_manager()
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
     def test_initialize_comment_timestamp_finds_kiln_post(self, processor):
@@ -461,9 +476,12 @@ class TestCommentProcessorWrapDiffLine:
     def processor(self):
         """Create a CommentProcessor instance for testing."""
         return CommentProcessor(
-            Mock(), Mock(), Mock(), "/worktrees",
+            Mock(),
+            Mock(),
+            Mock(),
+            "/worktrees",
             config=_create_mock_config(),
-            workspace_manager=_create_mock_workspace_manager()
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
     def test_wrap_diff_line_short_line_unchanged(self, processor):
@@ -526,9 +544,12 @@ class TestCommentProcessorWrapDiff:
     def processor(self):
         """Create a CommentProcessor instance for testing."""
         return CommentProcessor(
-            Mock(), Mock(), Mock(), "/worktrees",
+            Mock(),
+            Mock(),
+            Mock(),
+            "/worktrees",
             config=_create_mock_config(),
-            workspace_manager=_create_mock_workspace_manager()
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
     def test_wrap_diff_wraps_all_lines(self, processor):
