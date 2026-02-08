@@ -204,9 +204,7 @@ class MCPConfigManager:
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(resolved_config, f, indent=2)
         except OSError as e:
-            raise MCPConfigWriteError(
-                f"Failed to write MCP config to {output_path}: {e}"
-            ) from e
+            raise MCPConfigWriteError(f"Failed to write MCP config to {output_path}: {e}") from e
 
         logger.info(f"Wrote MCP config to {output_path}")
         return str(output_path.absolute())
@@ -273,15 +271,11 @@ class MCPConfigManager:
         # Validate each server has required fields
         for server_name, server_config in config.mcp_servers.items():
             if not isinstance(server_config, dict):
-                warnings.append(
-                    f"MCP server '{server_name}' config is not an object"
-                )
+                warnings.append(f"MCP server '{server_name}' config is not an object")
                 continue
 
             # Only warn about missing command for local (non-remote) servers
-            if "command" not in server_config and not self.is_remote_server(
-                server_config
-            ):
+            if "command" not in server_config and not self.is_remote_server(server_config):
                 warnings.append(
                     f"MCP server '{server_name}' is missing 'command' field (local server)"
                 )

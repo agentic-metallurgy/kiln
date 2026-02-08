@@ -446,7 +446,11 @@ class GitHubTicketClient:
         logger.info(f"Updated Status field options for field {field_id}")
 
     def update_item_status(
-        self, item_id: str, new_status: str, *, hostname: str = "github.com"
+        self,
+        item_id: str,
+        new_status: str,
+        *,
+        hostname: str = "github.com",  # noqa: ARG002
     ) -> None:
         """Update the status of a project item.
 
@@ -529,7 +533,7 @@ class GitHubTicketClient:
 
         logger.info(f"Successfully updated project item {item_id} to '{new_status}'")
 
-    def archive_item(self, board_id: str, item_id: str, *, hostname: str = "github.com") -> bool:
+    def archive_item(self, board_id: str, item_id: str, *, hostname: str = "github.com") -> bool:  # noqa: ARG002
         """Archive a project item.
 
         Args:
@@ -1088,9 +1092,7 @@ class GitHubTicketClient:
             for node in nodes:
                 if node:
                     event_type = node.get("__typename", "Unknown")
-                    actor_login = (
-                        node.get("actor", {}).get("login") if node.get("actor") else None
-                    )
+                    actor_login = node.get("actor", {}).get("login") if node.get("actor") else None
                     logger.debug(f"  {event_type}: actor={actor_login}")
 
             # First pass: look for PROJECT_V2_ITEM_STATUS_CHANGED_EVENT (most specific)
@@ -1109,11 +1111,7 @@ class GitHubTicketClient:
 
             # Fallback: use ADDED_TO_PROJECT_V2_EVENT if no status change event found
             for node in reversed(nodes):
-                if (
-                    node
-                    and node.get("__typename") == "AddedToProjectV2Event"
-                    and node.get("actor")
-                ):
+                if node and node.get("__typename") == "AddedToProjectV2Event" and node.get("actor"):
                     login = node["actor"].get("login")
                     logger.info(
                         f"Selected actor '{login}' from AddedToProjectV2Event (fallback) "

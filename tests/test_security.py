@@ -168,5 +168,3 @@ class TestCheckActorAllowed:
             team_usernames=["allowed-user", "teammate"],
         )
         assert result == ActorCategory.SELF
-
-

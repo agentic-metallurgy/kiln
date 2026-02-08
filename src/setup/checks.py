@@ -164,7 +164,9 @@ def check_anthropic_env_vars() -> None:
 
     # List vars from shell config files
     for config_var in shell_config_vars:
-        error_lines.append(f"  - {config_var.var} (defined in {config_var.file} line {config_var.line})")
+        error_lines.append(
+            f"  - {config_var.var} (defined in {config_var.file} line {config_var.line})"
+        )
 
     error_lines.append("")
     error_lines.append("These variables conflict with Kiln's Claude integration.")
@@ -280,7 +282,9 @@ def check_required_tools() -> ClaudeInfo:
     return claude_info
 
 
-FORMULA_URL = "https://raw.githubusercontent.com/agentic-metallurgy/homebrew-tap/main/Formula/kiln.rb"
+FORMULA_URL = (
+    "https://raw.githubusercontent.com/agentic-metallurgy/homebrew-tap/main/Formula/kiln.rb"
+)
 CACHE_FILE_NAME = "last_update_check"
 CACHE_MAX_AGE_SECONDS = 86400  # 24 hours
 HTTP_TIMEOUT_SECONDS = 3

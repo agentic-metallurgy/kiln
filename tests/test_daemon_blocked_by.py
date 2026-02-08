@@ -108,9 +108,7 @@ This issue is blocked by #115.
 
         result = daemon._is_blocked_by_unmerged_issues(mock_item)
         assert result == (False, [])
-        daemon.ticket_client.get_linked_prs.assert_called_once_with(
-            mock_item.repo, 115
-        )
+        daemon.ticket_client.get_linked_prs.assert_called_once_with(mock_item.repo, 115)
 
     def test_blocker_without_merged_pr_returns_blocked(self, daemon, mock_item):
         """Test returns (True, [blocker]) when blocker has no merged PR."""
@@ -157,6 +155,7 @@ blocked_by: [115, 116]
 
 This issue is blocked by both #115 and #116.
 """
+
         # #115 has a merged PR, #116 does not
         def mock_get_linked_prs(repo, issue_num):
             if issue_num == 115:

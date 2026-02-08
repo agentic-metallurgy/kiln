@@ -254,7 +254,9 @@ class TestInstallClaudeResources:
         (kiln_dir / "agents").mkdir(parents=True)
         (kiln_dir / "agents" / "kiln-codebase-analyzer.md").write_text("# Test agent")
         (kiln_dir / "skills" / "kiln-edit-github-issue-components").mkdir(parents=True)
-        (kiln_dir / "skills" / "kiln-edit-github-issue-components" / "SKILL.md").write_text("# Test skill")
+        (kiln_dir / "skills" / "kiln-edit-github-issue-components" / "SKILL.md").write_text(
+            "# Test skill"
+        )
 
         # Create fake home directory
         fake_home = tmp_path / "fake_home"
@@ -474,8 +476,9 @@ class TestRunDaemonSlackInitialization:
         source = inspect.getsource(run_daemon)
 
         # Verify the imports are present
-        assert "from src.integrations.slack import init_slack, send_startup_ping" in source, \
+        assert "from src.integrations.slack import init_slack, send_startup_ping" in source, (
             "run_daemon() must import init_slack and send_startup_ping from src.integrations.slack"
+        )
 
     def test_run_daemon_calls_init_slack(self):
         """Test that run_daemon() calls init_slack with config values."""
@@ -486,8 +489,9 @@ class TestRunDaemonSlackInitialization:
         source = inspect.getsource(run_daemon)
 
         # Verify init_slack is called with the config's slack settings
-        assert "init_slack(config.slack_bot_token, config.slack_user_id)" in source, \
+        assert "init_slack(config.slack_bot_token, config.slack_user_id)" in source, (
             "run_daemon() must call init_slack(config.slack_bot_token, config.slack_user_id)"
+        )
 
     def test_run_daemon_calls_send_startup_ping(self):
         """Test that run_daemon() calls send_startup_ping()."""
@@ -498,8 +502,7 @@ class TestRunDaemonSlackInitialization:
         source = inspect.getsource(run_daemon)
 
         # Verify send_startup_ping is called
-        assert "send_startup_ping()" in source, \
-            "run_daemon() must call send_startup_ping()"
+        assert "send_startup_ping()" in source, "run_daemon() must call send_startup_ping()"
 
     def test_run_daemon_calls_slack_init_before_daemon_run(self):
         """Test that Slack initialization happens before daemon.run()."""
@@ -519,9 +522,9 @@ class TestRunDaemonSlackInitialization:
         assert send_startup_ping_pos != -1, "send_startup_ping call not found"
         assert daemon_run_pos != -1, "daemon.run() call not found"
 
-        assert init_slack_pos < send_startup_ping_pos, \
+        assert init_slack_pos < send_startup_ping_pos, (
             "init_slack must be called before send_startup_ping"
-        assert send_startup_ping_pos < daemon_run_pos, \
+        )
+        assert send_startup_ping_pos < daemon_run_pos, (
             "send_startup_ping must be called before daemon.run()"
-
-
+        )

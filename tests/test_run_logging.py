@@ -1168,7 +1168,9 @@ class TestRunLoggingIntegration:
         # Mock the workflow runner to succeed
         mock_daemon._run_workflow = MagicMock(return_value="session-123")
         mock_daemon.ticket_client.get_comments.return_value = []
-        mock_daemon.ticket_client.get_ticket_body.return_value = "<!-- kiln:research -->Research content"
+        mock_daemon.ticket_client.get_ticket_body.return_value = (
+            "<!-- kiln:research -->Research content"
+        )
 
         # Run the workflow
         mock_daemon._process_item_workflow(item)
@@ -1232,7 +1234,9 @@ class TestRunLoggingIntegration:
         # Mock the workflow runner to succeed
         mock_daemon._run_workflow = MagicMock(return_value="session-123")
         mock_daemon.ticket_client.get_comments.return_value = []
-        mock_daemon.ticket_client.get_ticket_body.return_value = "<!-- kiln:research -->Research content"
+        mock_daemon.ticket_client.get_ticket_body.return_value = (
+            "<!-- kiln:research -->Research content"
+        )
 
         # Run the workflow
         mock_daemon._process_item_workflow(item)
@@ -1264,7 +1268,9 @@ class TestRunLoggingIntegration:
         # Mock the workflow runner to succeed with session ID
         mock_daemon._run_workflow = MagicMock(return_value="session-abc-xyz")
         mock_daemon.ticket_client.get_comments.return_value = []
-        mock_daemon.ticket_client.get_ticket_body.return_value = "<!-- kiln:research -->Research content"
+        mock_daemon.ticket_client.get_ticket_body.return_value = (
+            "<!-- kiln:research -->Research content"
+        )
 
         # Run the workflow
         mock_daemon._process_item_workflow(item)
@@ -1299,7 +1305,9 @@ class TestRunLoggingIntegration:
         for i in range(3):
             mock_daemon._run_workflow = MagicMock(return_value=f"session-{i}")
             mock_daemon.ticket_client.get_comments.return_value = []
-            mock_daemon.ticket_client.get_ticket_body.return_value = "<!-- kiln:research -->Research content"
+            mock_daemon.ticket_client.get_ticket_body.return_value = (
+                "<!-- kiln:research -->Research content"
+            )
             mock_daemon._process_item_workflow(item)
 
         # Check that 3 run records were created

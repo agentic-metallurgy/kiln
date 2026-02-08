@@ -107,9 +107,7 @@ class TestSendStartupPing:
 
         with patch("src.integrations.slack.requests.post") as mock_post:
             mock_response = MagicMock()
-            mock_response.raise_for_status.side_effect = requests.HTTPError(
-                "400 Bad Request"
-            )
+            mock_response.raise_for_status.side_effect = requests.HTTPError("400 Bad Request")
             mock_post.return_value = mock_response
 
             result = slack.send_startup_ping()
@@ -174,7 +172,10 @@ class TestSendCommentProcessedNotification:
             assert payload["channel"] == "U12345"
             assert "💬" in payload["text"]
             assert "Comment processed:" in payload["text"]
-            assert "<https://github.com/org/repo/issues/166#issuecomment-123|issue #166>" in payload["text"]
+            assert (
+                "<https://github.com/org/repo/issues/166#issuecomment-123|issue #166>"
+                in payload["text"]
+            )
             assert payload["unfurl_links"] is False
             assert payload["unfurl_media"] is False
 

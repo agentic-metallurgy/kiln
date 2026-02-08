@@ -22,13 +22,17 @@ class TestCommentProcessorGetWorktreePath:
 
     def test_get_worktree_path_with_owner_repo(self):
         """Test worktree path generation with owner/repo format."""
-        processor = CommentProcessor(Mock(), Mock(), Mock(), "/worktrees", config=_create_mock_config())
+        processor = CommentProcessor(
+            Mock(), Mock(), Mock(), "/worktrees", config=_create_mock_config()
+        )
         path = processor._get_worktree_path("owner/repo", 42)
         assert path == "/worktrees/repo-issue-42"
 
     def test_get_worktree_path_without_owner(self):
         """Test worktree path generation with repo name only."""
-        processor = CommentProcessor(Mock(), Mock(), Mock(), "/worktrees", config=_create_mock_config())
+        processor = CommentProcessor(
+            Mock(), Mock(), Mock(), "/worktrees", config=_create_mock_config()
+        )
         path = processor._get_worktree_path("repo", 123)
         assert path == "/worktrees/repo-issue-123"
 
@@ -221,7 +225,12 @@ class TestCommentProcessorAllowlist:
 
         # Create processor with username_self
         processor = CommentProcessor(
-            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+            ticket_client,
+            database,
+            runner,
+            "/worktrees",
+            config=_create_mock_config(),
+            username_self="allowed_user",
         )
 
         # Mock database to return stored state with a timestamp
@@ -267,7 +276,9 @@ class TestCommentProcessorAllowlist:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -365,7 +376,9 @@ class TestCommentProcessorAllowlist:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -486,7 +499,12 @@ class TestCommentProcessorSkipBacklog:
         runner = Mock()
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+            ticket_client,
+            database,
+            runner,
+            "/worktrees",
+            config=_create_mock_config(),
+            username_self="allowed_user",
         )
 
         # Create a ticket item with Backlog status
@@ -519,7 +537,12 @@ class TestCommentProcessorSkipBacklog:
         runner = Mock()
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+            ticket_client,
+            database,
+            runner,
+            "/worktrees",
+            config=_create_mock_config(),
+            username_self="allowed_user",
         )
 
         # Mock database to return stored state with a timestamp
@@ -556,7 +579,9 @@ class TestCommentProcessorSkipBacklog:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -576,7 +601,9 @@ class TestCommentProcessorSkipBacklog:
             reaction_calls = ticket_client.add_reaction.call_args_list
             reaction_types = [call[0][1] for call in reaction_calls]
             assert "EYES" in reaction_types, "EYES reaction should be added for Research items"
-            assert "THUMBS_UP" in reaction_types, "THUMBS_UP reaction should be added for Research items"
+            assert "THUMBS_UP" in reaction_types, (
+                "THUMBS_UP reaction should be added for Research items"
+            )
 
     def test_process_plan_item_adds_reactions(self):
         """Test that reactions are added when item.status == 'Plan'."""
@@ -585,7 +612,12 @@ class TestCommentProcessorSkipBacklog:
         runner = Mock()
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+            ticket_client,
+            database,
+            runner,
+            "/worktrees",
+            config=_create_mock_config(),
+            username_self="allowed_user",
         )
 
         # Mock database to return stored state with a timestamp
@@ -622,7 +654,9 @@ class TestCommentProcessorSkipBacklog:
         with (
             patch.object(processor, "_get_target_type", return_value="plan"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -642,7 +676,9 @@ class TestCommentProcessorSkipBacklog:
             reaction_calls = ticket_client.add_reaction.call_args_list
             reaction_types = [call[0][1] for call in reaction_calls]
             assert "EYES" in reaction_types, "EYES reaction should be added for Plan items"
-            assert "THUMBS_UP" in reaction_types, "THUMBS_UP reaction should be added for Plan items"
+            assert "THUMBS_UP" in reaction_types, (
+                "THUMBS_UP reaction should be added for Plan items"
+            )
 
 
 @pytest.mark.unit
@@ -656,7 +692,12 @@ class TestCommentProcessorEyesReactionCleanup:
         runner = Mock()
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+            ticket_client,
+            database,
+            runner,
+            "/worktrees",
+            config=_create_mock_config(),
+            username_self="allowed_user",
         )
 
         # Mock database to return stored state with a timestamp
@@ -692,7 +733,9 @@ class TestCommentProcessorEyesReactionCleanup:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(
                 processor, "_apply_comment_to_kiln_post", side_effect=Exception("Processing failed")
             ),
@@ -715,7 +758,12 @@ class TestCommentProcessorEyesReactionCleanup:
         runner = Mock()
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+            ticket_client,
+            database,
+            runner,
+            "/worktrees",
+            config=_create_mock_config(),
+            username_self="allowed_user",
         )
 
         # Mock database to return stored state with a timestamp
@@ -751,7 +799,9 @@ class TestCommentProcessorEyesReactionCleanup:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(
                 processor, "_apply_comment_to_kiln_post", side_effect=Exception("Processing failed")
             ),
@@ -773,7 +823,12 @@ class TestCommentProcessorEyesReactionCleanup:
         runner = Mock()
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+            ticket_client,
+            database,
+            runner,
+            "/worktrees",
+            config=_create_mock_config(),
+            username_self="allowed_user",
         )
 
         # Mock database to return stored state with a timestamp
@@ -817,7 +872,9 @@ class TestCommentProcessorEyesReactionCleanup:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -846,7 +903,12 @@ class TestCommentProcessorEyesReactionCleanup:
         runner = Mock()
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+            ticket_client,
+            database,
+            runner,
+            "/worktrees",
+            config=_create_mock_config(),
+            username_self="allowed_user",
         )
 
         # Mock database to return stored state with a timestamp
@@ -885,7 +947,9 @@ class TestCommentProcessorEyesReactionCleanup:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(
                 processor, "_apply_comment_to_kiln_post", side_effect=Exception("Processing failed")
             ),
@@ -922,7 +986,12 @@ class TestCommentProcessorSlackNotification:
         config.slack_dm_on_comment = True
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/worktrees", config=config, username_self="allowed_user"
+            ticket_client,
+            database,
+            runner,
+            "/worktrees",
+            config=config,
+            username_self="allowed_user",
         )
 
         # Mock database to return stored state with a timestamp
@@ -966,7 +1035,9 @@ class TestCommentProcessorSlackNotification:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -994,7 +1065,12 @@ class TestCommentProcessorSlackNotification:
         config.slack_dm_on_comment = False
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/worktrees", config=config, username_self="allowed_user"
+            ticket_client,
+            database,
+            runner,
+            "/worktrees",
+            config=config,
+            username_self="allowed_user",
         )
 
         # Mock database to return stored state with a timestamp
@@ -1038,7 +1114,9 @@ class TestCommentProcessorSlackNotification:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -1128,10 +1206,10 @@ class TestCommentProcessorEditingLabelTracking:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
             patch.object(
-                processor, "_apply_comment_to_kiln_post", side_effect=check_tracking
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
             ),
+            patch.object(processor, "_apply_comment_to_kiln_post", side_effect=check_tracking),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
             patch("src.comment_processor.clear_issue_context"),
@@ -1204,7 +1282,9 @@ class TestCommentProcessorEditingLabelTracking:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(
                 processor, "_apply_comment_to_kiln_post", side_effect=Exception("Processing failed")
             ),
@@ -1274,7 +1354,9 @@ class TestCommentProcessorEditingLabelTracking:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -1354,10 +1436,10 @@ class TestCommentProcessorEditingLabelTracking:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
             patch.object(
-                processor, "_apply_comment_to_kiln_post", side_effect=capture_label_value
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
             ),
+            patch.object(processor, "_apply_comment_to_kiln_post", side_effect=capture_label_value),
             patch("src.comment_processor.set_issue_context"),
             patch("src.comment_processor.clear_issue_context"),
         ):
@@ -1379,7 +1461,12 @@ class TestCommentProcessorStaleSessionHandling:
         runner = Mock()
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+            ticket_client,
+            database,
+            runner,
+            "/worktrees",
+            config=_create_mock_config(),
+            username_self="allowed_user",
         )
 
         # Mock database to return stored state with a session ID
@@ -1431,7 +1518,9 @@ class TestCommentProcessorStaleSessionHandling:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
             patch("src.comment_processor.clear_issue_context"),
@@ -1442,9 +1531,7 @@ class TestCommentProcessorStaleSessionHandling:
             processor.process(item)
 
             # Verify clear_workflow_session_id was called to clear the stale session
-            database.clear_workflow_session_id.assert_called_once_with(
-                "owner/repo", 42, "Research"
-            )
+            database.clear_workflow_session_id.assert_called_once_with("owner/repo", 42, "Research")
 
     def test_valid_session_not_cleared(self):
         """Test that valid session IDs are NOT cleared when session file exists."""
@@ -1453,7 +1540,12 @@ class TestCommentProcessorStaleSessionHandling:
         runner = Mock()
 
         processor = CommentProcessor(
-            ticket_client, database, runner, "/worktrees", config=_create_mock_config(), username_self="allowed_user"
+            ticket_client,
+            database,
+            runner,
+            "/worktrees",
+            config=_create_mock_config(),
+            username_self="allowed_user",
         )
 
         # Mock database to return stored state with a session ID
@@ -1505,7 +1597,9 @@ class TestCommentProcessorStaleSessionHandling:
         with (
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
-            patch.object(processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"),
+            patch.object(
+                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+            ),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
             patch("src.comment_processor.clear_issue_context"),

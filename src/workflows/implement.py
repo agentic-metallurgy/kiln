@@ -114,9 +114,7 @@ def _retry_with_backoff(
             return func()
         except NetworkError as e:
             if attempt >= max_attempts:
-                raise NetworkError(
-                    f"{description} failed after {attempt} attempts: {e}"
-                ) from e
+                raise NetworkError(f"{description} failed after {attempt} attempts: {e}") from e
 
             delay = backoff(_BackoffState(attempt))  # type: ignore[arg-type]
 
@@ -177,7 +175,7 @@ class ImplementWorkflow:
         """Return workflow name."""
         return "implement"
 
-    def init(self, ctx: WorkflowContext) -> list[str]:
+    def init(self, ctx: WorkflowContext) -> list[str]:  # noqa: ARG002
         """Return empty list - this workflow uses execute() instead.
 
         The init() method is required by the Workflow protocol but ImplementWorkflow
@@ -208,7 +206,9 @@ class ImplementWorkflow:
 
         # Step 1: Ensure PR exists (with retry)
         pr_info = self._get_pr_for_issue(ctx.repo, ctx.issue_number)
-        logger.info(f"PR lookup for {key}: {'found PR #' + str(pr_info.get('number')) if pr_info else 'not found'}")
+        logger.info(
+            f"PR lookup for {key}: {'found PR #' + str(pr_info.get('number')) if pr_info else 'not found'}"
+        )
 
         if not pr_info:
             for attempt in range(1, 3):  # Try up to 2 times
@@ -224,7 +224,7 @@ class ImplementWorkflow:
                 # Check for PR
                 pr_info = self._get_pr_for_issue(ctx.repo, ctx.issue_number)
                 if pr_info:
-                    pr_number = pr_info['number']
+                    pr_number = pr_info["number"]
                     pr_url = f"https://{ctx.repo}/pull/{pr_number}"
                     send_implementation_beginning_notification(pr_url, pr_number)
                     logger.info(f"PR created for {key}: #{pr_number}")
@@ -241,7 +241,9 @@ class ImplementWorkflow:
         # Set initial max iterations estimate based on TASK count (each TASK = 1 iteration)
         pr_body = pr_info.get("body", "")
         initial_task_count = count_tasks(pr_body)
-        max_iterations_estimate = initial_task_count if initial_task_count > 0 else DEFAULT_MAX_ITERATIONS
+        max_iterations_estimate = (
+            initial_task_count if initial_task_count > 0 else DEFAULT_MAX_ITERATIONS
+        )
         logger.info(
             f"Detected {initial_task_count} TASKs for {key}, "
             f"initial estimate={max_iterations_estimate} iterations"
@@ -340,9 +342,7 @@ class ImplementWorkflow:
             )
 
             # Run implementation for one task
-            implement_prompt = (
-                f"/kiln-implement_github for issue {issue_url}.{reviewer_flags}{project_url_context}"
-            )
+            implement_prompt = f"/kiln-implement_github for issue {issue_url}.{reviewer_flags}{project_url_context}"
             self._run_prompt(implement_prompt, ctx, config, "implement")
 
         # Check final state and mark PR ready if all tasks complete
@@ -383,7 +383,7 @@ class ImplementWorkflow:
         self,
         prompt: str,
         ctx: WorkflowContext,
-        config: "Config",
+        config: "Config",  # noqa: ARG002
         stage_name: str,
     ) -> None:
         """Run a single prompt through Claude.
@@ -473,4 +473,3 @@ class ImplementWorkflow:
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse PR response: {e}")
             return None
-

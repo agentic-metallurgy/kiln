@@ -467,11 +467,12 @@ class TestCheckClaudeInstallation:
 
     def test_npm_installation_returns_info(self):
         """Test npm installation returns ClaudeInfo."""
-        with patch("shutil.which", return_value="/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude"):
+        with patch(
+            "shutil.which",
+            return_value="/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude",
+        ):
             with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(
-                    returncode=0, stdout="claude v1.0.45\n"
-                )
+                mock_run.return_value = MagicMock(returncode=0, stdout="claude v1.0.45\n")
                 result = check_claude_installation()
 
         assert isinstance(result, ClaudeInfo)
@@ -483,9 +484,7 @@ class TestCheckClaudeInstallation:
         """Test npm path detection via /npm/ in path."""
         with patch("shutil.which", return_value="/home/user/.npm/bin/claude"):
             with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(
-                    returncode=0, stdout="claude v1.0.45\n"
-                )
+                mock_run.return_value = MagicMock(returncode=0, stdout="claude v1.0.45\n")
                 result = check_claude_installation()
 
         assert isinstance(result, ClaudeInfo)
@@ -495,9 +494,7 @@ class TestCheckClaudeInstallation:
         """Test Homebrew installation returns ClaudeInfo."""
         with patch("shutil.which", return_value="/opt/homebrew/Cellar/claude/1.0.45/bin/claude"):
             with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(
-                    returncode=0, stdout="claude v1.0.45\n"
-                )
+                mock_run.return_value = MagicMock(returncode=0, stdout="claude v1.0.45\n")
                 result = check_claude_installation()
 
         assert isinstance(result, ClaudeInfo)
@@ -509,9 +506,7 @@ class TestCheckClaudeInstallation:
         """Test brew path detection via /homebrew/ in path."""
         with patch("shutil.which", return_value="/usr/local/homebrew/bin/claude"):
             with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(
-                    returncode=0, stdout="claude v1.0.45\n"
-                )
+                mock_run.return_value = MagicMock(returncode=0, stdout="claude v1.0.45\n")
                 result = check_claude_installation()
 
         assert isinstance(result, ClaudeInfo)
@@ -521,9 +516,7 @@ class TestCheckClaudeInstallation:
         """Test version parsing when version doesn't have v prefix."""
         with patch("shutil.which", return_value="/usr/local/bin/claude"):
             with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(
-                    returncode=0, stdout="claude 2.1.0\n"
-                )
+                mock_run.return_value = MagicMock(returncode=0, stdout="claude 2.1.0\n")
                 result = check_claude_installation()
 
         assert result.version == "2.1.0"
@@ -788,7 +781,10 @@ class TestCheckForUpdates:
         """Test: returns UpdateInfo when newer version is available."""
         kiln_dir = tmp_path / ".kiln"
 
-        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(self.FORMULA_CONTENT)):
+        with patch(
+            "src.setup.checks.urllib.request.urlopen",
+            return_value=self._mock_urlopen(self.FORMULA_CONTENT),
+        ):
             with patch("src.cli.__version__", "1.0.0"):
                 result = check_for_updates(kiln_dir=kiln_dir)
 
@@ -802,7 +798,9 @@ class TestCheckForUpdates:
         kiln_dir = tmp_path / ".kiln"
         formula = b'class Kiln < Formula\n  version "1.1.0"\nend'
 
-        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(formula)):
+        with patch(
+            "src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(formula)
+        ):
             with patch("src.cli.__version__", "1.1.0"):
                 result = check_for_updates(kiln_dir=kiln_dir)
 
@@ -812,7 +810,9 @@ class TestCheckForUpdates:
         """Test: returns None on network timeout."""
         kiln_dir = tmp_path / ".kiln"
 
-        with patch("src.setup.checks.urllib.request.urlopen", side_effect=urllib.error.URLError("timeout")):
+        with patch(
+            "src.setup.checks.urllib.request.urlopen", side_effect=urllib.error.URLError("timeout")
+        ):
             result = check_for_updates(kiln_dir=kiln_dir)
 
         assert result is None
@@ -824,7 +824,11 @@ class TestCheckForUpdates:
         with patch(
             "src.setup.checks.urllib.request.urlopen",
             side_effect=urllib.error.HTTPError(
-                url="https://example.com", code=404, msg="Not Found", hdrs=MagicMock(), fp=BytesIO(b"")
+                url="https://example.com",
+                code=404,
+                msg="Not Found",
+                hdrs=MagicMock(),
+                fp=BytesIO(b""),
             ),
         ):
             result = check_for_updates(kiln_dir=kiln_dir)
@@ -836,7 +840,9 @@ class TestCheckForUpdates:
         kiln_dir = tmp_path / ".kiln"
         malformed = b"class Kiln < Formula\n  url 'https://example.com'\nend"
 
-        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(malformed)):
+        with patch(
+            "src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(malformed)
+        ):
             with patch("src.cli.__version__", "1.0.0"):
                 result = check_for_updates(kiln_dir=kiln_dir)
 
@@ -866,7 +872,10 @@ class TestCheckForUpdates:
         old_time = time.time() - (CACHE_MAX_AGE_SECONDS + 3600)
         os.utime(cache_file, (old_time, old_time))
 
-        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(self.FORMULA_CONTENT)):
+        with patch(
+            "src.setup.checks.urllib.request.urlopen",
+            return_value=self._mock_urlopen(self.FORMULA_CONTENT),
+        ):
             with patch("src.cli.__version__", "1.0.0"):
                 result = check_for_updates(kiln_dir=kiln_dir)
 
@@ -877,7 +886,10 @@ class TestCheckForUpdates:
         """Test: cache file is created/updated after successful check."""
         kiln_dir = tmp_path / ".kiln"
 
-        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(self.FORMULA_CONTENT)):
+        with patch(
+            "src.setup.checks.urllib.request.urlopen",
+            return_value=self._mock_urlopen(self.FORMULA_CONTENT),
+        ):
             with patch("src.cli.__version__", "1.0.0"):
                 check_for_updates(kiln_dir=kiln_dir)
 
@@ -889,7 +901,9 @@ class TestCheckForUpdates:
         kiln_dir = tmp_path / ".kiln"
         formula = b'class Kiln < Formula\n  version "1.1.0"\nend'
 
-        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(formula)):
+        with patch(
+            "src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(formula)
+        ):
             with patch("src.cli.__version__", "1.1.0"):
                 result = check_for_updates(kiln_dir=kiln_dir)
 
@@ -902,7 +916,10 @@ class TestCheckForUpdates:
         kiln_dir = tmp_path / ".kiln"
         assert not kiln_dir.exists()
 
-        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(self.FORMULA_CONTENT)):
+        with patch(
+            "src.setup.checks.urllib.request.urlopen",
+            return_value=self._mock_urlopen(self.FORMULA_CONTENT),
+        ):
             with patch("src.cli.__version__", "1.0.0"):
                 result = check_for_updates(kiln_dir=kiln_dir)
 
@@ -916,7 +933,10 @@ class TestCheckForUpdates:
         blocker = tmp_path / ".kiln"
         blocker.write_text("not a directory")  # File blocking directory creation
 
-        with patch("src.setup.checks.urllib.request.urlopen", return_value=self._mock_urlopen(self.FORMULA_CONTENT)):
+        with patch(
+            "src.setup.checks.urllib.request.urlopen",
+            return_value=self._mock_urlopen(self.FORMULA_CONTENT),
+        ):
             with patch("src.cli.__version__", "1.0.0"):
                 result = check_for_updates(kiln_dir=blocker)
 
@@ -1092,9 +1112,7 @@ class TestValidateProjectColumns:
         }
         mock_client.get_board_items.return_value = []  # No items to migrate
 
-        result = validate_project_columns(
-            mock_client, "https://github.com/orgs/test/projects/1"
-        )
+        result = validate_project_columns(mock_client, "https://github.com/orgs/test/projects/1")
 
         assert result.action == "replaced"
         assert "Replaced GitHub default columns" in result.message
@@ -1156,9 +1174,7 @@ class TestValidateProjectColumns:
         ]
         mock_client.get_board_items.return_value = mock_items
 
-        result = validate_project_columns(
-            mock_client, "https://github.com/orgs/test/projects/1"
-        )
+        result = validate_project_columns(mock_client, "https://github.com/orgs/test/projects/1")
 
         assert result.action == "replaced"
         assert "2 item(s) moved to Backlog" in result.message
@@ -1179,9 +1195,7 @@ class TestValidateProjectColumns:
         }
 
         with pytest.raises(SetupError):
-            validate_project_columns(
-                mock_client, "https://github.com/orgs/test/projects/1"
-            )
+            validate_project_columns(mock_client, "https://github.com/orgs/test/projects/1")
 
     def test_github_defaults_empty_project_no_items(self, mock_client):
         """Test GitHub defaults with no items to migrate (fresh project)."""
@@ -1197,9 +1211,7 @@ class TestValidateProjectColumns:
         }
         mock_client.get_board_items.return_value = []  # Empty project
 
-        result = validate_project_columns(
-            mock_client, "https://github.com/orgs/test/projects/1"
-        )
+        result = validate_project_columns(mock_client, "https://github.com/orgs/test/projects/1")
 
         assert result.action == "replaced"
         # Message should NOT contain migration count if no items migrated
@@ -1209,9 +1221,7 @@ class TestValidateProjectColumns:
 
     def test_github_default_columns_constant(self):
         """Test that GITHUB_DEFAULT_COLUMNS has the correct values."""
-        expected = frozenset(
-            {"Backlog", "Ready", "In progress", "In review", "Done"}
-        )
+        expected = frozenset({"Backlog", "Ready", "In progress", "In review", "Done"})
         assert expected == GITHUB_DEFAULT_COLUMNS
         assert isinstance(GITHUB_DEFAULT_COLUMNS, frozenset)
 

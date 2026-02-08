@@ -610,12 +610,8 @@ class TestDaemonClosePrsAndDeleteBranches:
 
         daemon._close_prs_and_delete_branches(item)
 
-        daemon.ticket_client.get_linked_prs.assert_called_once_with(
-            "github.com/owner/repo", 42
-        )
-        daemon.ticket_client.close_pr.assert_called_once_with(
-            "github.com/owner/repo", 100
-        )
+        daemon.ticket_client.get_linked_prs.assert_called_once_with("github.com/owner/repo", 42)
+        daemon.ticket_client.close_pr.assert_called_once_with("github.com/owner/repo", 100)
         daemon.ticket_client.delete_branch.assert_called_once_with(
             "github.com/owner/repo", "42-feature-branch"
         )
@@ -826,9 +822,7 @@ class TestDaemonClosePrsAndDeleteBranches:
         daemon._close_prs_and_delete_branches(item)
 
         # Only the open PR should be processed
-        daemon.ticket_client.close_pr.assert_called_once_with(
-            "github.com/owner/repo", 101
-        )
+        daemon.ticket_client.close_pr.assert_called_once_with("github.com/owner/repo", 101)
         daemon.ticket_client.delete_branch.assert_called_once_with(
             "github.com/owner/repo", "42-open-branch"
         )
@@ -863,9 +857,7 @@ class TestDaemonClosePrsAndDeleteBranches:
         daemon._close_prs_and_delete_branches(item)
 
         # Verify get_pr_state was called to validate closure
-        daemon.ticket_client.get_pr_state.assert_called_once_with(
-            "github.com/owner/repo", 100
-        )
+        daemon.ticket_client.get_pr_state.assert_called_once_with("github.com/owner/repo", 100)
 
     def test_pr_closure_validation_state_mismatch(self, daemon, caplog):
         """Test warning logged when PR state doesn't match expected after close."""
@@ -1303,11 +1295,15 @@ class TestResetWithRunningWorkflow:
 
         # Verify kill_process was called before cleanup_workspace
         kill_indices = [i for i, op in enumerate(operation_order) if op[0] == "kill_process"]
-        cleanup_indices = [i for i, op in enumerate(operation_order) if op[0] == "cleanup_workspace"]
+        cleanup_indices = [
+            i for i, op in enumerate(operation_order) if op[0] == "cleanup_workspace"
+        ]
 
         assert len(kill_indices) == 1, "kill_process should be called exactly once"
         assert len(cleanup_indices) == 1, "cleanup_workspace should be called exactly once"
-        assert kill_indices[0] < cleanup_indices[0], "kill_process should be called before cleanup_workspace"
+        assert kill_indices[0] < cleanup_indices[0], (
+            "kill_process should be called before cleanup_workspace"
+        )
 
     def test_reset_with_multiple_concurrent_issues_isolation(
         self, daemon, mock_running_process, mock_running_process_2

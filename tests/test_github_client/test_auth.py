@@ -159,9 +159,7 @@ class TestValidateConnection:
         # Verify the success message was logged
         assert "GitHub authentication successful" in caplog.text
         # Verify it was logged at DEBUG level, not INFO
-        auth_records = [
-            r for r in caplog.records if "authentication successful" in r.message
-        ]
+        auth_records = [r for r in caplog.records if "authentication successful" in r.message]
         assert len(auth_records) == 1
         assert auth_records[0].levelno == logging.DEBUG
 
@@ -176,9 +174,7 @@ class TestValidateConnection:
                 github_client.validate_connection("github.com")
 
         # Verify the success message was logged at INFO level
-        auth_records = [
-            r for r in caplog.records if "authentication successful" in r.message
-        ]
+        auth_records = [r for r in caplog.records if "authentication successful" in r.message]
         assert len(auth_records) == 1
         assert auth_records[0].levelno == logging.INFO
 
@@ -621,9 +617,7 @@ class TestNetworkErrorDetection:
     def test_connection_refused_raises_network_error(self, github_client):
         """Test that connection refused raises NetworkError."""
 
-        error = subprocess.CalledProcessError(
-            1, ["gh", "api"], stderr="connection refused"
-        )
+        error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="connection refused")
 
         with patch("subprocess.run", side_effect=error):
             with pytest.raises(NetworkError):
@@ -632,9 +626,7 @@ class TestNetworkErrorDetection:
     def test_io_timeout_raises_network_error(self, github_client):
         """Test that i/o timeout raises NetworkError."""
 
-        error = subprocess.CalledProcessError(
-            1, ["gh", "api"], stderr="read: i/o timeout"
-        )
+        error = subprocess.CalledProcessError(1, ["gh", "api"], stderr="read: i/o timeout")
 
         with patch("subprocess.run", side_effect=error):
             with pytest.raises(NetworkError):

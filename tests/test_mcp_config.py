@@ -211,11 +211,7 @@ class TestMCPConfigManagerHasConfig:
 
     def test_has_config_with_servers(self):
         """Test has_config with server definitions."""
-        config_data = {
-            "mcpServers": {
-                "test-server": {"command": "test"}
-            }
-        }
+        config_data = {"mcpServers": {"test-server": {"command": "test"}}}
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(config_data, f)
@@ -284,7 +280,7 @@ class TestMCPConfigManagerTokenSubstitution:
                 },
                 "server2": {
                     "args": ["--token", "${AZURE_BEARER_TOKEN}"],
-                }
+                },
             }
         }
 
@@ -387,11 +383,7 @@ class TestMCPConfigManagerWriteToWorktree:
 
     def test_write_to_worktree_success(self):
         """Test successful write to worktree."""
-        config_data = {
-            "mcpServers": {
-                "test-server": {"command": "test-cmd"}
-            }
-        }
+        config_data = {"mcpServers": {"test-server": {"command": "test-cmd"}}}
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(config_data, f)
@@ -418,10 +410,7 @@ class TestMCPConfigManagerWriteToWorktree:
         """Test write to worktree with token substitution."""
         config_data = {
             "mcpServers": {
-                "auth-server": {
-                    "command": "server",
-                    "env": {"TOKEN": "${AZURE_BEARER_TOKEN}"}
-                }
+                "auth-server": {"command": "server", "env": {"TOKEN": "${AZURE_BEARER_TOKEN}"}}
             }
         }
 
@@ -446,7 +435,10 @@ class TestMCPConfigManagerWriteToWorktree:
                 with open(result) as f:
                     written_config = json.load(f)
 
-                assert written_config["mcpServers"]["auth-server"]["env"]["TOKEN"] == "substituted-token"
+                assert (
+                    written_config["mcpServers"]["auth-server"]["env"]["TOKEN"]
+                    == "substituted-token"
+                )
         finally:
             Path(config_path).unlink()
 
@@ -548,12 +540,7 @@ class TestMCPConfigManagerValidateConfig:
     def test_validate_config_placeholder_without_azure_client(self):
         """Test warning for placeholder without Azure client."""
         config_data = {
-            "mcpServers": {
-                "server": {
-                    "command": "cmd",
-                    "env": {"TOKEN": "${AZURE_BEARER_TOKEN}"}
-                }
-            }
+            "mcpServers": {"server": {"command": "cmd", "env": {"TOKEN": "${AZURE_BEARER_TOKEN}"}}}
         }
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -571,13 +558,7 @@ class TestMCPConfigManagerValidateConfig:
 
     def test_validate_config_missing_command(self):
         """Test warning for local server missing command field."""
-        config_data = {
-            "mcpServers": {
-                "no-command-server": {
-                    "args": ["--test"]
-                }
-            }
-        }
+        config_data = {"mcpServers": {"no-command-server": {"args": ["--test"]}}}
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(config_data, f)
@@ -595,11 +576,7 @@ class TestMCPConfigManagerValidateConfig:
 
     def test_validate_config_server_not_object(self):
         """Test warning for server config that's not an object."""
-        config_data = {
-            "mcpServers": {
-                "bad-server": "not an object"
-            }
-        }
+        config_data = {"mcpServers": {"bad-server": "not an object"}}
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(config_data, f)
@@ -623,7 +600,7 @@ class TestMCPConfigManagerValidateConfig:
                 "valid-server": {
                     "command": "test-command",
                     "args": ["--arg1"],
-                    "env": {"TOKEN": "${AZURE_BEARER_TOKEN}"}
+                    "env": {"TOKEN": "${AZURE_BEARER_TOKEN}"},
                 }
             }
         }
@@ -717,13 +694,7 @@ class TestMCPConfigManagerValidateRemoteServers:
 
     def test_validate_config_local_server_missing_command_warns(self):
         """Test that local servers without command still trigger warning."""
-        config_data = {
-            "mcpServers": {
-                "local-server-without-command": {
-                    "args": ["--test"]
-                }
-            }
-        }
+        config_data = {"mcpServers": {"local-server-without-command": {"args": ["--test"]}}}
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(config_data, f)
@@ -751,9 +722,7 @@ class TestMCPConfigManagerValidateRemoteServers:
                     "command": "npx",
                     "args": ["-y", "@test/fs-server"],
                 },
-                "local-missing-command": {
-                    "args": ["--some-arg"]
-                },
+                "local-missing-command": {"args": ["--some-arg"]},
             }
         }
 

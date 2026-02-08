@@ -162,14 +162,11 @@ class AzureOAuthClient:
                 error_data = response.json()
 
             error_code = error_data.get("error", "unknown_error")
-            error_description = error_data.get(
-                "error_description", f"HTTP {response.status_code}"
-            )
+            error_description = error_data.get("error_description", f"HTTP {response.status_code}")
 
             # Log without including sensitive details
             logger.error(
-                f"Azure OAuth token request failed: {error_code} - "
-                f"Status: {response.status_code}"
+                f"Azure OAuth token request failed: {error_code} - Status: {response.status_code}"
             )
 
             raise AzureTokenRequestError(
