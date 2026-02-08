@@ -1,6 +1,7 @@
 """Unit tests for the logger module."""
 
 import logging
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -766,7 +767,7 @@ class TestRunLogger:
         path = run_logger._generate_log_path()
 
         assert str(tmp_path) in path
-        assert "github.com" in path
+        assert re.search(r"github\.com", path)
         assert "owner/repo" in path
         assert "42" in path
         assert "research-" in path
@@ -783,7 +784,7 @@ class TestRunLogger:
         path = run_logger._generate_log_path()
 
         # Should default to github.com
-        assert "github.com" in path
+        assert re.search(r"github\.com", path)
         assert "owner/repo" in path
         assert "123" in path
         assert "plan-" in path

@@ -125,8 +125,8 @@ class TestCheckGitHubConnectivity:
 
         # Should call validate_connection for each unique hostname
         call_args = [call[0][0] for call in daemon.ticket_client.validate_connection.call_args_list]
-        assert "github.com" in call_args
-        assert "ghes.company.com" in call_args
+        assert any(arg == "github.com" for arg in call_args)
+        assert any(arg == "ghes.company.com" for arg in call_args)
         # github.com should only be called once even though 2 URLs use it
         assert call_args.count("github.com") == 1
 

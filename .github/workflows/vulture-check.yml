@@ -6,6 +6,9 @@ on:
       - 'src/**'
       - 'pyproject.toml'
 
+permissions:
+  contents: read
+
 jobs:
   vulture:
     runs-on: ubuntu-latest
