@@ -1384,11 +1384,10 @@ class Daemon:
             return
 
         # Clean up worktree if it exists
-        repo_name = item.repo.split("/")[-1]
         worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
         if Path(worktree_path).exists():
             try:
-                self.workspace_manager.cleanup_workspace(repo_name, item.ticket_id)
+                self.workspace_manager.cleanup_workspace(item.repo, item.ticket_id)
                 logger.info("Cleaned up worktree")
             except Exception as e:
                 logger.error(f"Cleanup failed: {e}")
@@ -1454,11 +1453,10 @@ class Daemon:
             return
 
         # Clean up worktree if it exists
-        repo_name = item.repo.split("/")[-1]
         worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
         if Path(worktree_path).exists():
             try:
-                self.workspace_manager.cleanup_workspace(repo_name, item.ticket_id)
+                self.workspace_manager.cleanup_workspace(item.repo, item.ticket_id)
                 logger.info("Cleaned up worktree for closed issue")
             except Exception as e:
                 logger.error(f"Cleanup failed for closed issue: {e}")
@@ -1576,11 +1574,10 @@ class Daemon:
             logger.info(f"RESET: Killed running subprocess for {key}")
 
         # Clean up worktree if it exists (ensures clean slate for subsequent Research runs)
-        repo_name = item.repo.split("/")[-1]
         worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
         if Path(worktree_path).exists():
             try:
-                self.workspace_manager.cleanup_workspace(repo_name, item.ticket_id)
+                self.workspace_manager.cleanup_workspace(item.repo, item.ticket_id)
                 logger.info(f"RESET: Cleaned up worktree for {key}")
             except Exception as e:
                 logger.warning(f"RESET: Failed to cleanup worktree for {key}: {e}")
@@ -1958,9 +1955,9 @@ class Daemon:
                 self._ensure_required_labels(item.repo)
                 self._repos_with_labels.add(item.repo)
 
-            # Auto-prepare: Create worktree if it doesn't exist (for any workflow)
+            # Auto-prepare: Create worktree if it doesn't exist or is invalid (for any workflow)
             worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
-            if not Path(worktree_path).exists():
+            if not self.workspace_manager.is_valid_worktree(worktree_path):
                 logger.info("Auto-preparing worktree")
                 # Add preparing label during worktree creation
                 self.ticket_client.add_label(item.repo, item.ticket_id, Labels.PREPARING)
@@ -2277,15 +2274,13 @@ class Daemon:
         """Get the worktree path for a repo and issue.
 
         Args:
-            repo: Repository in 'owner/repo' format
+            repo: Repository in 'hostname/owner/repo' or 'owner/repo' format
             issue_number: Issue number
 
         Returns:
             Path to the worktree directory
         """
-        # Extract just the repo name from 'owner/repo'
-        repo_name = repo.split("/")[-1] if "/" in repo else repo
-        return f"{self.config.workspace_dir}/{repo_name}-issue-{issue_number}"
+        return self.workspace_manager.get_workspace_path(repo, issue_number)
 
     def _get_parent_pr_info(self, repo: str, ticket_id: int) -> tuple[int | None, str | None]:
         """Get parent issue number and its open PR branch name.
