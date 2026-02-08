@@ -307,6 +307,42 @@ class WorkspaceManager:
             logger.warning(f"Repository not found at {repo_path}, cannot clean worktree")
             raise WorkspaceError(f"Cannot cleanup worktree: repository not found at {repo_path}")
 
+    def _is_valid_worktree(self, path: Path) -> bool:
+        """Check if path is a valid git worktree.
+
+        Git worktrees have a .git *file* (not directory) containing
+        'gitdir: /path/to/main/repo/.git/worktrees/<name>'
+
+        Args:
+            path: Path to check
+
+        Returns:
+            True if path is a valid git worktree, False otherwise
+        """
+        if not path.exists() or not path.is_dir():
+            return False
+        git_path = path / ".git"
+        if not git_path.exists() or not git_path.is_file():
+            return False
+        try:
+            content = git_path.read_text().strip()
+            return content.startswith("gitdir:")
+        except Exception:
+            return False
+
+    def is_valid_worktree(self, worktree_path: str) -> bool:
+        """Check if a path is a valid git worktree.
+
+        Public wrapper for _is_valid_worktree.
+
+        Args:
+            worktree_path: Path to check (as string)
+
+        Returns:
+            True if path is a valid git worktree, False otherwise
+        """
+        return self._is_valid_worktree(Path(worktree_path))
+
     def sync_worktree_with_main(self, worktree_path: str) -> bool:
         """
         Synchronize worktree with origin/main using hard reset.

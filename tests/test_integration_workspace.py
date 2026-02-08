@@ -343,6 +343,111 @@ class TestGetWorktreeBranch:
 
 
 @pytest.mark.integration
+class TestIsValidWorktree:
+    """Tests for _is_valid_worktree and is_valid_worktree methods."""
+
+    def test_valid_worktree_returns_true(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns True for valid worktree structure."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory with a .git file (worktree format)
+        worktree_path = Path(temp_workspace_dir) / "valid-worktree"
+        worktree_path.mkdir()
+        git_file = worktree_path / ".git"
+        git_file.write_text("gitdir: /path/to/main/repo/.git/worktrees/valid-worktree\n")
+
+        assert manager._is_valid_worktree(worktree_path) is True
+
+    def test_valid_worktree_public_wrapper(self, temp_workspace_dir):
+        """Test is_valid_worktree public method works correctly."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory with a .git file (worktree format)
+        worktree_path = Path(temp_workspace_dir) / "valid-worktree"
+        worktree_path.mkdir()
+        git_file = worktree_path / ".git"
+        git_file.write_text("gitdir: /path/to/main/repo/.git/worktrees/valid-worktree\n")
+
+        assert manager.is_valid_worktree(str(worktree_path)) is True
+
+    def test_nonexistent_directory_returns_false(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns False for non-existent directory."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        nonexistent_path = Path(temp_workspace_dir) / "does-not-exist"
+
+        assert manager._is_valid_worktree(nonexistent_path) is False
+
+    def test_file_instead_of_directory_returns_false(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns False when path is a file, not directory."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a file instead of directory
+        file_path = Path(temp_workspace_dir) / "is-a-file"
+        file_path.write_text("I am a file, not a directory")
+
+        assert manager._is_valid_worktree(file_path) is False
+
+    def test_directory_without_git_returns_false(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns False when directory has no .git."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory without .git
+        dir_path = Path(temp_workspace_dir) / "no-git-dir"
+        dir_path.mkdir()
+
+        assert manager._is_valid_worktree(dir_path) is False
+
+    def test_directory_with_git_directory_returns_false(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns False when .git is a directory (not worktree)."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory with .git as a directory (regular repo, not worktree)
+        dir_path = Path(temp_workspace_dir) / "regular-repo"
+        dir_path.mkdir()
+        (dir_path / ".git").mkdir()
+
+        assert manager._is_valid_worktree(dir_path) is False
+
+    def test_git_file_without_gitdir_prefix_returns_false(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns False when .git file doesn't start with gitdir:."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory with a .git file that has wrong content
+        dir_path = Path(temp_workspace_dir) / "wrong-git-format"
+        dir_path.mkdir()
+        git_file = dir_path / ".git"
+        git_file.write_text("some random content that is not a gitdir reference")
+
+        assert manager._is_valid_worktree(dir_path) is False
+
+    def test_empty_git_file_returns_false(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns False when .git file is empty."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory with an empty .git file
+        dir_path = Path(temp_workspace_dir) / "empty-git-file"
+        dir_path.mkdir()
+        git_file = dir_path / ".git"
+        git_file.write_text("")
+
+        assert manager._is_valid_worktree(dir_path) is False
+
+    def test_gitdir_with_whitespace_returns_true(self, temp_workspace_dir):
+        """Test _is_valid_worktree handles gitdir with leading/trailing whitespace."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory with a .git file with whitespace
+        worktree_path = Path(temp_workspace_dir) / "whitespace-worktree"
+        worktree_path.mkdir()
+        git_file = worktree_path / ".git"
+        git_file.write_text("  gitdir: /path/to/repo/.git/worktrees/name  \n")
+
+        # After strip(), content starts with "gitdir:"
+        assert manager._is_valid_worktree(worktree_path) is True
+
+
+@pytest.mark.integration
 class TestCleanupWorkspaceBranchDeletion:
     """Tests for branch deletion in cleanup_workspace."""
 
