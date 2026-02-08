@@ -98,9 +98,7 @@ No frontmatter in this issue.
             daemon._auto_prepare_worktree(mock_item)
 
             # Should call _get_parent_pr_info
-            mock_get_parent.assert_called_once_with(
-                mock_item.repo, mock_item.ticket_id
-            )
+            mock_get_parent.assert_called_once_with(mock_item.repo, mock_item.ticket_id)
 
     def test_empty_frontmatter_falls_back_to_parent_detection(self, daemon, mock_item):
         """Test that parent detection is used with empty frontmatter."""
@@ -185,9 +183,7 @@ Description.
 class TestDaemonFrontmatterIntegrationTests:
     """Integration tests for feature_branch functionality across daemon methods."""
 
-    def test_auto_prepare_worktree_with_feature_branch_full_flow(
-        self, daemon, mock_item
-    ):
+    def test_auto_prepare_worktree_with_feature_branch_full_flow(self, daemon, mock_item):
         """Integration test: _auto_prepare_worktree with feature_branch frontmatter.
 
         Verifies the complete flow:
@@ -229,9 +225,7 @@ This is an issue that should branch from release/v2.0.
             assert ctx.repo == mock_item.repo
             assert ctx.issue_number == mock_item.ticket_id
 
-    def test_auto_prepare_worktree_feature_branch_skips_parent_pr_info(
-        self, daemon, mock_item
-    ):
+    def test_auto_prepare_worktree_feature_branch_skips_parent_pr_info(self, daemon, mock_item):
         """Integration test: verify _get_parent_pr_info is skipped when feature_branch is set.
 
         This is an important optimization - when an explicit feature_branch is set,
@@ -261,9 +255,7 @@ Description with explicit feature branch.
             ctx = daemon.runner.run.call_args[0][1]
             assert ctx.parent_branch == "develop"
 
-    def test_run_workflow_passes_parent_branch_to_context_for_implement(
-        self, daemon, mock_item
-    ):
+    def test_run_workflow_passes_parent_branch_to_context_for_implement(self, daemon, mock_item):
         """Integration test: _run_workflow passes parent_branch to context for Implement.
 
         When running the Implement workflow, parent_branch should be resolved
@@ -305,9 +297,7 @@ Description of hotfix issue.
             # Restore original workflow class
             daemon.WORKFLOW_MAP["Implement"] = original_workflow_class
 
-    def test_run_workflow_falls_back_to_parent_detection_for_implement(
-        self, daemon, mock_item
-    ):
+    def test_run_workflow_falls_back_to_parent_detection_for_implement(self, daemon, mock_item):
         """Integration test: _run_workflow falls back to parent detection when no frontmatter.
 
         When no feature_branch is set in frontmatter, _run_workflow should
@@ -342,9 +332,7 @@ This issue has a parent issue with an open PR.
                 daemon._run_workflow("Implement", mock_item)
 
                 # Verify _get_parent_pr_info was called
-                mock_get_parent.assert_called_once_with(
-                    mock_item.repo, mock_item.ticket_id
-                )
+                mock_get_parent.assert_called_once_with(mock_item.repo, mock_item.ticket_id)
 
                 # Verify context has parent_branch from parent detection
                 assert captured_context is not None

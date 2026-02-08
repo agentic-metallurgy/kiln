@@ -82,7 +82,7 @@ def temp_mcp_config(tmp_path):
             "test-server": {
                 "command": "test-mcp-server",
                 "args": ["--port", "8080"],
-                "env": {"TOKEN": "${AZURE_BEARER_TOKEN}"}
+                "env": {"TOKEN": "${AZURE_BEARER_TOKEN}"},
             }
         }
     }
@@ -214,8 +214,11 @@ class TestDaemonMCPConfigManagerInitialization:
             daemon = Daemon(config_without_azure)
 
             # Verify warnings were logged
-            warning_calls = [call for call in mock_logger.warning.call_args_list
-                          if "MCP config warning" in str(call)]
+            warning_calls = [
+                call
+                for call in mock_logger.warning.call_args_list
+                if "MCP config warning" in str(call)
+            ]
             assert len(warning_calls) == 2
 
             daemon.stop()
@@ -228,8 +231,6 @@ class TestWorkflowRunnerMCPConfig:
     def test_run_passes_mcp_config_path_to_run_claude(self):
         """Test that WorkflowRunner.run() passes mcp_config_path to run_claude()."""
         config = MagicMock()
-
-    
 
         runner = WorkflowRunner(config)
 
@@ -264,8 +265,6 @@ class TestWorkflowRunnerMCPConfig:
     def test_run_passes_none_when_no_mcp_config(self):
         """Test that WorkflowRunner.run() passes None when no MCP config."""
         config = MagicMock()
-
-    
 
         runner = WorkflowRunner(config)
 
@@ -331,6 +330,7 @@ class TestDaemonMCPStartupLogging:
 
         # Change to this directory so MCPConfigManager finds the config
         import os
+
         original_cwd = os.getcwd()
         os.chdir(tmp_path)
         yield tmp_path
@@ -346,7 +346,7 @@ class TestDaemonMCPStartupLogging:
         config.workspace_dir = str(tmp_path)
         config.database_path = str(tmp_path / "test.db")
         config.project_urls = ["https://github.com/orgs/test/projects/1"]
-    
+
         config.github_enterprise_version = None
         config.github_enterprise_host = None
         config.github_token = None
@@ -354,7 +354,7 @@ class TestDaemonMCPStartupLogging:
         config.username_self = "test-bot"
         config.team_usernames = []
         config.ghes_logs_mask = False
-    
+
         config.azure_tenant_id = None
         config.azure_client_id = None
         config.azure_username = None
@@ -437,7 +437,9 @@ class TestDaemonMCPStartupLogging:
             assert jenkins_warning is not None, "Jenkins MCP failure should be logged as warning"
             assert "timeout" in jenkins_warning
 
-            assert filesystem_warning is not None, "Filesystem MCP failure should be logged as warning"
+            assert filesystem_warning is not None, (
+                "Filesystem MCP failure should be logged as warning"
+            )
             assert "command not found" in filesystem_warning
 
             daemon.stop()
@@ -476,7 +478,9 @@ class TestDaemonMCPStartupLogging:
             # Verify failure is logged as warning
             warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
             filesystem_warning = next((c for c in warning_calls if "filesystem" in c.lower()), None)
-            assert filesystem_warning is not None, "Filesystem MCP failure should be logged as warning"
+            assert filesystem_warning is not None, (
+                "Filesystem MCP failure should be logged as warning"
+            )
             assert "connection refused" in filesystem_warning
 
             daemon.stop()
@@ -608,8 +612,7 @@ class TestDaemonMCPStartupLogging:
             # Verify server count is logged
             info_calls = [str(call) for call in mock_logger.info.call_args_list]
             count_log = next(
-                (c for c in info_calls if "server(s)" in c.lower() or "2 server" in c.lower()),
-                None
+                (c for c in info_calls if "server(s)" in c.lower() or "2 server" in c.lower()), None
             )
             assert count_log is not None, "MCP server count should be logged"
 

@@ -48,9 +48,7 @@ class TestHibernationState:
         """Test that _enter_hibernation logs a warning with the reason."""
         with patch("src.daemon.logger") as mock_logger:
             daemon._enter_hibernation("GitHub API unreachable")
-            mock_logger.warning.assert_any_call(
-                "Entering hibernation mode: GitHub API unreachable"
-            )
+            mock_logger.warning.assert_any_call("Entering hibernation mode: GitHub API unreachable")
 
     def test_enter_hibernation_idempotent(self, daemon):
         """Test that calling _enter_hibernation twice doesn't log twice."""
@@ -76,9 +74,7 @@ class TestHibernationState:
         daemon._hibernating = True
         with patch("src.daemon.logger") as mock_logger:
             daemon._exit_hibernation()
-            mock_logger.info.assert_any_call(
-                "Exiting hibernation mode: connectivity restored"
-            )
+            mock_logger.info.assert_any_call("Exiting hibernation mode: connectivity restored")
 
     def test_exit_hibernation_idempotent(self, daemon):
         """Test that calling _exit_hibernation when not hibernating doesn't log."""
@@ -106,17 +102,13 @@ class TestCheckGitHubConnectivity:
 
     def test_connectivity_network_error_returns_false(self, daemon):
         """Test that NetworkError returns False."""
-        daemon.ticket_client.validate_connection.side_effect = NetworkError(
-            "TLS handshake timeout"
-        )
+        daemon.ticket_client.validate_connection.side_effect = NetworkError("TLS handshake timeout")
         result = daemon._check_github_connectivity()
         assert result is False
 
     def test_connectivity_other_exception_returns_true(self, daemon):
         """Test that non-network exceptions return True (to skip hibernation)."""
-        daemon.ticket_client.validate_connection.side_effect = RuntimeError(
-            "Auth error"
-        )
+        daemon.ticket_client.validate_connection.side_effect = RuntimeError("Auth error")
         result = daemon._check_github_connectivity()
         assert result is True
 
@@ -132,9 +124,7 @@ class TestCheckGitHubConnectivity:
         daemon._check_github_connectivity()
 
         # Should call validate_connection for each unique hostname
-        call_args = [
-            call[0][0] for call in daemon.ticket_client.validate_connection.call_args_list
-        ]
+        call_args = [call[0][0] for call in daemon.ticket_client.validate_connection.call_args_list]
         assert "github.com" in call_args
         assert "ghes.company.com" in call_args
         # github.com should only be called once even though 2 URLs use it
@@ -148,9 +138,7 @@ class TestCheckGitHubConnectivity:
 
     def test_connectivity_logs_warning_on_network_error(self, daemon):
         """Test that NetworkError is logged as warning."""
-        daemon.ticket_client.validate_connection.side_effect = NetworkError(
-            "Connection refused"
-        )
+        daemon.ticket_client.validate_connection.side_effect = NetworkError("Connection refused")
         with patch("src.daemon.logger") as mock_logger:
             daemon._check_github_connectivity()
             # Should log warning about unreachable host
@@ -368,5 +356,3 @@ class TestGetHostnameFromUrl:
         assert daemon._get_hostname_from_url("invalid") == "github.com"
         assert daemon._get_hostname_from_url("") == "github.com"
         assert daemon._get_hostname_from_url("not-a-url") == "github.com"
-
-

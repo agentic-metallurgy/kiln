@@ -10,10 +10,7 @@ This client inherits all functionality from GitHubEnterprise314Client,
 only overriding the client description for logging/debugging purposes.
 """
 
-from src.logger import get_logger
 from src.ticket_clients.github_enterprise_3_14 import GitHubEnterprise314Client
-
-logger = get_logger(__name__)
 
 
 class GitHubEnterprise315Client(GitHubEnterprise314Client):

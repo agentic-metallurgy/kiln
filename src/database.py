@@ -505,11 +505,15 @@ class Database:
 
         field_name = f"{workflow.lower()}_session_id"
         if field_name == "research_session_id":
-            self.update_issue_state(repo, issue_number, state.status, research_session_id=session_id)
+            self.update_issue_state(
+                repo, issue_number, state.status, research_session_id=session_id
+            )
         elif field_name == "plan_session_id":
             self.update_issue_state(repo, issue_number, state.status, plan_session_id=session_id)
         elif field_name == "implement_session_id":
-            self.update_issue_state(repo, issue_number, state.status, implement_session_id=session_id)
+            self.update_issue_state(
+                repo, issue_number, state.status, implement_session_id=session_id
+            )
 
     def clear_workflow_session_id(self, repo: str, issue_number: int, workflow: str) -> None:
         """
@@ -602,9 +606,7 @@ class Database:
                     params,
                 )
 
-    def get_run_history(
-        self, repo: str, issue_number: int, limit: int = 50
-    ) -> list[RunRecord]:
+    def get_run_history(self, repo: str, issue_number: int, limit: int = 50) -> list[RunRecord]:
         """
         Get run history for a specific issue.
 

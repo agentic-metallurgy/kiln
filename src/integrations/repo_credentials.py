@@ -68,9 +68,7 @@ def parse_repo_url(url: str) -> tuple[str, str, str]:
     # Split path into segments, filtering empty strings from leading/trailing slashes
     segments = [s for s in parsed.path.split("/") if s]
     if len(segments) < 2:
-        raise ValueError(
-            f"repo_url must contain at least owner/repo in the path, got '{url}'"
-        )
+        raise ValueError(f"repo_url must contain at least owner/repo in the path, got '{url}'")
 
     owner = segments[0]
     repo = segments[1]
@@ -138,9 +136,7 @@ class RepoCredentialsManager:
         config_path = Path(self.config_path)
 
         if not config_path.exists():
-            logger.debug(
-                f"Credentials config file not found at {self.config_path}"
-            )
+            logger.debug(f"Credentials config file not found at {self.config_path}")
             return None
 
         try:
@@ -161,8 +157,7 @@ class RepoCredentialsManager:
 
         if not isinstance(raw_config, dict):
             raise RepoCredentialsLoadError(
-                f"Credentials config must be a YAML mapping, "
-                f"got {type(raw_config).__name__}"
+                f"Credentials config must be a YAML mapping, got {type(raw_config).__name__}"
             )
 
         repositories = raw_config.get("repositories")
@@ -179,8 +174,7 @@ class RepoCredentialsManager:
         for i, repo_entry in enumerate(repositories):
             if not isinstance(repo_entry, dict):
                 raise RepoCredentialsLoadError(
-                    f"Repository entry {i} must be a mapping, "
-                    f"got {type(repo_entry).__name__}"
+                    f"Repository entry {i} must be a mapping, got {type(repo_entry).__name__}"
                 )
 
             # Validate required fields
@@ -209,9 +203,7 @@ class RepoCredentialsManager:
                     f"got '{credential_path}'"
                 )
 
-            destination = str(
-                repo_entry.get("destination", DEFAULT_DESTINATION)
-            )
+            destination = str(repo_entry.get("destination", DEFAULT_DESTINATION))
 
             entries.append(
                 RepoCredentialEntry(
@@ -225,9 +217,7 @@ class RepoCredentialsManager:
             )
 
         self._cached_entries = entries
-        logger.info(
-            f"Loaded credentials config with {len(entries)} repository mapping(s)"
-        )
+        logger.info(f"Loaded credentials config with {len(entries)} repository mapping(s)")
         return self._cached_entries
 
     def has_config(self) -> bool:
@@ -243,9 +233,7 @@ class RepoCredentialsManager:
         except RepoCredentialsError:
             return False
 
-    def copy_to_worktree(
-        self, worktree_path: str, repo: str
-    ) -> str | None:
+    def copy_to_worktree(self, worktree_path: str, repo: str) -> str | None:
         """Copy the matching credential file to a worktree directory.
 
         Looks up the repo in the loaded credentials config, and if a match
@@ -285,9 +273,7 @@ class RepoCredentialsManager:
                 break
 
         if matching_entry is None:
-            logger.debug(
-                f"No credential mapping found for repo '{repo_key}'"
-            )
+            logger.debug(f"No credential mapping found for repo '{repo_key}'")
             return None
 
         # Check source file exists
@@ -309,9 +295,7 @@ class RepoCredentialsManager:
         shutil.copy2(str(source_path), str(dest_path))
 
         abs_dest = str(dest_path.absolute())
-        logger.info(
-            f"Copied credentials for '{matching_entry.title}' to {abs_dest}"
-        )
+        logger.info(f"Copied credentials for '{matching_entry.title}' to {abs_dest}")
         return abs_dest
 
     def validate_credential_paths(self) -> None:
@@ -332,8 +316,7 @@ class RepoCredentialsManager:
         for entry in entries:
             if not Path(entry.credential_path).exists():
                 logger.error(
-                    f"Credential file not found for '{entry.title}': "
-                    f"{entry.credential_path}"
+                    f"Credential file not found for '{entry.title}': {entry.credential_path}"
                 )
 
     def clear_cache(self) -> None:

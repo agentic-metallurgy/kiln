@@ -167,7 +167,9 @@ class TestKillProcess:
         assert result is False  # Should return False for other OS errors
         assert key not in daemon._running_processes
 
-    def test_kill_process_does_not_affect_other_processes(self, daemon, mock_process, mock_process_2):
+    def test_kill_process_does_not_affect_other_processes(
+        self, daemon, mock_process, mock_process_2
+    ):
         """Test that killing one process doesn't affect others."""
         key1 = "test-repo#123"
         key2 = "test-repo#456"

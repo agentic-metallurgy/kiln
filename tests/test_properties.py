@@ -772,15 +772,17 @@ class TestIsKilnPostProperties:
 
     @given(
         text=st.text(max_size=300).filter(
-            lambda x: not any(
-                x.lstrip().startswith(m)
-                for m in [
-                    "<!-- kiln:research -->",
-                    "<!-- kiln:plan -->",
-                    "## Research",
-                    "## Plan",
-                    "---",
-                ]
+            lambda x: (
+                not any(
+                    x.lstrip().startswith(m)
+                    for m in [
+                        "<!-- kiln:research -->",
+                        "<!-- kiln:plan -->",
+                        "## Research",
+                        "## Plan",
+                        "---",
+                    ]
+                )
             )
         )
     )

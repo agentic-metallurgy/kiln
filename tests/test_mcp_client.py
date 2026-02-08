@@ -242,7 +242,9 @@ class TestTestHttpServer:
         mock_client_cm.__aexit__ = AsyncMock(return_value=None)
 
         with (
-            patch("src.integrations.mcp_client.streamablehttp_client", return_value=mock_client_cm) as mock_http,
+            patch(
+                "src.integrations.mcp_client.streamablehttp_client", return_value=mock_client_cm
+            ) as mock_http,
             patch("src.integrations.mcp_client.ClientSession", return_value=mock_session),
         ):
             await _test_http_server("auth-server", config, timeout=5.0)
@@ -263,7 +265,9 @@ class TestTestHttpServer:
         mock_client_cm.__aenter__ = slow_connect
         mock_client_cm.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("src.integrations.mcp_client.streamablehttp_client", return_value=mock_client_cm):
+        with patch(
+            "src.integrations.mcp_client.streamablehttp_client", return_value=mock_client_cm
+        ):
             result = await _test_http_server("slow-server", config, timeout=0.1)
 
         assert result.success is False

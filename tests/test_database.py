@@ -254,7 +254,6 @@ class TestIssueState:
         assert issue_state.last_updated == timestamp
 
 
-
 @pytest.mark.unit
 class TestCommentTimestampTracking:
     """Tests for last_processed_comment_timestamp tracking."""
@@ -501,9 +500,7 @@ class TestClearWorkflowSessionId:
     def test_clear_workflow_session_id(self, temp_db):
         """Test that clear_workflow_session_id clears a stored session ID."""
         # Set up issue with a session ID
-        temp_db.update_issue_state(
-            "owner/repo", 42, "Research", research_session_id="abc123"
-        )
+        temp_db.update_issue_state("owner/repo", 42, "Research", research_session_id="abc123")
         state = temp_db.get_issue_state("owner/repo", 42)
         assert state.research_session_id == "abc123"
 
@@ -536,9 +533,7 @@ class TestClearWorkflowSessionId:
 
     def test_clear_workflow_session_id_for_implement(self, temp_db):
         """Test clearing implement workflow session ID."""
-        temp_db.update_issue_state(
-            "owner/repo", 42, "Implement", implement_session_id="impl-789"
-        )
+        temp_db.update_issue_state("owner/repo", 42, "Implement", implement_session_id="impl-789")
 
         temp_db.clear_workflow_session_id("owner/repo", 42, "Implement")
 

@@ -56,9 +56,7 @@ def _detect_ghes_version(hostname: str, token: str) -> str:
     try:
         data = json.loads(result.stdout)
     except json.JSONDecodeError as e:
-        raise ValueError(
-            f"Invalid response from GHES meta endpoint for {hostname}: {e}"
-        ) from e
+        raise ValueError(f"Invalid response from GHES meta endpoint for {hostname}: {e}") from e
 
     full_version = data.get("installed_version", "")
     if not full_version:
@@ -81,8 +79,7 @@ def _detect_ghes_version(hostname: str, token: str) -> str:
     if version not in GHES_VERSION_CLIENTS:
         supported = ", ".join(sorted(GHES_VERSION_CLIENTS.keys()))
         raise ValueError(
-            f"Detected GHES version {version} is not supported. "
-            f"Supported versions: {supported}"
+            f"Detected GHES version {version} is not supported. Supported versions: {supported}"
         )
 
     logger.info(f"Auto-detected GHES version: {version} (from {full_version})")
@@ -146,7 +143,9 @@ class Config:
     azure_client_id: str | None = None
     azure_username: str | None = None
     azure_password: str | None = None
-    azure_scope: str | None = None  # Defaults to "https://graph.microsoft.com/.default" if not specified
+    azure_scope: str | None = (
+        None  # Defaults to "https://graph.microsoft.com/.default" if not specified
+    )
 
 
 def determine_workspace_dir() -> str:
@@ -165,7 +164,7 @@ def determine_workspace_dir() -> str:
 
 def _validate_project_urls_host(
     project_urls: list[str],
-    github_token: str | None,
+    github_token: str | None,  # noqa: ARG001
     github_enterprise_host: str | None,
     github_enterprise_token: str | None,
 ) -> None:
@@ -275,7 +274,9 @@ def load_config_from_file(config_path: Path) -> Config:
     # Validate GitHub authentication - need either GITHUB_TOKEN or full GHES config
     if not github_token:
         # No github.com token - check GHES configuration
-        has_any_ghes = github_enterprise_host or github_enterprise_token or github_enterprise_version
+        has_any_ghes = (
+            github_enterprise_host or github_enterprise_token or github_enterprise_version
+        )
         if has_any_ghes:
             # Attempting GHES - need host and token at minimum
             if not github_enterprise_host:
@@ -314,11 +315,7 @@ def load_config_from_file(config_path: Path) -> Config:
         )
 
     # Auto-detect GHES version if not provided but host+token are present
-    if (
-        github_enterprise_host
-        and github_enterprise_token
-        and not github_enterprise_version
-    ):
+    if github_enterprise_host and github_enterprise_token and not github_enterprise_version:
         github_enterprise_version = _detect_ghes_version(
             github_enterprise_host, github_enterprise_token
         )
@@ -472,7 +469,9 @@ def load_config_from_env() -> Config:
     # Validate GitHub authentication - need either GITHUB_TOKEN or full GHES config
     if not github_token:
         # No github.com token - check GHES configuration
-        has_any_ghes = github_enterprise_host or github_enterprise_token or github_enterprise_version
+        has_any_ghes = (
+            github_enterprise_host or github_enterprise_token or github_enterprise_version
+        )
         if has_any_ghes:
             # Attempting GHES - need host and token at minimum
             if not github_enterprise_host:
@@ -509,16 +508,10 @@ def load_config_from_env() -> Config:
 
     # Raise error listing all missing required vars
     if missing_vars:
-        raise ValueError(
-            f"Missing required environment variables: {', '.join(missing_vars)}"
-        )
+        raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
 
     # Auto-detect GHES version if not provided but host+token are present
-    if (
-        github_enterprise_host
-        and github_enterprise_token
-        and not github_enterprise_version
-    ):
+    if github_enterprise_host and github_enterprise_token and not github_enterprise_version:
         github_enterprise_version = _detect_ghes_version(
             github_enterprise_host, github_enterprise_token
         )

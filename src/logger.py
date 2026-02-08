@@ -170,9 +170,7 @@ class ColoredFormatter(logging.Formatter):
 class ContextAwareFormatter(ColoredFormatter):
     """Formatter that injects issue context from contextvars."""
 
-    def __init__(
-        self, fmt: str | None = None, masking_filter: MaskingFilter | None = None
-    ) -> None:
+    def __init__(self, fmt: str | None = None, masking_filter: MaskingFilter | None = None) -> None:
         """Initialize the formatter.
 
         Args:
@@ -194,9 +192,7 @@ class ContextAwareFormatter(ColoredFormatter):
 class PlainContextAwareFormatter(logging.Formatter):
     """Plain formatter (no colors) that injects issue context from contextvars."""
 
-    def __init__(
-        self, fmt: str | None = None, masking_filter: MaskingFilter | None = None
-    ) -> None:
+    def __init__(self, fmt: str | None = None, masking_filter: MaskingFilter | None = None) -> None:
         """Initialize the formatter.
 
         Args:
@@ -383,9 +379,7 @@ def setup_logging(
     if log_file:
         try:
             # Plain context-aware formatter for file output (no ANSI colors, with optional masking)
-            plain_formatter = PlainContextAwareFormatter(
-                log_format, masking_filter=masking_filter
-            )
+            plain_formatter = PlainContextAwareFormatter(log_format, masking_filter=masking_filter)
 
             log_dir = os.path.dirname(log_file)
             if log_dir:
