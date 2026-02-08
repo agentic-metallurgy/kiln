@@ -1528,6 +1528,9 @@ class TestImplementationCompleteComment:
         # Mock get_pr_for_issue to return PR info with number
         daemon._get_pr_for_issue = MagicMock(return_value={"number": 100, "body": "PR body"})
 
+        # Mock is_valid_worktree so _auto_prepare_worktree is skipped
+        daemon.workspace_manager.is_valid_worktree = MagicMock(return_value=True)
+
         # Mock worktree path exists
         with patch("pathlib.Path.exists", return_value=True):
             # Mock get_ticket_body (not strictly needed but good for completeness)
@@ -1575,6 +1578,9 @@ class TestImplementationCompleteComment:
         # Mock get_pr_for_issue to return None (no PR found)
         daemon._get_pr_for_issue = MagicMock(return_value=None)
 
+        # Mock is_valid_worktree so _auto_prepare_worktree is skipped
+        daemon.workspace_manager.is_valid_worktree = MagicMock(return_value=True)
+
         # Mock worktree path exists
         with patch("pathlib.Path.exists", return_value=True):
             daemon.ticket_client.get_ticket_body.return_value = "Issue body"
@@ -1610,6 +1616,9 @@ class TestImplementationCompleteComment:
 
         # Mock get_pr_for_issue
         daemon._get_pr_for_issue = MagicMock(return_value={"number": 100, "body": "PR body"})
+
+        # Mock is_valid_worktree so _auto_prepare_worktree is skipped
+        daemon.workspace_manager.is_valid_worktree = MagicMock(return_value=True)
 
         # Mock worktree path exists
         with patch("pathlib.Path.exists", return_value=True):
@@ -1653,6 +1662,9 @@ class TestImplementationCompleteComment:
 
         # Mock add_comment to raise an exception
         daemon.ticket_client.add_comment.side_effect = Exception("GitHub API error")
+
+        # Mock is_valid_worktree so _auto_prepare_worktree is skipped
+        daemon.workspace_manager.is_valid_worktree = MagicMock(return_value=True)
 
         # Mock worktree path exists
         with patch("pathlib.Path.exists", return_value=True):
