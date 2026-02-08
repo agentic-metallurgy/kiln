@@ -41,15 +41,23 @@ class WorkspaceManager:
 
         logger.debug(f"WorkspaceManager initialized with workspace_dir: {self.workspace_dir}")
 
-    def _extract_repo_name(self, repo_url: str) -> str:
+    def _extract_repo_name_from_url(self, repo_url: str) -> str:
         """
-        Extract repository name from URL.
+        Extract repository name from a git URL for cloning purposes.
+
+        This method extracts just the final repo name component from a git URL.
+        It is used for git clone operations where the repo name determines the
+        clone directory name.
+
+        NOTE: This is distinct from _get_repo_identifier() which creates unique
+        filesystem-safe identifiers for path construction using owner_repo format.
+        Use _get_repo_identifier() for worktree/workspace path construction.
 
         Args:
-            repo_url: Git repository URL
+            repo_url: Git repository URL (HTTPS or SSH format)
 
         Returns:
-            Repository name (e.g., "repo" from "https://github.com/org/repo.git")
+            Repository name only (e.g., "repo" from "https://github.com/org/repo.git")
 
         Examples:
             https://github.com/org/repo -> repo
@@ -61,10 +69,10 @@ class WorkspaceManager:
         if url.endswith(".git"):
             url = url[:-4]
 
-        # Extract the last component of the path
+        # Extract the last component of the path (just the repo name)
         repo_name = url.split("/")[-1]
 
-        logger.debug(f"Extracted repo name '{repo_name}' from URL: {repo_url}")
+        logger.debug(f"Extracted repo name '{repo_name}' from git URL: {repo_url}")
         return repo_name
 
     def _run_git_command(
@@ -163,13 +171,32 @@ class WorkspaceManager:
                     f"forbidden path component '{pattern}'"
                 )
 
-    def _ensure_repo_cloned(self, repo_url: str, repo_name: str) -> Path:
+    def _get_repo_identifier(self, repo: str) -> str:
+        """Get a unique, filesystem-safe identifier for a repository.
+
+        Converts 'hostname/owner/repo' or 'owner/repo' to 'owner_repo'.
+        This ensures repos with the same name but different owners have unique paths.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' or 'owner/repo' format
+
+        Returns:
+            Filesystem-safe identifier like 'owner_repo'
+        """
+        parts = repo.split("/")
+        if len(parts) >= 2:
+            # Take last two segments: owner and repo
+            return f"{parts[-2]}_{parts[-1]}"
+        # Fallback for unexpected format
+        return parts[-1]
+
+    def _ensure_repo_cloned(self, repo_url: str, repo: str) -> Path:
         """
         Ensure the main repository is cloned.
 
         Args:
             repo_url: Git repository URL
-            repo_name: Repository name
+            repo: Repository in 'hostname/owner/repo' or 'owner/repo' format
 
         Returns:
             Path to the cloned repository
@@ -177,13 +204,14 @@ class WorkspaceManager:
         Raises:
             WorkspaceError: If clone fails
         """
-        self._validate_name_component(repo_name, "repository name")
+        repo_id = self._get_repo_identifier(repo)
+        self._validate_name_component(repo_id, "repository identifier")
         repo_path = self._validate_path_containment(
-            self.workspace_dir / repo_name, self.workspace_dir, "repository path"
+            self.workspace_dir / repo_id, self.workspace_dir, "repository path"
         )
 
         if repo_path.exists():
-            logger.info(f"Repository '{repo_name}' already cloned at {repo_path}")
+            logger.info(f"Repository '{repo_id}' already cloned at {repo_path}")
             # Verify it's a valid git repository
             if not (repo_path / ".git").exists():
                 raise WorkspaceError(f"Directory exists but is not a git repository: {repo_path}")
@@ -195,19 +223,20 @@ class WorkspaceManager:
 
         return repo_path
 
-    def get_workspace_path(self, repo_name: str, issue_number: int) -> str:
+    def get_workspace_path(self, repo: str, issue_number: int) -> str:
         """
         Get the expected workspace path for a repository and issue.
 
         Args:
-            repo_name: Repository name
+            repo: Repository in 'hostname/owner/repo' or 'owner/repo' format
             issue_number: Issue number
 
         Returns:
             Absolute path to the workspace (may not exist)
         """
-        self._validate_name_component(repo_name, "repository name")
-        worktree_name = f"{repo_name}-issue-{issue_number}"
+        repo_id = self._get_repo_identifier(repo)
+        self._validate_name_component(repo_id, "repository identifier")
+        worktree_name = f"{repo_id}-issue-{issue_number}"
         worktree_path = self._validate_path_containment(
             self.workspace_dir / worktree_name, self.workspace_dir, "worktree path"
         )
@@ -255,24 +284,25 @@ class WorkspaceManager:
         except WorkspaceError:
             return None
 
-    def cleanup_workspace(self, repo_name: str, issue_number: int) -> None:
+    def cleanup_workspace(self, repo: str, issue_number: int) -> None:
         """
         Remove a worktree, its directory, and the associated local branch.
 
         Args:
-            repo_name: Repository name
+            repo: Repository in 'hostname/owner/repo' or 'owner/repo' format
             issue_number: Issue number
 
         Raises:
             WorkspaceError: If cleanup fails
         """
-        worktree_path = Path(self.get_workspace_path(repo_name, issue_number))
+        worktree_path = Path(self.get_workspace_path(repo, issue_number))
         # get_workspace_path already validates, but double-check worktree_path
         self._validate_path_containment(worktree_path, self.workspace_dir, "worktree path")
 
-        self._validate_name_component(repo_name, "repository name")
+        repo_id = self._get_repo_identifier(repo)
+        self._validate_name_component(repo_id, "repository identifier")
         repo_path = self._validate_path_containment(
-            self.workspace_dir / repo_name, self.workspace_dir, "repository path"
+            self.workspace_dir / repo_id, self.workspace_dir, "repository path"
         )
 
         if not worktree_path.exists():
@@ -302,10 +332,46 @@ class WorkspaceManager:
                     # Non-fatal - branch may already be deleted or never existed
                     logger.warning(f"Failed to delete local branch '{branch_name}': {e}")
 
-            logger.info(f"Successfully cleaned up workspace for {repo_name} issue {issue_number}")
+            logger.info(f"Successfully cleaned up workspace for {repo} issue {issue_number}")
         else:
             logger.warning(f"Repository not found at {repo_path}, cannot clean worktree")
             raise WorkspaceError(f"Cannot cleanup worktree: repository not found at {repo_path}")
+
+    def _is_valid_worktree(self, path: Path) -> bool:
+        """Check if path is a valid git worktree.
+
+        Git worktrees have a .git *file* (not directory) containing
+        'gitdir: /path/to/main/repo/.git/worktrees/<name>'
+
+        Args:
+            path: Path to check
+
+        Returns:
+            True if path is a valid git worktree, False otherwise
+        """
+        if not path.exists() or not path.is_dir():
+            return False
+        git_path = path / ".git"
+        if not git_path.exists() or not git_path.is_file():
+            return False
+        try:
+            content = git_path.read_text().strip()
+            return content.startswith("gitdir:")
+        except Exception:
+            return False
+
+    def is_valid_worktree(self, worktree_path: str) -> bool:
+        """Check if a path is a valid git worktree.
+
+        Public wrapper for _is_valid_worktree.
+
+        Args:
+            worktree_path: Path to check (as string)
+
+        Returns:
+            True if path is a valid git worktree, False otherwise
+        """
+        return self._is_valid_worktree(Path(worktree_path))
 
     def sync_worktree_with_main(self, worktree_path: str) -> bool:
         """

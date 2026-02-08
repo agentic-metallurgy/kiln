@@ -10,7 +10,6 @@ import contextlib
 import difflib
 import html
 import json
-import os
 import subprocess
 import textwrap
 from pathlib import Path
@@ -24,6 +23,7 @@ from src.interfaces import Comment, TicketClient, TicketItem
 from src.labels import Labels
 from src.logger import clear_issue_context, get_logger, set_issue_context
 from src.workflows import PrepareWorkflow, ProcessCommentsWorkflow, WorkflowContext
+from src.workspace import WorkspaceManager
 
 if TYPE_CHECKING:
     from src.config import Config
@@ -70,6 +70,7 @@ class CommentProcessor:
         username_self: str | None = None,
         team_usernames: list[str] | None = None,
         daemon: "Daemon | None" = None,
+        workspace_manager: WorkspaceManager | None = None,
     ) -> None:
         """Initialize the comment processor.
 
@@ -82,6 +83,7 @@ class CommentProcessor:
             username_self: Username allowed to trigger comment processing
             team_usernames: List of team member usernames (logged at DEBUG, not WARNING)
             daemon: Reference to daemon for tracking EDITING label in _running_labels
+            workspace_manager: WorkspaceManager for path construction and worktree validation
         """
         self.ticket_client = ticket_client
         self.database = database
@@ -91,25 +93,28 @@ class CommentProcessor:
         self.username_self = username_self
         self.team_usernames = team_usernames or []
         self.daemon = daemon
+        # Use provided workspace_manager or create a new one
+        self.workspace_manager = workspace_manager or WorkspaceManager(workspace_dir)
         logger.debug("CommentProcessor initialized")
 
     def _get_worktree_path(self, repo: str, issue_number: int) -> str:
         """Get the worktree path for a repo and issue.
 
+        Delegates to WorkspaceManager for consistent path construction.
+
         Args:
-            repo: Repository in 'owner/repo' format
+            repo: Repository in 'hostname/owner/repo' or 'owner/repo' format
             issue_number: Issue number
 
         Returns:
             Path to the worktree directory
         """
-        repo_name = repo.split("/")[-1] if "/" in repo else repo
-        return f"{self.workspace_dir}/{repo_name}-issue-{issue_number}"
+        return self.workspace_manager.get_workspace_path(repo, issue_number)
 
     def _ensure_worktree_exists(self, item: TicketItem) -> str:
         """Ensure a worktree exists for the issue, creating it if needed.
 
-        If the worktree doesn't exist, runs PrepareWorkflow to create it.
+        If the worktree doesn't exist or is invalid, runs PrepareWorkflow to create it.
         This enables proper session resumption via Claude's .claude/projects folder.
 
         Note: This simplified version doesn't detect parent PRs for branching.
@@ -125,10 +130,11 @@ class CommentProcessor:
         """
         worktree_path = self._get_worktree_path(item.repo, item.ticket_id)
 
-        if os.path.isdir(worktree_path):
+        # Check if path exists AND is a valid git worktree
+        if self.workspace_manager.is_valid_worktree(worktree_path):
             return worktree_path
 
-        logger.info(f"Worktree not found at {worktree_path}, running Prepare workflow")
+        logger.info(f"Worktree missing or invalid at {worktree_path}, running Prepare workflow")
 
         # Pre-fetch issue body for PrepareWorkflow
         issue_body = self.ticket_client.get_ticket_body(item.repo, item.ticket_id)

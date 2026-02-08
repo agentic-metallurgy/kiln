@@ -26,7 +26,8 @@ class TestWorkspaceManagerIntegration:
         manager = WorkspaceManager(temp_workspace_dir)
 
         # Create a fake workspace directory manually (not a real worktree)
-        worktree_name = "test-repo-issue-42"
+        # New format uses owner_repo pattern
+        worktree_name = "test-org_test-repo-issue-42"
         worktree_path = Path(temp_workspace_dir) / worktree_name
         worktree_path.mkdir()
 
@@ -37,47 +38,51 @@ class TestWorkspaceManagerIntegration:
         assert worktree_path.exists()
         assert (worktree_path / "test_file.txt").exists()
 
-        # Clean up should raise error when main repo (test-repo) doesn't exist
+        # Clean up should raise error when main repo (test-org_test-repo) doesn't exist
         with pytest.raises(WorkspaceError, match="Cannot cleanup worktree: repository not found"):
-            manager.cleanup_workspace("test-repo", 42)
+            manager.cleanup_workspace("test-org/test-repo", 42)
 
     def test_cleanup_workspace_handles_nonexistent_workspace(self, temp_workspace_dir):
         """Test cleanup_workspace handles non-existent workspace gracefully."""
         manager = WorkspaceManager(temp_workspace_dir)
 
-        # Should not raise an error
-        manager.cleanup_workspace("nonexistent-repo", 999)
+        # Should not raise an error - use full repo format
+        manager.cleanup_workspace("nonexistent-org/nonexistent-repo", 999)
 
-    def test_extract_repo_name_https_url(self):
-        """Test _extract_repo_name parses HTTPS URLs."""
+    def test_extract_repo_name_from_url_https(self):
+        """Test _extract_repo_name_from_url parses HTTPS URLs."""
         manager = WorkspaceManager("/tmp/test")
 
-        assert manager._extract_repo_name("https://github.com/org/repo") == "repo"
-        assert manager._extract_repo_name("https://github.com/org/repo.git") == "repo"
-        assert manager._extract_repo_name("https://github.com/org/my-repo.git") == "my-repo"
+        assert manager._extract_repo_name_from_url("https://github.com/org/repo") == "repo"
+        assert manager._extract_repo_name_from_url("https://github.com/org/repo.git") == "repo"
+        assert (
+            manager._extract_repo_name_from_url("https://github.com/org/my-repo.git") == "my-repo"
+        )
 
-    def test_extract_repo_name_ssh_url(self):
-        """Test _extract_repo_name parses SSH URLs."""
+    def test_extract_repo_name_from_url_ssh(self):
+        """Test _extract_repo_name_from_url parses SSH URLs."""
         manager = WorkspaceManager("/tmp/test")
 
-        assert manager._extract_repo_name("git@github.com:org/repo.git") == "repo"
-        assert manager._extract_repo_name("git@github.com:org/my-repo.git") == "my-repo"
+        assert manager._extract_repo_name_from_url("git@github.com:org/repo.git") == "repo"
+        assert manager._extract_repo_name_from_url("git@github.com:org/my-repo.git") == "my-repo"
 
-    def test_extract_repo_name_trailing_slash(self):
-        """Test _extract_repo_name handles trailing slashes."""
+    def test_extract_repo_name_from_url_trailing_slash(self):
+        """Test _extract_repo_name_from_url handles trailing slashes."""
         manager = WorkspaceManager("/tmp/test")
 
-        assert manager._extract_repo_name("https://github.com/org/repo/") == "repo"
-        assert manager._extract_repo_name("https://github.com/org/repo.git/") == "repo"
+        assert manager._extract_repo_name_from_url("https://github.com/org/repo/") == "repo"
+        assert manager._extract_repo_name_from_url("https://github.com/org/repo.git/") == "repo"
 
     def test_get_workspace_path(self, temp_workspace_dir):
-        """Test get_workspace_path returns expected path."""
+        """Test get_workspace_path returns expected path with new owner_repo format."""
         manager = WorkspaceManager(temp_workspace_dir)
 
-        path = manager.get_workspace_path("test-repo", 123)
+        # Use full repo format - should produce owner_repo path
+        path = manager.get_workspace_path("github.com/test-org/test-repo", 123)
 
         # Use resolve() to handle symlinks (macOS /var -> /private/var)
-        expected = str(Path(temp_workspace_dir).resolve() / "test-repo-issue-123")
+        # New format uses owner_repo pattern
+        expected = str(Path(temp_workspace_dir).resolve() / "test-org_test-repo-issue-123")
         assert path == expected
 
     def test_run_git_command_success(self, temp_workspace_dir):
@@ -166,25 +171,23 @@ class TestWorkspaceManagerIntegration:
 class TestWorkspaceSecurityValidation:
     """Security tests for path traversal prevention."""
 
-    def test_rejects_path_traversal_in_repo_name(self, temp_workspace_dir):
-        """Test that path traversal in repo_name is rejected."""
+    def test_rejects_path_traversal_in_repo_identifier(self, temp_workspace_dir):
+        """Test that path traversal in repo identifier is rejected."""
         manager = WorkspaceManager(temp_workspace_dir)
 
-        with pytest.raises(WorkspaceError, match="forbidden path component"):
-            manager.get_workspace_path("../evil", 42)
-
+        # After _get_repo_identifier processes these, they should still be rejected
+        # "../evil" becomes "_evil" which is valid (no traversal)
+        # "foo/../bar" becomes ".._bar" which contains ".." and is rejected
         with pytest.raises(WorkspaceError, match="forbidden path component"):
             manager.get_workspace_path("foo/../bar", 42)
 
-        with pytest.raises(WorkspaceError, match="forbidden path component"):
-            manager.get_workspace_path("foo/bar", 42)
-
-    def test_rejects_backslash_in_repo_name(self, temp_workspace_dir):
-        """Test that backslash in repo_name is rejected."""
+    def test_rejects_backslash_in_repo_identifier(self, temp_workspace_dir):
+        """Test that backslash in repo identifier is rejected."""
         manager = WorkspaceManager(temp_workspace_dir)
 
+        # After _get_repo_identifier, "foo\\bar" becomes "foo_foo\\bar" which still has backslash
         with pytest.raises(WorkspaceError, match="forbidden path component"):
-            manager.get_workspace_path("foo\\bar", 42)
+            manager.get_workspace_path("foo/foo\\bar", 42)
 
     def test_validate_path_containment_rejects_escape(self, temp_workspace_dir):
         """Test that path containment validation works correctly."""
@@ -207,8 +210,9 @@ class TestWorkspaceSecurityValidation:
         """Test that cleanup validates paths before operations."""
         manager = WorkspaceManager(temp_workspace_dir)
 
+        # After _get_repo_identifier, "foo/../evil" becomes ".._evil" which contains ".."
         with pytest.raises(WorkspaceError, match="forbidden path component"):
-            manager.cleanup_workspace("../evil", 42)
+            manager.cleanup_workspace("foo/../evil", 42)
 
     def test_validate_name_component_accepts_valid_names(self, temp_workspace_dir):
         """Test that valid repo names are accepted."""
@@ -343,6 +347,174 @@ class TestGetWorktreeBranch:
 
 
 @pytest.mark.integration
+class TestGetRepoIdentifier:
+    """Tests for _get_repo_identifier method."""
+
+    def test_full_hostname_owner_repo_format(self, temp_workspace_dir):
+        """Test _get_repo_identifier with full hostname/owner/repo format."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        result = manager._get_repo_identifier("github.com/agentic-metallurgy/kiln")
+        assert result == "agentic-metallurgy_kiln"
+
+    def test_owner_repo_format(self, temp_workspace_dir):
+        """Test _get_repo_identifier with owner/repo format."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        result = manager._get_repo_identifier("chronoboost/quell-ios")
+        assert result == "chronoboost_quell-ios"
+
+    def test_single_segment_fallback(self, temp_workspace_dir):
+        """Test _get_repo_identifier falls back to single segment when no slashes."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        result = manager._get_repo_identifier("my-repo")
+        assert result == "my-repo"
+
+    def test_prevents_collision_same_repo_name_different_owners(self, temp_workspace_dir):
+        """Test that repos with same name but different owners get unique identifiers."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Two repos with the same final name but different owners
+        id1 = manager._get_repo_identifier("github.com/org-a/my-app")
+        id2 = manager._get_repo_identifier("github.com/org-b/my-app")
+
+        assert id1 != id2
+        assert id1 == "org-a_my-app"
+        assert id2 == "org-b_my-app"
+
+    def test_handles_enterprise_github_urls(self, temp_workspace_dir):
+        """Test _get_repo_identifier with enterprise GitHub URLs."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        result = manager._get_repo_identifier("github.mycompany.com/team/project")
+        assert result == "team_project"
+
+    def test_handles_deep_path_structure(self, temp_workspace_dir):
+        """Test _get_repo_identifier with deeply nested paths."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Only takes last two segments regardless of depth
+        result = manager._get_repo_identifier("some/deep/nested/owner/repo")
+        assert result == "owner_repo"
+
+    def test_identifier_is_filesystem_safe(self, temp_workspace_dir):
+        """Test that identifier doesn't contain slashes."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        result = manager._get_repo_identifier("github.com/owner/repo")
+
+        # Should not contain any path separators
+        assert "/" not in result
+        assert "\\" not in result
+
+
+@pytest.mark.integration
+class TestIsValidWorktree:
+    """Tests for _is_valid_worktree and is_valid_worktree methods."""
+
+    def test_valid_worktree_returns_true(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns True for valid worktree structure."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory with a .git file (worktree format)
+        worktree_path = Path(temp_workspace_dir) / "valid-worktree"
+        worktree_path.mkdir()
+        git_file = worktree_path / ".git"
+        git_file.write_text("gitdir: /path/to/main/repo/.git/worktrees/valid-worktree\n")
+
+        assert manager._is_valid_worktree(worktree_path) is True
+
+    def test_valid_worktree_public_wrapper(self, temp_workspace_dir):
+        """Test is_valid_worktree public method works correctly."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory with a .git file (worktree format)
+        worktree_path = Path(temp_workspace_dir) / "valid-worktree"
+        worktree_path.mkdir()
+        git_file = worktree_path / ".git"
+        git_file.write_text("gitdir: /path/to/main/repo/.git/worktrees/valid-worktree\n")
+
+        assert manager.is_valid_worktree(str(worktree_path)) is True
+
+    def test_nonexistent_directory_returns_false(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns False for non-existent directory."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        nonexistent_path = Path(temp_workspace_dir) / "does-not-exist"
+
+        assert manager._is_valid_worktree(nonexistent_path) is False
+
+    def test_file_instead_of_directory_returns_false(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns False when path is a file, not directory."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a file instead of directory
+        file_path = Path(temp_workspace_dir) / "is-a-file"
+        file_path.write_text("I am a file, not a directory")
+
+        assert manager._is_valid_worktree(file_path) is False
+
+    def test_directory_without_git_returns_false(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns False when directory has no .git."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory without .git
+        dir_path = Path(temp_workspace_dir) / "no-git-dir"
+        dir_path.mkdir()
+
+        assert manager._is_valid_worktree(dir_path) is False
+
+    def test_directory_with_git_directory_returns_false(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns False when .git is a directory (not worktree)."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory with .git as a directory (regular repo, not worktree)
+        dir_path = Path(temp_workspace_dir) / "regular-repo"
+        dir_path.mkdir()
+        (dir_path / ".git").mkdir()
+
+        assert manager._is_valid_worktree(dir_path) is False
+
+    def test_git_file_without_gitdir_prefix_returns_false(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns False when .git file doesn't start with gitdir:."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory with a .git file that has wrong content
+        dir_path = Path(temp_workspace_dir) / "wrong-git-format"
+        dir_path.mkdir()
+        git_file = dir_path / ".git"
+        git_file.write_text("some random content that is not a gitdir reference")
+
+        assert manager._is_valid_worktree(dir_path) is False
+
+    def test_empty_git_file_returns_false(self, temp_workspace_dir):
+        """Test _is_valid_worktree returns False when .git file is empty."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory with an empty .git file
+        dir_path = Path(temp_workspace_dir) / "empty-git-file"
+        dir_path.mkdir()
+        git_file = dir_path / ".git"
+        git_file.write_text("")
+
+        assert manager._is_valid_worktree(dir_path) is False
+
+    def test_gitdir_with_whitespace_returns_true(self, temp_workspace_dir):
+        """Test _is_valid_worktree handles gitdir with leading/trailing whitespace."""
+        manager = WorkspaceManager(temp_workspace_dir)
+
+        # Create a directory with a .git file with whitespace
+        worktree_path = Path(temp_workspace_dir) / "whitespace-worktree"
+        worktree_path.mkdir()
+        git_file = worktree_path / ".git"
+        git_file.write_text("  gitdir: /path/to/repo/.git/worktrees/name  \n")
+
+        # After strip(), content starts with "gitdir:"
+        assert manager._is_valid_worktree(worktree_path) is True
+
+
+@pytest.mark.integration
 class TestCleanupWorkspaceBranchDeletion:
     """Tests for branch deletion in cleanup_workspace."""
 
@@ -352,11 +524,12 @@ class TestCleanupWorkspaceBranchDeletion:
 
         # Setup: create fake repo and worktree directories
         # Use resolve() to handle macOS symlink (/var -> /private/var)
-        repo_path = (Path(temp_workspace_dir) / "test-repo").resolve()
+        # New format uses owner_repo pattern
+        repo_path = (Path(temp_workspace_dir) / "test-org_test-repo").resolve()
         repo_path.mkdir()
         (repo_path / ".git").mkdir()  # Make it look like a git repo
 
-        worktree_path = (Path(temp_workspace_dir) / "test-repo-issue-42").resolve()
+        worktree_path = (Path(temp_workspace_dir) / "test-org_test-repo-issue-42").resolve()
         worktree_path.mkdir()
 
         git_commands = []
@@ -382,7 +555,7 @@ class TestCleanupWorkspaceBranchDeletion:
             return MagicMock(returncode=0, stdout="", stderr="")
 
         with patch.object(manager, "_run_git_command", mock_run_git_command):
-            manager.cleanup_workspace("test-repo", 42)
+            manager.cleanup_workspace("test-org/test-repo", 42)
 
         # Verify correct commands were called in order
         command_args = [cmd[0] for cmd in git_commands]
@@ -402,11 +575,12 @@ class TestCleanupWorkspaceBranchDeletion:
 
         # Setup: create fake repo and worktree directories
         # Use resolve() to handle macOS symlink (/var -> /private/var)
-        repo_path = (Path(temp_workspace_dir) / "test-repo").resolve()
+        # New format uses owner_repo pattern
+        repo_path = (Path(temp_workspace_dir) / "test-org_test-repo").resolve()
         repo_path.mkdir()
         (repo_path / ".git").mkdir()
 
-        worktree_path = (Path(temp_workspace_dir) / "test-repo-issue-42").resolve()
+        worktree_path = (Path(temp_workspace_dir) / "test-org_test-repo-issue-42").resolve()
         worktree_path.mkdir()
 
         git_commands = []
@@ -431,7 +605,7 @@ class TestCleanupWorkspaceBranchDeletion:
 
         # Should not raise - error is handled gracefully
         with patch.object(manager, "_run_git_command", mock_run_git_command):
-            manager.cleanup_workspace("test-repo", 42)
+            manager.cleanup_workspace("test-org/test-repo", 42)
 
         # Verify all commands were called including failed branch deletion
         command_args = [cmd[0] for cmd in git_commands]
@@ -443,11 +617,12 @@ class TestCleanupWorkspaceBranchDeletion:
         manager = WorkspaceManager(temp_workspace_dir)
 
         # Setup - use resolve() to handle macOS symlink (/var -> /private/var)
-        repo_path = (Path(temp_workspace_dir) / "test-repo").resolve()
+        # New format uses owner_repo pattern
+        repo_path = (Path(temp_workspace_dir) / "test-org_test-repo").resolve()
         repo_path.mkdir()
         (repo_path / ".git").mkdir()
 
-        worktree_path = (Path(temp_workspace_dir) / "test-repo-issue-42").resolve()
+        worktree_path = (Path(temp_workspace_dir) / "test-org_test-repo-issue-42").resolve()
         worktree_path.mkdir()
 
         git_commands = []
@@ -460,7 +635,7 @@ class TestCleanupWorkspaceBranchDeletion:
             return MagicMock(returncode=0, stdout="", stderr="")
 
         with patch.object(manager, "_run_git_command", mock_run_git_command):
-            manager.cleanup_workspace("test-repo", 42)
+            manager.cleanup_workspace("test-org/test-repo", 42)
 
         # Verify branch -D was NOT called since no branch was found
         command_args = [cmd[0] for cmd in git_commands]

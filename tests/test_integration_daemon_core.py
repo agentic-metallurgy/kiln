@@ -199,10 +199,9 @@ class TestDaemonMultiActorRaceDetection:
         # Mock _get_worktree_path to return an existing path (skip worktree creation)
         with patch.object(daemon, "_get_worktree_path") as mock_worktree_path:
             mock_worktree_path.return_value = daemon.config.workspace_dir + "/test"
-            # Create the directory so it "exists"
-            import os
 
-            os.makedirs(mock_worktree_path.return_value, exist_ok=True)
+            # Mock is_valid_worktree to skip auto-prepare
+            daemon.workspace_manager.is_valid_worktree = MagicMock(return_value=True)
 
             # Mock get_label_actor to return a DIFFERENT actor (race lost)
             daemon.ticket_client.get_label_actor.return_value = "other-bot"
@@ -247,9 +246,9 @@ class TestDaemonMultiActorRaceDetection:
 
         with patch.object(daemon, "_get_worktree_path") as mock_worktree_path:
             mock_worktree_path.return_value = daemon.config.workspace_dir + "/test"
-            import os
 
-            os.makedirs(mock_worktree_path.return_value, exist_ok=True)
+            # Mock is_valid_worktree to skip auto-prepare
+            daemon.workspace_manager.is_valid_worktree = MagicMock(return_value=True)
 
             # Mock get_label_actor to return None (verification failure)
             daemon.ticket_client.get_label_actor.return_value = None
@@ -292,9 +291,9 @@ class TestDaemonMultiActorRaceDetection:
 
         with patch.object(daemon, "_get_worktree_path") as mock_worktree_path:
             mock_worktree_path.return_value = daemon.config.workspace_dir + "/test"
-            import os
 
-            os.makedirs(mock_worktree_path.return_value, exist_ok=True)
+            # Mock is_valid_worktree to skip auto-prepare
+            daemon.workspace_manager.is_valid_worktree = MagicMock(return_value=True)
 
             # Mock get_label_actor to return OUR username (we won!)
             daemon.ticket_client.get_label_actor.return_value = "kiln-bot"
@@ -358,9 +357,9 @@ class TestDaemonMultiActorRaceDetection:
 
             with patch.object(daemon, "_get_worktree_path") as mock_worktree_path:
                 mock_worktree_path.return_value = daemon.config.workspace_dir + "/test"
-                import os
 
-                os.makedirs(mock_worktree_path.return_value, exist_ok=True)
+                # Mock is_valid_worktree to skip auto-prepare
+                daemon.workspace_manager.is_valid_worktree = MagicMock(return_value=True)
 
                 # Mock to return a different actor (race lost)
                 daemon.ticket_client.get_label_actor.return_value = "competitor-bot"
@@ -394,9 +393,9 @@ class TestDaemonMultiActorRaceDetection:
 
         with patch.object(daemon, "_get_worktree_path") as mock_worktree_path:
             mock_worktree_path.return_value = daemon.config.workspace_dir + "/test"
-            import os
 
-            os.makedirs(mock_worktree_path.return_value, exist_ok=True)
+            # Mock is_valid_worktree to skip auto-prepare
+            daemon.workspace_manager.is_valid_worktree = MagicMock(return_value=True)
 
             # Track when the label is added to _running_labels
             original_add_label = daemon.ticket_client.add_label

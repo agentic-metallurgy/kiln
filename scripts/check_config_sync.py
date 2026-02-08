@@ -49,7 +49,11 @@ def extract_env_example_vars(path: Path) -> set[str]:
             if "=" in comment_content:
                 # Check if it looks like a config variable (starts with uppercase letter)
                 var_candidate = comment_content.split("=")[0].strip()
-                if var_candidate and var_candidate[0].isupper() and var_candidate.replace("_", "").isalnum():
+                if (
+                    var_candidate
+                    and var_candidate[0].isupper()
+                    and var_candidate.replace("_", "").isalnum()
+                ):
                     vars_found.add(var_candidate)
             continue
 
@@ -97,9 +101,11 @@ class ConfigVarVisitor(ast.NodeVisitor):
                     self.vars_found.add(node.args[0].value)
             elif isinstance(node.func.value, ast.Attribute):
                 # os.environ.get("VAR_NAME", ...)
-                if (node.func.value.attr == "environ" and
-                    isinstance(node.func.value.value, ast.Name) and
-                    node.func.value.value.id == "os"):
+                if (
+                    node.func.value.attr == "environ"
+                    and isinstance(node.func.value.value, ast.Name)
+                    and node.func.value.value.id == "os"
+                ):
                     if node.args and isinstance(node.args[0], ast.Constant):
                         self.vars_found.add(node.args[0].value)
 

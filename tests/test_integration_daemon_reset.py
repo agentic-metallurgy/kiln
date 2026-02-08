@@ -1114,17 +1114,22 @@ class TestResetWithRunningWorkflow:
         daemon.ticket_client.get_linked_prs.return_value = []
         daemon.ticket_client.get_ticket_body.return_value = "Issue body"
 
-        # Create fake worktree directory
-        worktree_path = Path(temp_workspace_dir) / "repo-issue-101"
+        # Create fake worktree directory (using new owner_repo format)
+        worktree_path = Path(temp_workspace_dir) / "owner_repo-issue-101"
         worktree_path.mkdir()
         (worktree_path / "test_file.txt").write_text("test content")
+
+        # Configure workspace_manager to return the correct path
+        daemon.workspace_manager.get_workspace_path.return_value = str(worktree_path)
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
             daemon._maybe_handle_reset(item)
 
-        # Verify cleanup_workspace was called
-        daemon.workspace_manager.cleanup_workspace.assert_called_once_with("repo", 101)
+        # Verify cleanup_workspace was called with full repo path
+        daemon.workspace_manager.cleanup_workspace.assert_called_once_with(
+            "github.com/owner/repo", 101
+        )
 
     def test_reset_does_not_affect_other_concurrent_workflows(
         self, daemon, mock_running_process, mock_running_process_2
@@ -1269,9 +1274,12 @@ class TestResetWithRunningWorkflow:
         daemon.ticket_client.get_linked_prs.return_value = []
         daemon.ticket_client.get_ticket_body.return_value = "Issue body"
 
-        # Create fake worktree so cleanup is called
-        worktree_path = Path(daemon.config.workspace_dir) / "repo-issue-106"
+        # Create fake worktree so cleanup is called (using new owner_repo format)
+        worktree_path = Path(daemon.config.workspace_dir) / "owner_repo-issue-106"
         worktree_path.mkdir()
+
+        # Configure workspace_manager to return the correct path
+        daemon.workspace_manager.get_workspace_path.return_value = str(worktree_path)
 
         # Track order of operations
         operation_order = []

@@ -64,9 +64,8 @@ def daemon_for_workflow(temp_workspace_dir):
         daemon.database.insert_run_record = MagicMock(return_value=1)
         daemon._run_workflow = MagicMock(return_value="session-123")
 
-        # Create worktree directory so _auto_prepare_worktree is skipped
-        worktree_base = Path(temp_workspace_dir) / "worktrees"
-        worktree_base.mkdir(parents=True, exist_ok=True)
+        # Mock is_valid_worktree so _auto_prepare_worktree is skipped
+        daemon.workspace_manager.is_valid_worktree = MagicMock(return_value=True)
 
         yield daemon
         daemon.stop()

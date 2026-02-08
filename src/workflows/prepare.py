@@ -31,6 +31,25 @@ class PrepareWorkflow:
         """Return workflow name."""
         return "prepare"
 
+    def _get_repo_identifier(self, repo: str) -> str:
+        """Get a unique, filesystem-safe identifier for a repository.
+
+        Converts 'hostname/owner/repo' or 'owner/repo' to 'owner_repo'.
+        This ensures repos with the same name but different owners have unique paths.
+
+        Args:
+            repo: Repository in 'hostname/owner/repo' or 'owner/repo' format
+
+        Returns:
+            Filesystem-safe identifier like 'owner_repo'
+        """
+        parts = repo.split("/")
+        if len(parts) >= 2:
+            # Take last two segments: owner and repo
+            return f"{parts[-2]}_{parts[-1]}"
+        # Fallback for unexpected format
+        return parts[-1]
+
     def _get_clone_url(self, ctx: WorkflowContext) -> str:
         """Get the git clone URL for the repository.
 
@@ -48,12 +67,12 @@ class PrepareWorkflow:
         Returns:
             list[str]: Ordered list of prepare prompts
         """
-        # Extract repo name from 'hostname/owner/repo' format (last segment)
-        repo_name = ctx.repo.split("/")[-1] if "/" in ctx.repo else ctx.repo
+        # Use unique repo identifier (owner_repo) to avoid path collisions
+        repo_id = self._get_repo_identifier(ctx.repo)
         # Use absolute paths so Claude knows exactly where to create things
         workspace = ctx.workspace_path  # This is now an absolute path
-        repo_path = f"{workspace}/{repo_name}"
-        worktree_path = f"{workspace}/{repo_name}-issue-{ctx.issue_number}"
+        repo_path = f"{workspace}/{repo_id}"
+        worktree_path = f"{workspace}/{repo_id}-issue-{ctx.issue_number}"
         clone_url = self._get_clone_url(ctx)
 
         # Determine base branch for worktree
