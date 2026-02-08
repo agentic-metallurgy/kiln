@@ -297,7 +297,8 @@ class TestPrepareWorkflow:
         prompts = workflow.init(ctx)
 
         assert "Clone https://github.com/owner/repo.git" in prompts[0]
-        assert "to /tmp/worktrees/repo if missing" in prompts[0]
+        # Uses owner_repo format to avoid path collisions
+        assert "to /tmp/worktrees/owner_repo if missing" in prompts[0]
 
     def test_prepare_workflow_with_issue_body_includes_body_directly(self):
         """Test that with issue_body, prompt includes the body directly."""
@@ -332,7 +333,8 @@ class TestPrepareWorkflow:
         prompts = workflow.init(ctx)
 
         # Issue number appears in the worktree path and branch instructions
-        assert "repo-issue-123" in prompts[1]
+        # Uses owner_repo format to avoid path collisions
+        assert "owner_repo-issue-123" in prompts[1]
         assert "(123-)" in prompts[1]
 
     def test_prepare_workflow_worktree_path_correct(self):
@@ -347,7 +349,8 @@ class TestPrepareWorkflow:
         workflow = PrepareWorkflow()
         prompts = workflow.init(ctx)
 
-        assert "myrepo-issue-99" in prompts[1]
+        # Uses owner_repo format to avoid path collisions
+        assert "myorg_myrepo-issue-99" in prompts[1]
 
     def test_prepare_workflow_empty_issue_body_treated_as_provided(self):
         """Test that empty string issue_body is treated as provided (not None)."""
