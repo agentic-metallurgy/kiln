@@ -98,15 +98,15 @@ class TestWorkspaceManagerIntegration:
         with pytest.raises(WorkspaceError, match="Git command failed"):
             manager._run_git_command(["invalid-command"])
 
-    def test_rebase_from_main_returns_false_for_nonexistent_worktree(self, temp_workspace_dir):
-        """Test rebase_from_main returns False for non-existent worktree."""
+    def test_sync_worktree_with_main_returns_false_for_nonexistent_worktree(self, temp_workspace_dir):
+        """Test sync_worktree_with_main returns False for non-existent worktree."""
         manager = WorkspaceManager(temp_workspace_dir)
 
-        result = manager.rebase_from_main("/nonexistent/path")
+        result = manager.sync_worktree_with_main("/nonexistent/path")
         assert result is False
 
-    def test_rebase_from_main_success(self, temp_workspace_dir):
-        """Test rebase_from_main calls correct git commands on success."""
+    def test_sync_worktree_with_main_success(self, temp_workspace_dir):
+        """Test sync_worktree_with_main calls correct git commands on success."""
         manager = WorkspaceManager(temp_workspace_dir)
 
         # Create a fake worktree directory
@@ -116,19 +116,23 @@ class TestWorkspaceManagerIntegration:
         git_commands = []
 
         def mock_run_git_command(args, cwd=None, check=True):
-            git_commands.append(args)
+            git_commands.append((args, check))
             return MagicMock(returncode=0, stdout="", stderr="")
 
         with patch.object(manager, "_run_git_command", mock_run_git_command):
-            result = manager.rebase_from_main(str(worktree_path))
+            result = manager.sync_worktree_with_main(str(worktree_path))
 
         assert result is True
-        assert len(git_commands) == 2
-        assert git_commands[0] == ["fetch", "origin", "main"]
-        assert git_commands[1] == ["rebase", "origin/main"]
+        # Verify all 5 commands are called in correct order
+        assert len(git_commands) == 5
+        assert git_commands[0] == (["rebase", "--abort"], False)  # check=False for abort
+        assert git_commands[1] == (["reset", "--hard", "HEAD"], True)
+        assert git_commands[2] == (["clean", "-fd"], True)
+        assert git_commands[3] == (["fetch", "origin", "main"], True)
+        assert git_commands[4] == (["reset", "--hard", "origin/main"], True)
 
-    def test_rebase_from_main_handles_conflict(self, temp_workspace_dir):
-        """Test rebase_from_main returns False and aborts on conflict."""
+    def test_sync_worktree_with_main_handles_network_failure(self, temp_workspace_dir):
+        """Test sync_worktree_with_main returns False on network failure during fetch."""
         manager = WorkspaceManager(temp_workspace_dir)
 
         # Create a fake worktree directory
@@ -139,18 +143,21 @@ class TestWorkspaceManagerIntegration:
 
         def mock_run_git_command(args, cwd=None, check=True):
             git_commands.append(args)
-            if args == ["rebase", "origin/main"]:
-                raise WorkspaceError("CONFLICT: could not apply")
+            if args == ["fetch", "origin", "main"]:
+                raise WorkspaceError("fatal: unable to access 'origin': Could not resolve host")
             return MagicMock(returncode=0, stdout="", stderr="")
 
         with patch.object(manager, "_run_git_command", mock_run_git_command):
-            result = manager.rebase_from_main(str(worktree_path))
+            result = manager.sync_worktree_with_main(str(worktree_path))
 
         assert result is False
-        # Should have called fetch, rebase, and abort
-        assert ["fetch", "origin", "main"] in git_commands
-        assert ["rebase", "origin/main"] in git_commands
+        # Should have called rebase --abort, reset --hard HEAD, clean -fd, then fetch failed
         assert ["rebase", "--abort"] in git_commands
+        assert ["reset", "--hard", "HEAD"] in git_commands
+        assert ["clean", "-fd"] in git_commands
+        assert ["fetch", "origin", "main"] in git_commands
+        # Should NOT have called the final reset since fetch failed
+        assert ["reset", "--hard", "origin/main"] not in git_commands
 
 
 @pytest.mark.integration

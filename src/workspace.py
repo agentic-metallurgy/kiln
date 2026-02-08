@@ -5,7 +5,6 @@ Provides WorkspaceManager class for creating and managing git worktrees
 for individual issues.
 """
 
-import contextlib
 import subprocess
 from pathlib import Path
 
@@ -310,18 +309,18 @@ class WorkspaceManager:
             logger.warning(f"Repository not found at {repo_path}, cannot clean worktree")
             raise WorkspaceError(f"Cannot cleanup worktree: repository not found at {repo_path}")
 
-    def rebase_from_main(self, worktree_path: str) -> bool:
+    def sync_worktree_with_main(self, worktree_path: str) -> bool:
         """
-        Rebase the worktree's branch from origin/main.
+        Synchronize worktree with origin/main using hard reset.
+
+        This is a deterministic operation that ensures the worktree matches
+        origin/main exactly, without the possibility of merge conflicts.
 
         Args:
-            worktree_path: Path to the worktree to rebase
+            worktree_path: Path to the worktree to synchronize
 
         Returns:
-            True if rebase succeeded, False if conflicts occurred
-
-        Raises:
-            WorkspaceError: If git commands fail for reasons other than conflicts
+            True if sync succeeded, False otherwise
         """
         worktree = Path(worktree_path)
 
@@ -329,18 +328,27 @@ class WorkspaceManager:
             logger.warning(f"Worktree does not exist: {worktree_path}")
             return False
 
-        logger.info(f"Fetching origin/main for {worktree_path}")
-        self._run_git_command(["fetch", "origin", "main"], cwd=worktree)
+        logger.info(f"Syncing worktree with origin/main: {worktree_path}")
 
-        logger.info("Rebasing from origin/main")
         try:
-            self._run_git_command(["rebase", "origin/main"], cwd=worktree)
-            logger.info("Rebase completed successfully")
+            # Abort any in-progress rebase (in case one was left hanging)
+            self._run_git_command(["rebase", "--abort"], cwd=worktree, check=False)
+
+            # Discard all local changes (staged and unstaged)
+            self._run_git_command(["reset", "--hard", "HEAD"], cwd=worktree)
+
+            # Remove untracked files and directories
+            self._run_git_command(["clean", "-fd"], cwd=worktree)
+
+            # Fetch latest main
+            self._run_git_command(["fetch", "origin", "main"], cwd=worktree)
+
+            # Hard reset to origin/main (no merge/rebase conflicts possible)
+            self._run_git_command(["reset", "--hard", "origin/main"], cwd=worktree)
+
+            logger.info("Worktree synced successfully with origin/main")
             return True
+
         except WorkspaceError as e:
-            if "conflict" in str(e).lower() or "could not apply" in str(e).lower():
-                logger.warning(f"Rebase failed due to conflicts: {e}")
-                with contextlib.suppress(WorkspaceError):
-                    self._run_git_command(["rebase", "--abort"], cwd=worktree, check=False)
-                return False
-            raise
+            logger.error(f"Failed to sync worktree: {e}")
+            return False
