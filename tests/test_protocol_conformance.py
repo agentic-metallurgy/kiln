@@ -90,9 +90,9 @@ class TestProtocolStructuralConformance:
         client = client_class(tokens={})
 
         # Verify isinstance check passes
-        assert isinstance(
-            client, TicketClient
-        ), f"{client_class.__name__} should be an instance of TicketClient protocol"
+        assert isinstance(client, TicketClient), (
+            f"{client_class.__name__} should be an instance of TicketClient protocol"
+        )
 
 
 @pytest.mark.unit
@@ -105,9 +105,7 @@ class TestProtocolMethodExistence:
 
     @pytest.mark.parametrize("client_class", ALL_CLIENT_CLASSES, ids=_client_id)
     @pytest.mark.parametrize("method_name", PROTOCOL_METHODS)
-    def test_method_exists_and_callable(
-        self, client_class: type, method_name: str
-    ) -> None:
+    def test_method_exists_and_callable(self, client_class: type, method_name: str) -> None:
         """Verify required method exists and is callable.
 
         This test checks that each client class has all 21 methods required
@@ -123,9 +121,7 @@ class TestProtocolMethodExistence:
 
         # Verify method is callable
         method = getattr(client, method_name)
-        assert callable(method), (
-            f"{client_class.__name__}.{method_name} is not callable"
-        )
+        assert callable(method), f"{client_class.__name__}.{method_name} is not callable"
 
 
 def _get_protocol_signature(method_name: str) -> inspect.Signature:
@@ -171,9 +167,7 @@ class TestProtocolSignatureConformance:
 
     @pytest.mark.parametrize("client_class", ALL_CLIENT_CLASSES, ids=_client_id)
     @pytest.mark.parametrize("method_name", PROTOCOL_METHODS)
-    def test_method_signature_matches_protocol(
-        self, client_class: type, method_name: str
-    ) -> None:
+    def test_method_signature_matches_protocol(self, client_class: type, method_name: str) -> None:
         """Verify method signature is compatible with protocol definition.
 
         This test ensures that each client method can be called with the

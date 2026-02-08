@@ -336,7 +336,9 @@ class GitHubEnterprise314Client(GitHubClientBase):
                 )
             )
 
-        logger.debug(f"Found {len(linked_prs)} linked PRs for {repo}#{ticket_id} (via CrossReferencedEvent)")
+        logger.debug(
+            f"Found {len(linked_prs)} linked PRs for {repo}#{ticket_id} (via CrossReferencedEvent)"
+        )
         return linked_prs
 
     def get_parent_issue(self, repo: str, ticket_id: int) -> int | None:
@@ -351,7 +353,9 @@ class GitHubEnterprise314Client(GitHubClientBase):
         Returns:
             Always None (sub-issues not supported)
         """
-        logger.debug(f"Sub-issues not supported in GHES 3.14, returning None for {repo}#{ticket_id}")
+        logger.debug(
+            f"Sub-issues not supported in GHES 3.14, returning None for {repo}#{ticket_id}"
+        )
         return None
 
     def get_pr_for_issue(

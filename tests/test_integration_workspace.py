@@ -98,7 +98,9 @@ class TestWorkspaceManagerIntegration:
         with pytest.raises(WorkspaceError, match="Git command failed"):
             manager._run_git_command(["invalid-command"])
 
-    def test_sync_worktree_with_main_returns_false_for_nonexistent_worktree(self, temp_workspace_dir):
+    def test_sync_worktree_with_main_returns_false_for_nonexistent_worktree(
+        self, temp_workspace_dir
+    ):
         """Test sync_worktree_with_main returns False for non-existent worktree."""
         manager = WorkspaceManager(temp_workspace_dir)
 
@@ -270,12 +272,7 @@ class TestGetWorktreeBranch:
         worktree_path = Path(temp_workspace_dir) / "nonexistent-worktree"
 
         # Porcelain output that doesn't contain our worktree
-        porcelain_output = (
-            f"worktree {repo_path}\n"
-            "HEAD abc123def456\n"
-            "branch refs/heads/main\n"
-            "\n"
-        )
+        porcelain_output = f"worktree {repo_path}\nHEAD abc123def456\nbranch refs/heads/main\n\n"
 
         def mock_run_git_command(args, cwd=None, check=True):
             if args == ["worktree", "list", "--porcelain"]:

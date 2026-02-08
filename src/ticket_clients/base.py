@@ -504,9 +504,7 @@ class GitHubClientBase:
         }
         """
 
-        response = self._execute_graphql_query(
-            item_query, {"itemId": item_id}, hostname=hostname
-        )
+        response = self._execute_graphql_query(item_query, {"itemId": item_id}, hostname=hostname)
 
         try:
             node = response["data"]["node"]
@@ -557,9 +555,7 @@ class GitHubClientBase:
 
         logger.info(f"Successfully updated project item {item_id} to '{new_status}'")
 
-    def archive_item(
-        self, board_id: str, item_id: str, *, hostname: str = "github.com"
-    ) -> bool:
+    def archive_item(self, board_id: str, item_id: str, *, hostname: str = "github.com") -> bool:
         """Archive a project item.
 
         Args:
@@ -1131,11 +1127,7 @@ class GitHubClientBase:
 
             # Fallback: use ADDED_TO_PROJECT_V2_EVENT if no status change event found
             for node in reversed(nodes):
-                if (
-                    node
-                    and node.get("__typename") == "AddedToProjectV2Event"
-                    and node.get("actor")
-                ):
+                if node and node.get("__typename") == "AddedToProjectV2Event" and node.get("actor"):
                     login = node["actor"].get("login")
                     logger.info(
                         f"Selected actor '{login}' from AddedToProjectV2Event (fallback) "

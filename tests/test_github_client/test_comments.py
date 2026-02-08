@@ -468,7 +468,9 @@ class TestRemoveReaction:
         with patch.object(
             github_client, "_execute_graphql_query", return_value=mock_response
         ) as mock_query:
-            github_client.remove_reaction("IC_comment123", "EYES", repo="github.example.com/owner/repo")
+            github_client.remove_reaction(
+                "IC_comment123", "EYES", repo="github.example.com/owner/repo"
+            )
 
         call_args = mock_query.call_args
         assert call_args.kwargs.get("repo") == "github.example.com/owner/repo"

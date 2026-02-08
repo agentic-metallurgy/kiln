@@ -799,10 +799,9 @@ class TestRunClaudeErrorEnhancement:
 
     def test_error_event_includes_suggestions(self, mock_claude_subprocess, tmp_path):
         """Test that error events include suggestions when patterns match."""
-        error_event = json.dumps({
-            "type": "error",
-            "message": "ANTHROPIC_API_KEY detected in environment"
-        })
+        error_event = json.dumps(
+            {"type": "error", "message": "ANTHROPIC_API_KEY detected in environment"}
+        )
         mock_process = self._create_mock_process([error_event + "\n"])
         mock_claude_subprocess.return_value = mock_process
 
@@ -817,9 +816,7 @@ class TestRunClaudeErrorEnhancement:
         """Test that FileNotFoundError includes suggestions when pattern matches."""
         # The pattern matches "not found" or "command not found", not "No such file"
         # So we need to test with a message that matches the pattern
-        mock_claude_subprocess.side_effect = FileNotFoundError(
-            "claude: command not found"
-        )
+        mock_claude_subprocess.side_effect = FileNotFoundError("claude: command not found")
 
         with pytest.raises(ClaudeRunnerError) as exc_info:
             run_claude("Prompt", str(tmp_path))

@@ -574,7 +574,9 @@ Processed feedback for **{target_type}**. No textual changes detected (may have 
 
         return str(body[start_idx + len(start_marker) : end_idx].strip())
 
-    def _initialize_comment_timestamp(self, _item: TicketItem, comments: list[Comment]) -> str | None:
+    def _initialize_comment_timestamp(
+        self, _item: TicketItem, comments: list[Comment]
+    ) -> str | None:
         """Initialize the comment timestamp pointer using cached comments.
 
         Returns timestamp for use with the REST API's `since` parameter.
@@ -670,9 +672,7 @@ Processed feedback for **{target_type}**. No textual changes detected (may have 
             if session_id:
                 if validate_session_exists(session_id):
                     resume_session = session_id
-                    logger.info(
-                        f"Resuming {parent_workflow} session: {session_id[:8]}..."
-                    )
+                    logger.info(f"Resuming {parent_workflow} session: {session_id[:8]}...")
                 else:
                     logger.warning(
                         f"Session {session_id[:8]}... not found in Claude storage. "

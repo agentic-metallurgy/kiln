@@ -206,16 +206,20 @@ class TestInitializeProjectMetadataLabelInit:
 
     def test_initializes_labels_for_repos_in_project(self, daemon):
         """Test that _initialize_project_metadata initializes labels for repos with items."""
-        daemon.ticket_client.get_board_metadata = MagicMock(return_value={
-            "project_id": "PVT_123",
-            "status_field_id": "PVTSSF_456",
-            "status_options": {"Research": "OPT_1"},
-        })
-        daemon.ticket_client.get_board_items = MagicMock(return_value=[
-            make_ticket_item(repo="github.com/org/repo1"),
-            make_ticket_item(repo="github.com/org/repo2"),
-            make_ticket_item(repo="github.com/org/repo1"),  # duplicate
-        ])
+        daemon.ticket_client.get_board_metadata = MagicMock(
+            return_value={
+                "project_id": "PVT_123",
+                "status_field_id": "PVTSSF_456",
+                "status_options": {"Research": "OPT_1"},
+            }
+        )
+        daemon.ticket_client.get_board_items = MagicMock(
+            return_value=[
+                make_ticket_item(repo="github.com/org/repo1"),
+                make_ticket_item(repo="github.com/org/repo2"),
+                make_ticket_item(repo="github.com/org/repo1"),  # duplicate
+            ]
+        )
         daemon._ensure_required_labels = MagicMock()
 
         daemon._initialize_project_metadata()
@@ -227,15 +231,19 @@ class TestInitializeProjectMetadataLabelInit:
 
     def test_tracks_initialized_repos_in_project_metadata(self, daemon):
         """Test that _initialize_project_metadata adds repos to _repos_with_labels."""
-        daemon.ticket_client.get_board_metadata = MagicMock(return_value={
-            "project_id": "PVT_123",
-            "status_field_id": "PVTSSF_456",
-            "status_options": {},
-        })
-        daemon.ticket_client.get_board_items = MagicMock(return_value=[
-            make_ticket_item(repo="github.com/track/repo1"),
-            make_ticket_item(repo="github.com/track/repo2"),
-        ])
+        daemon.ticket_client.get_board_metadata = MagicMock(
+            return_value={
+                "project_id": "PVT_123",
+                "status_field_id": "PVTSSF_456",
+                "status_options": {},
+            }
+        )
+        daemon.ticket_client.get_board_items = MagicMock(
+            return_value=[
+                make_ticket_item(repo="github.com/track/repo1"),
+                make_ticket_item(repo="github.com/track/repo2"),
+            ]
+        )
         daemon._ensure_required_labels = MagicMock()
 
         assert len(daemon._repos_with_labels) == 0
@@ -248,15 +256,19 @@ class TestInitializeProjectMetadataLabelInit:
         """Test that _initialize_project_metadata skips repos already in _repos_with_labels."""
         daemon._repos_with_labels.add("github.com/existing/repo")
 
-        daemon.ticket_client.get_board_metadata = MagicMock(return_value={
-            "project_id": "PVT_123",
-            "status_field_id": "PVTSSF_456",
-            "status_options": {},
-        })
-        daemon.ticket_client.get_board_items = MagicMock(return_value=[
-            make_ticket_item(repo="github.com/existing/repo"),
-            make_ticket_item(repo="github.com/new/repo"),
-        ])
+        daemon.ticket_client.get_board_metadata = MagicMock(
+            return_value={
+                "project_id": "PVT_123",
+                "status_field_id": "PVTSSF_456",
+                "status_options": {},
+            }
+        )
+        daemon.ticket_client.get_board_items = MagicMock(
+            return_value=[
+                make_ticket_item(repo="github.com/existing/repo"),
+                make_ticket_item(repo="github.com/new/repo"),
+            ]
+        )
         daemon._ensure_required_labels = MagicMock()
 
         daemon._initialize_project_metadata()

@@ -7,7 +7,7 @@ These tests verify that the daemon correctly:
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -237,9 +237,7 @@ class TestProcessItemWorkflowCredentials:
         assert "cred_copy" in call_order
         assert call_order.index("mcp_write") < call_order.index("cred_copy")
 
-    def test_credential_copy_success_logged(
-        self, daemon_for_workflow, temp_workspace_dir
-    ):
+    def test_credential_copy_success_logged(self, daemon_for_workflow, temp_workspace_dir):
         """Test that successful credential copy is logged."""
         item = make_ticket_item(repo="github.com/test-org/test-repo")
 
@@ -260,14 +258,10 @@ class TestProcessItemWorkflowCredentials:
 
             # Verify success was logged
             info_calls = [str(c) for c in mock_logger.info.call_args_list]
-            cred_log = next(
-                (c for c in info_calls if "Copied credentials" in c), None
-            )
+            cred_log = next((c for c in info_calls if "Copied credentials" in c), None)
             assert cred_log is not None, "Credential copy success should be logged"
 
-    def test_no_log_when_copy_returns_none(
-        self, daemon_for_workflow, temp_workspace_dir
-    ):
+    def test_no_log_when_copy_returns_none(self, daemon_for_workflow, temp_workspace_dir):
         """Test that no credential log is emitted when copy_to_worktree returns None."""
         item = make_ticket_item(repo="github.com/test-org/test-repo")
 
@@ -286,9 +280,7 @@ class TestProcessItemWorkflowCredentials:
 
             # Verify "Copied credentials" was NOT logged
             info_calls = [str(c) for c in mock_logger.info.call_args_list]
-            cred_log = next(
-                (c for c in info_calls if "Copied credentials" in c), None
-            )
+            cred_log = next((c for c in info_calls if "Copied credentials" in c), None)
             assert cred_log is None, "No credential log should be emitted when copy returns None"
 
 
@@ -311,8 +303,8 @@ class TestCredentialCopyFailureHandling:
         # Make credential copy raise an exception
         daemon_for_workflow.repo_credentials_manager = MagicMock()
         daemon_for_workflow.repo_credentials_manager.has_config.return_value = True
-        daemon_for_workflow.repo_credentials_manager.copy_to_worktree.side_effect = (
-            Exception("Permission denied")
+        daemon_for_workflow.repo_credentials_manager.copy_to_worktree.side_effect = Exception(
+            "Permission denied"
         )
 
         # Workflow should complete despite credential copy failure
@@ -336,8 +328,8 @@ class TestCredentialCopyFailureHandling:
         # Make credential copy raise an exception
         daemon_for_workflow.repo_credentials_manager = MagicMock()
         daemon_for_workflow.repo_credentials_manager.has_config.return_value = True
-        daemon_for_workflow.repo_credentials_manager.copy_to_worktree.side_effect = (
-            Exception("Permission denied")
+        daemon_for_workflow.repo_credentials_manager.copy_to_worktree.side_effect = Exception(
+            "Permission denied"
         )
 
         with patch("src.daemon.logger") as mock_logger:
@@ -348,9 +340,7 @@ class TestCredentialCopyFailureHandling:
             cred_warning = next(
                 (c for c in warning_calls if "Failed to copy credentials" in c), None
             )
-            assert cred_warning is not None, (
-                "Credential copy failure should be logged as warning"
-            )
+            assert cred_warning is not None, "Credential copy failure should be logged as warning"
             assert "Permission denied" in cred_warning
 
     def test_credential_copy_os_error_does_not_block_workflow(
@@ -368,8 +358,8 @@ class TestCredentialCopyFailureHandling:
         # Make credential copy raise an OSError
         daemon_for_workflow.repo_credentials_manager = MagicMock()
         daemon_for_workflow.repo_credentials_manager.has_config.return_value = True
-        daemon_for_workflow.repo_credentials_manager.copy_to_worktree.side_effect = (
-            OSError("No such file or directory")
+        daemon_for_workflow.repo_credentials_manager.copy_to_worktree.side_effect = OSError(
+            "No such file or directory"
         )
 
         # Workflow should complete despite credential copy failure

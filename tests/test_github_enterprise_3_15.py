@@ -32,7 +32,6 @@ class TestGitHubEnterprise315Client:
         assert client.supports_status_actor_check is True
 
 
-
 @pytest.mark.unit
 class TestGetGitHubClientFactory315:
     """Tests for get_github_client factory with 3.15 version."""

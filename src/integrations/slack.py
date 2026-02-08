@@ -52,7 +52,7 @@ def init_slack(bot_token: str | None, user_id: str | None) -> None:
 def send_phase_completion_notification(
     issue_url: str,
     phase: str,
-    issue_title: str,
+    issue_title: str,  # noqa: ARG001
     issue_number: int,
 ) -> bool:
     """Send a Slack DM notification when an issue completes a phase.
@@ -274,7 +274,7 @@ def send_startup_ping() -> bool:
 
 def send_comment_processed_notification(
     issue_number: int,
-    issue_title: str,
+    issue_title: str,  # noqa: ARG001
     comment_url: str,
 ) -> bool:
     """Send a Slack DM notification when a comment has been processed.

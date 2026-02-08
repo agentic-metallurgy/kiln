@@ -296,9 +296,7 @@ class WorkspaceManager:
             # Only deletes the branch we just extracted from this worktree
             if branch_name:
                 try:
-                    self._run_git_command(
-                        ["branch", "-D", branch_name], cwd=repo_path, check=True
-                    )
+                    self._run_git_command(["branch", "-D", branch_name], cwd=repo_path, check=True)
                     logger.info(f"Successfully deleted local branch '{branch_name}' from main repo")
                 except WorkspaceError as e:
                     # Non-fatal - branch may already be deleted or never existed

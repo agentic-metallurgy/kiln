@@ -45,9 +45,7 @@ class TestGetLastStatusActor:
             }
         }
 
-        with patch.object(
-            github_client, "_execute_graphql_query", return_value=mock_response
-        ):
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             result = github_client.get_last_status_actor("github.com/owner/repo", 123)
 
         assert result == "user-b"
@@ -85,9 +83,7 @@ class TestGetLastStatusActor:
             }
         }
 
-        with patch.object(
-            github_client, "_execute_graphql_query", return_value=mock_response
-        ):
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             result = github_client.get_last_status_actor("github.com/owner/repo", 123)
 
         # Even though add event is more recent, we return status change actor
@@ -116,9 +112,7 @@ class TestGetLastStatusActor:
             }
         }
 
-        with patch.object(
-            github_client, "_execute_graphql_query", return_value=mock_response
-        ):
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             result = github_client.get_last_status_actor("github.com/owner/repo", 123)
 
         assert result == "project-adder"
@@ -159,47 +153,25 @@ class TestGetLastStatusActor:
             }
         }
 
-        with patch.object(
-            github_client, "_execute_graphql_query", return_value=mock_response
-        ):
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             result = github_client.get_last_status_actor("github.com/owner/repo", 123)
 
         assert result == "last-mover"
 
     def test_returns_none_when_no_events(self, github_client):
         """Empty timeline should return None."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": {
-                        "timelineItems": {
-                            "nodes": []
-                        }
-                    }
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": {"timelineItems": {"nodes": []}}}}}
 
-        with patch.object(
-            github_client, "_execute_graphql_query", return_value=mock_response
-        ):
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             result = github_client.get_last_status_actor("github.com/owner/repo", 123)
 
         assert result is None
 
     def test_returns_none_when_issue_not_found(self, github_client):
         """Missing issue should return None."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "issue": None
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"issue": None}}}
 
-        with patch.object(
-            github_client, "_execute_graphql_query", return_value=mock_response
-        ):
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             result = github_client.get_last_status_actor("github.com/owner/repo", 999)
 
         assert result is None
@@ -226,9 +198,7 @@ class TestGetLastStatusActor:
             }
         }
 
-        with patch.object(
-            github_client, "_execute_graphql_query", return_value=mock_response
-        ):
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             result = github_client.get_last_status_actor("github.com/owner/repo", 123)
 
         assert result == "valid-user"
@@ -260,9 +230,7 @@ class TestGetLastStatusActor:
             }
         }
 
-        with patch.object(
-            github_client, "_execute_graphql_query", return_value=mock_response
-        ):
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             result = github_client.get_last_status_actor("github.com/owner/repo", 123)
 
         assert result == "real-user"
@@ -322,9 +290,7 @@ class TestGetLastStatusActor:
             }
         }
 
-        with patch.object(
-            github_client, "_execute_graphql_query", return_value=mock_response
-        ):
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             result = github_client.get_last_status_actor("github.com/owner/repo", 123)
 
         assert result == "user-b"
@@ -354,9 +320,7 @@ class TestGetLastStatusActor:
             }
         }
 
-        with patch.object(
-            github_client, "_execute_graphql_query", return_value=mock_response
-        ):
+        with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             result = github_client.get_last_status_actor("github.com/owner/repo", 123)
 
         assert result == "second-adder"

@@ -295,7 +295,10 @@ def run_daemon(daemon_mode: bool = False) -> None:
         startup_print("Checking required tools...", "glow")
         claude_info = check_required_tools()
         startup_print("  ✓ gh CLI found", "glow")
-        startup_print(f"  ✓ claude CLI found at {claude_info.path} ({claude_info.install_method}) v{claude_info.version}", "glow")
+        startup_print(
+            f"  ✓ claude CLI found at {claude_info.path} ({claude_info.install_method}) v{claude_info.version}",
+            "glow",
+        )
 
         # Check for updates (non-blocking, fail-silent)
         update_info = check_for_updates(kiln_dir=get_kiln_dir())

@@ -342,7 +342,12 @@ class TestDeleteBranch:
         assert result is True
         mock_run.assert_called_once()
         call_args = mock_run.call_args[0][0]
-        assert call_args == ["api", "repos/owner/repo/git/refs/heads/feature-branch", "-X", "DELETE"]
+        assert call_args == [
+            "api",
+            "repos/owner/repo/git/refs/heads/feature-branch",
+            "-X",
+            "DELETE",
+        ]
 
     def test_delete_branch_returns_false_when_not_found(self, github_client):
         """Test that False is returned when branch doesn't exist."""
@@ -369,7 +374,12 @@ class TestDeleteBranch:
 
         call_args = mock_run.call_args[0][0]
         # Branch name with slash should be URL-encoded
-        assert call_args == ["api", "repos/owner/repo/git/refs/heads/feature%2Fmy-feature", "-X", "DELETE"]
+        assert call_args == [
+            "api",
+            "repos/owner/repo/git/refs/heads/feature%2Fmy-feature",
+            "-X",
+            "DELETE",
+        ]
 
     def test_delete_branch_uses_hostname_for_ghes(self, github_client):
         """Test that hostname is passed for GHES compatibility."""
@@ -445,13 +455,7 @@ class TestGetPrState:
 
     def test_get_pr_state_returns_none_when_pr_not_found(self, github_client):
         """Test that None is returned when PR doesn't exist."""
-        mock_response = {
-            "data": {
-                "repository": {
-                    "pullRequest": None
-                }
-            }
-        }
+        mock_response = {"data": {"repository": {"pullRequest": None}}}
         with patch.object(github_client, "_execute_graphql_query", return_value=mock_response):
             result = github_client.get_pr_state("github.com/owner/repo", 999)
 

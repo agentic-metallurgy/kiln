@@ -128,22 +128,24 @@ def _format_column_checklist(
         for col in sorted(extra_cols):
             lines.append(f"  [X] {col}")
 
-    lines.extend([
-        "",
-        "Steps to fix:",
-        "  1. Go to your project settings",
-        "  2. Delete all columns except 'Backlog'",
-        "  3. Create columns in THIS EXACT ORDER:",
-        "     - Backlog",
-        "     - Research",
-        "     - Plan",
-        "     - Implement",
-        "     - Validate",
-        "     - Done",
-        "",
-        "After fixing, run `kiln` again.",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "Steps to fix:",
+            "  1. Go to your project settings",
+            "  2. Delete all columns except 'Backlog'",
+            "  3. Create columns in THIS EXACT ORDER:",
+            "     - Backlog",
+            "     - Research",
+            "     - Plan",
+            "     - Implement",
+            "     - Validate",
+            "     - Done",
+            "",
+            "After fixing, run `kiln` again.",
+            "",
+        ]
+    )
 
     return "\n".join(lines)
 
@@ -210,9 +212,9 @@ def validate_project_columns(
     # Case 1: Only Backlog exists - create all other columns
     if existing_names == ["Backlog"]:
         if not client.supports_column_management:
-            raise SetupError(_format_column_checklist(
-                existing_names, project_url, project_index, total_projects
-            ))
+            raise SetupError(
+                _format_column_checklist(existing_names, project_url, project_index, total_projects)
+            )
 
         new_options = [
             {"name": col["name"], "color": col["color"], "description": col["description"]}
@@ -232,9 +234,9 @@ def validate_project_columns(
     # Case 1.5: GitHub default columns - replace with Kiln columns
     if existing_set == GITHUB_DEFAULT_COLUMNS:
         if not client.supports_column_management:
-            raise SetupError(_format_column_checklist(
-                existing_names, project_url, project_index, total_projects
-            ))
+            raise SetupError(
+                _format_column_checklist(existing_names, project_url, project_index, total_projects)
+            )
 
         # Migrate items from deprecated statuses to Backlog before replacing columns
         deprecated_statuses = {"Ready", "In progress", "In review"}
@@ -273,9 +275,11 @@ def validate_project_columns(
         else:
             # Need to reorder
             if not client.supports_column_management:
-                raise SetupError(_format_column_checklist(
-                existing_names, project_url, project_index, total_projects
-            ))
+                raise SetupError(
+                    _format_column_checklist(
+                        existing_names, project_url, project_index, total_projects
+                    )
+                )
 
             new_options = []
             for col in REQUIRED_COLUMNS:

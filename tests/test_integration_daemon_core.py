@@ -201,6 +201,7 @@ class TestDaemonMultiActorRaceDetection:
             mock_worktree_path.return_value = daemon.config.workspace_dir + "/test"
             # Create the directory so it "exists"
             import os
+
             os.makedirs(mock_worktree_path.return_value, exist_ok=True)
 
             # Mock get_label_actor to return a DIFFERENT actor (race lost)
@@ -247,6 +248,7 @@ class TestDaemonMultiActorRaceDetection:
         with patch.object(daemon, "_get_worktree_path") as mock_worktree_path:
             mock_worktree_path.return_value = daemon.config.workspace_dir + "/test"
             import os
+
             os.makedirs(mock_worktree_path.return_value, exist_ok=True)
 
             # Mock get_label_actor to return None (verification failure)
@@ -291,6 +293,7 @@ class TestDaemonMultiActorRaceDetection:
         with patch.object(daemon, "_get_worktree_path") as mock_worktree_path:
             mock_worktree_path.return_value = daemon.config.workspace_dir + "/test"
             import os
+
             os.makedirs(mock_worktree_path.return_value, exist_ok=True)
 
             # Mock get_label_actor to return OUR username (we won!)
@@ -302,6 +305,7 @@ class TestDaemonMultiActorRaceDetection:
 
             # Mock _run_workflow to track that it was called
             workflow_called = [False]
+
             def mock_run_workflow(*args, **kwargs):
                 workflow_called[0] = True
                 return "session-123"
@@ -355,6 +359,7 @@ class TestDaemonMultiActorRaceDetection:
             with patch.object(daemon, "_get_worktree_path") as mock_worktree_path:
                 mock_worktree_path.return_value = daemon.config.workspace_dir + "/test"
                 import os
+
                 os.makedirs(mock_worktree_path.return_value, exist_ok=True)
 
                 # Mock to return a different actor (race lost)
@@ -390,6 +395,7 @@ class TestDaemonMultiActorRaceDetection:
         with patch.object(daemon, "_get_worktree_path") as mock_worktree_path:
             mock_worktree_path.return_value = daemon.config.workspace_dir + "/test"
             import os
+
             os.makedirs(mock_worktree_path.return_value, exist_ok=True)
 
             # Track when the label is added to _running_labels
@@ -412,8 +418,9 @@ class TestDaemonMultiActorRaceDetection:
                 daemon._process_item_workflow(item)
 
                 # After processing with race loss, key should be removed from _running_labels
-                assert key not in daemon._running_labels, \
+                assert key not in daemon._running_labels, (
                     "_running_labels should not contain the key after race abort"
+                )
 
 
 @pytest.mark.integration
@@ -479,9 +486,7 @@ class TestDaemonStaleCommentCleanup:
         daemon._cleanup_stale_processing_comments()
 
         # Verify remove_reaction was called with correct parameters
-        daemon.ticket_client.remove_reaction.assert_called_once_with(
-            comment_id, "EYES", repo=repo
-        )
+        daemon.ticket_client.remove_reaction.assert_called_once_with(comment_id, "EYES", repo=repo)
 
         # Verify the database record was removed
         stale_comments = daemon.database.get_stale_processing_comments()

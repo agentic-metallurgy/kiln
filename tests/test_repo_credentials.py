@@ -37,9 +37,7 @@ class TestParseRepoUrl:
 
     def test_url_with_extra_path(self):
         """Test parsing a URL with extra path segments (tree/main etc)."""
-        host, owner, repo = parse_repo_url(
-            "https://github.com/agentic-metallurgy/kiln/tree/main"
-        )
+        host, owner, repo = parse_repo_url("https://github.com/agentic-metallurgy/kiln/tree/main")
         assert host == "github.com"
         assert owner == "agentic-metallurgy"
         assert repo == "kiln"
@@ -53,9 +51,7 @@ class TestParseRepoUrl:
 
     def test_url_without_scheme_with_extra_path(self):
         """Test parsing a schemeless URL with extra path."""
-        host, owner, repo = parse_repo_url(
-            "github.com/agentic-metallurgy/kiln/tree/main"
-        )
+        host, owner, repo = parse_repo_url("github.com/agentic-metallurgy/kiln/tree/main")
         assert host == "github.com"
         assert owner == "agentic-metallurgy"
         assert repo == "kiln"
@@ -191,9 +187,7 @@ class TestRepoCredentialsManagerLoadConfig:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -225,9 +219,7 @@ class TestRepoCredentialsManagerLoadConfig:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -255,9 +247,7 @@ class TestRepoCredentialsManagerLoadConfig:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -284,9 +274,7 @@ class TestRepoCredentialsManagerLoadConfig:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -313,9 +301,7 @@ class TestRepoCredentialsManagerLoadConfig:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -347,9 +333,7 @@ class TestRepoCredentialsManagerLoadConfig:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -367,9 +351,7 @@ class TestRepoCredentialsManagerLoadConfig:
 
     def test_load_config_invalid_yaml(self):
         """Test loading an invalid YAML file raises RepoCredentialsLoadError."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write("not: valid: yaml: [unclosed")
             config_path = f.name
 
@@ -385,9 +367,7 @@ class TestRepoCredentialsManagerLoadConfig:
 
     def test_load_config_not_a_mapping(self):
         """Test loading a YAML file that is a list instead of mapping."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(["item1", "item2"], f)
             config_path = f.name
 
@@ -412,9 +392,7 @@ class TestRepoCredentialsManagerLoadConfig:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -440,9 +418,7 @@ class TestRepoCredentialsManagerLoadConfig:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -468,9 +444,7 @@ class TestRepoCredentialsManagerLoadConfig:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -486,9 +460,7 @@ class TestRepoCredentialsManagerLoadConfig:
 
     def test_load_config_empty_file(self):
         """Test loading an empty YAML file returns None."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write("")
             config_path = f.name
 
@@ -504,9 +476,7 @@ class TestRepoCredentialsManagerLoadConfig:
         """Test loading config with no 'repositories' key returns None."""
         config_data = {"other_key": "value"}
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -522,9 +492,7 @@ class TestRepoCredentialsManagerLoadConfig:
         """Test loading config where 'repositories' is not a list raises error."""
         config_data = {"repositories": "not-a-list"}
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -542,9 +510,7 @@ class TestRepoCredentialsManagerLoadConfig:
         """Test loading config where a repository entry is not a dict."""
         config_data = {"repositories": ["not-a-dict"]}
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -570,9 +536,7 @@ class TestRepoCredentialsManagerLoadConfig:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -608,9 +572,7 @@ class TestRepoCredentialsManagerHasConfig:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -624,9 +586,7 @@ class TestRepoCredentialsManagerHasConfig:
         """Test has_config returns False when repositories list is empty."""
         config_data = {"repositories": []}
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -643,9 +603,7 @@ class TestRepoCredentialsManagerHasConfig:
 
     def test_has_config_invalid_yaml(self):
         """Test has_config returns False when YAML is invalid."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write("not: valid: yaml: [unclosed")
             config_path = f.name
 
@@ -679,9 +637,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
                 ]
             }
 
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".yaml", delete=False
-            ) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
                 yaml.dump(config_data, f)
                 config_path = f.name
 
@@ -691,9 +647,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
                 dest_dir = Path(worktree_path) / "dest_worktree"
                 dest_dir.mkdir()
 
-                result = manager.copy_to_worktree(
-                    str(dest_dir), "github.com/my-org/api-service"
-                )
+                result = manager.copy_to_worktree(str(dest_dir), "github.com/my-org/api-service")
 
                 assert result is not None
                 dest_file = dest_dir / ".env"
@@ -714,9 +668,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -724,9 +676,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
             manager = RepoCredentialsManager(config_path=config_path)
 
             with tempfile.TemporaryDirectory() as worktree_path:
-                result = manager.copy_to_worktree(
-                    worktree_path, "github.com/my-org/api-service"
-                )
+                result = manager.copy_to_worktree(worktree_path, "github.com/my-org/api-service")
 
                 assert result is None
         finally:
@@ -744,9 +694,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -754,9 +702,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
             manager = RepoCredentialsManager(config_path=config_path)
 
             with tempfile.TemporaryDirectory() as worktree_path:
-                result = manager.copy_to_worktree(
-                    worktree_path, "github.com/my-org/api-service"
-                )
+                result = manager.copy_to_worktree(worktree_path, "github.com/my-org/api-service")
 
                 assert result is None
         finally:
@@ -782,9 +728,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
                 ]
             }
 
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".yaml", delete=False
-            ) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
                 yaml.dump(config_data, f)
                 config_path = f.name
 
@@ -794,9 +738,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
                 dest_dir = Path(worktree_path) / "dest_worktree"
                 dest_dir.mkdir()
 
-                result = manager.copy_to_worktree(
-                    str(dest_dir), "github.com/my-org/api-service"
-                )
+                result = manager.copy_to_worktree(str(dest_dir), "github.com/my-org/api-service")
 
                 assert result is not None
                 dest_file = dest_dir / "docker" / "config" / ".env"
@@ -823,9 +765,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
                 ]
             }
 
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".yaml", delete=False
-            ) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
                 yaml.dump(config_data, f)
                 config_path = f.name
 
@@ -836,9 +776,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
                 dest_dir.mkdir()
 
                 # Should match with full host/owner/repo format
-                result = manager.copy_to_worktree(
-                    str(dest_dir), "github.com/my-org/api-service"
-                )
+                result = manager.copy_to_worktree(str(dest_dir), "github.com/my-org/api-service")
                 assert result is not None
             finally:
                 Path(config_path).unlink()
@@ -855,9 +793,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 
@@ -866,9 +802,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
 
             with tempfile.TemporaryDirectory() as worktree_path:
                 # Same owner/repo but different host — should NOT match
-                result = manager.copy_to_worktree(
-                    worktree_path, "github.com/my-org/api-service"
-                )
+                result = manager.copy_to_worktree(worktree_path, "github.com/my-org/api-service")
                 assert result is None
         finally:
             Path(config_path).unlink()
@@ -878,9 +812,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
         manager = RepoCredentialsManager(config_path="/nonexistent/credentials.yaml")
 
         with tempfile.TemporaryDirectory() as worktree_path:
-            result = manager.copy_to_worktree(
-                worktree_path, "github.com/my-org/api-service"
-            )
+            result = manager.copy_to_worktree(worktree_path, "github.com/my-org/api-service")
 
             assert result is None
 
@@ -902,9 +834,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
                 ]
             }
 
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".yaml", delete=False
-            ) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
                 yaml.dump(config_data, f)
                 config_path = f.name
 
@@ -914,9 +844,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
                 # First call loads and caches
                 dest1 = Path(worktree_path) / "dest1"
                 dest1.mkdir()
-                result1 = manager.copy_to_worktree(
-                    str(dest1), "github.com/my-org/api-service"
-                )
+                result1 = manager.copy_to_worktree(str(dest1), "github.com/my-org/api-service")
                 assert result1 is not None
 
                 # Delete config file — second call should still work from cache
@@ -924,9 +852,7 @@ class TestRepoCredentialsManagerCopyToWorktree:
 
                 dest2 = Path(worktree_path) / "dest2"
                 dest2.mkdir()
-                result2 = manager.copy_to_worktree(
-                    str(dest2), "github.com/my-org/api-service"
-                )
+                result2 = manager.copy_to_worktree(str(dest2), "github.com/my-org/api-service")
                 assert result2 is not None
             except Exception:
                 # Ensure cleanup even if test fails
@@ -951,9 +877,7 @@ class TestRepoCredentialsManagerClearCache:
             ]
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump(config_data, f)
             config_path = f.name
 

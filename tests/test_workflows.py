@@ -47,7 +47,6 @@ class TestWorkflowContext:
         assert ctx.issue_title == "Test Issue"
         assert ctx.workspace_path == "/path/to/workspace"
 
-
     def test_workflow_context_issue_body_can_be_set(self):
         """Test that issue_body can be set during creation."""
         ctx = WorkflowContext(
@@ -792,8 +791,10 @@ class TestImplementWorkflow:
             "Implement": "opus",
         }
 
-        with patch("src.workflows.implement.run_claude") as mock_run_claude, \
-             patch("src.workflows.implement.STAGE_MODELS", test_models):
+        with (
+            patch("src.workflows.implement.run_claude") as mock_run_claude,
+            patch("src.workflows.implement.STAGE_MODELS", test_models),
+        ):
             workflow._run_prompt(
                 prompt="/kiln-implement_github for issue",
                 ctx=workflow_context,
@@ -819,8 +820,10 @@ class TestImplementWorkflow:
             "Implement": "opus",
         }
 
-        with patch("src.workflows.implement.run_claude") as mock_run_claude, \
-             patch("src.workflows.implement.STAGE_MODELS", test_models):
+        with (
+            patch("src.workflows.implement.run_claude") as mock_run_claude,
+            patch("src.workflows.implement.STAGE_MODELS", test_models),
+        ):
             workflow._run_prompt(
                 prompt="/kiln-implement_github for issue",
                 ctx=workflow_context,
@@ -842,7 +845,6 @@ class TestImplementWorkflow:
 
         # Mock config
         mock_config = MagicMock(spec=Config)
-
 
         mock_config.safety_allow_appended_tasks = 0
 
@@ -873,7 +875,9 @@ class TestImplementWorkflow:
             workflow.execute(workflow_context, mock_config)
 
         # Verify prepare_implementation was called
-        prepare_calls = [c for c in mock_run.call_args_list if "/kiln-prepare_implementation_github" in c[0][0]]
+        prepare_calls = [
+            c for c in mock_run.call_args_list if "/kiln-prepare_implementation_github" in c[0][0]
+        ]
         assert len(prepare_calls) == 1
 
     def test_execute_fails_after_two_pr_creation_attempts(self, workflow_context):
@@ -886,8 +890,6 @@ class TestImplementWorkflow:
 
         # Mock config
         mock_config = MagicMock(spec=Config)
-
-
 
         # Always return None (no PR found)
         with (
@@ -913,7 +915,6 @@ class TestImplementWorkflow:
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-
 
         mock_config.safety_allow_appended_tasks = 0
 
@@ -966,7 +967,6 @@ class TestImplementWorkflow:
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-
 
         mock_config.safety_allow_appended_tasks = 0
 
@@ -1022,7 +1022,6 @@ class TestImplementWorkflow:
 
         mock_config = MagicMock(spec=Config)
 
-
         mock_config.safety_allow_appended_tasks = 0
 
         # PR with 2 TASKs, starts incomplete, then becomes complete after 1 implementation
@@ -1073,7 +1072,6 @@ class TestImplementWorkflow:
 
         mock_config = MagicMock(spec=Config)
 
-
         mock_config.safety_allow_appended_tasks = 0
 
         # PR exists initially with 2 TASKs, then disappears in loop
@@ -1108,7 +1106,6 @@ class TestImplementWorkflow:
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-
 
         mock_config.safety_allow_appended_tasks = 0
 
@@ -1149,7 +1146,6 @@ Some other content here.
 
         mock_config = MagicMock(spec=Config)
 
-
         mock_config.safety_allow_appended_tasks = 0
 
         # PR with 1 TASK that never makes progress
@@ -1177,7 +1173,6 @@ Some other content here.
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-
 
         mock_config.safety_allow_appended_tasks = 0  # No limit
 
@@ -1248,7 +1243,6 @@ Some other content here.
 
         mock_config = MagicMock(spec=Config)
 
-
         mock_config.safety_allow_appended_tasks = 0  # No limit
 
         # PR with 3 TASKs, 2 completed, 1 never completes (stays at 2/3)
@@ -1298,7 +1292,6 @@ Some other content here.
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-
 
         mock_config.safety_allow_appended_tasks = 0  # No limit
 
@@ -1359,7 +1352,6 @@ Some other content here.
 
         mock_config = MagicMock(spec=Config)
 
-
         mock_config.safety_allow_appended_tasks = 2  # Allow up to 2 appended TASKs
 
         # Start with 2 TASKs, add 1 more (within limit of 2)
@@ -1415,7 +1407,6 @@ Some other content here.
 
         mock_config = MagicMock(spec=Config)
 
-
         mock_config.safety_allow_appended_tasks = 2  # Allow max 2 appended TASKs
 
         # Start with 3 TASKs, then add 3 more (exceeds limit of 2)
@@ -1463,7 +1454,6 @@ Some other content here.
         # Mock config
         mock_config = MagicMock(spec=Config)
 
-
         mock_config.safety_allow_appended_tasks = 0
 
         # Create context with parent_branch set
@@ -1502,7 +1492,9 @@ Some other content here.
             workflow.execute(ctx_with_parent, mock_config)
 
         # Verify prepare_implementation was called with --base flag
-        prepare_calls = [c for c in mock_run.call_args_list if "/kiln-prepare_implementation_github" in c[0][0]]
+        prepare_calls = [
+            c for c in mock_run.call_args_list if "/kiln-prepare_implementation_github" in c[0][0]
+        ]
         assert len(prepare_calls) == 1
         prepare_prompt = prepare_calls[0][0][0]
         assert "--base feature/parent-branch" in prepare_prompt
@@ -1517,7 +1509,6 @@ Some other content here.
 
         # Mock config
         mock_config = MagicMock(spec=Config)
-
 
         mock_config.safety_allow_appended_tasks = 0
 
@@ -1550,7 +1541,9 @@ Some other content here.
             workflow.execute(workflow_context, mock_config)
 
         # Verify prepare_implementation was called without --base flag
-        prepare_calls = [c for c in mock_run.call_args_list if "/kiln-prepare_implementation_github" in c[0][0]]
+        prepare_calls = [
+            c for c in mock_run.call_args_list if "/kiln-prepare_implementation_github" in c[0][0]
+        ]
         assert len(prepare_calls) == 1
         prepare_prompt = prepare_calls[0][0][0]
         assert "--base" not in prepare_prompt
@@ -1639,7 +1632,6 @@ Some other content here.
         workflow = ImplementWorkflow()
 
         mock_config = MagicMock(spec=Config)
-
 
         mock_config.safety_allow_appended_tasks = 0
 

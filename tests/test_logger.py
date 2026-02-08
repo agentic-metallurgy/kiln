@@ -413,7 +413,6 @@ class TestGetLogger:
         assert logger.name == "test.module"
 
 
-
 @pytest.mark.unit
 class TestMaskingFilter:
     """Tests for MaskingFilter class."""
@@ -660,7 +659,9 @@ class TestMaskingIntegration:
 
         # Verify org name is masked
         assert f"/{org_name}/" not in log_content, f"Org '{org_name}' should be masked in paths"
-        assert f"/orgs/{org_name}" not in log_content, f"Org '{org_name}' should be masked in project URLs"
+        assert f"/orgs/{org_name}" not in log_content, (
+            f"Org '{org_name}' should be masked in project URLs"
+        )
         assert "/<ORG>/" in log_content, "Log should contain /<ORG>/ placeholder"
         assert "/orgs/<ORG>" in log_content, "Log should contain /orgs/<ORG> placeholder"
 

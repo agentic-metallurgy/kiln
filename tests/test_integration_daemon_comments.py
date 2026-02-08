@@ -95,7 +95,9 @@ class TestDaemonResponseComments:
         # Mock section extraction (before and after)
         with (
             patch.object(daemon.comment_processor, "_extract_section_content") as mock_extract,
-            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(
+                daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"
+            ),
             patch.object(daemon.runner, "run"),
         ):
             mock_extract.side_effect = ["Before content", "After content"]
@@ -151,7 +153,9 @@ class TestDaemonResponseComments:
 
         with (
             patch.object(daemon.comment_processor, "_extract_section_content") as mock_extract,
-            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(
+                daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"
+            ),
             patch.object(daemon.runner, "run"),
         ):
             mock_extract.side_effect = ["Old plan", "Updated plan"]
@@ -200,7 +204,9 @@ class TestDaemonResponseComments:
 
         with (
             patch.object(daemon.comment_processor, "_extract_section_content") as mock_extract,
-            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(
+                daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"
+            ),
             patch.object(daemon.runner, "run"),
         ):
             # Simulate a diff where the content contains HTML that could break the details block
@@ -260,7 +266,9 @@ class TestDaemonResponseComments:
 
         with (
             patch.object(daemon.comment_processor, "_extract_section_content") as mock_extract,
-            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(
+                daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"
+            ),
             patch.object(daemon.runner, "run"),
         ):
             mock_extract.side_effect = ["Before", "After"]
@@ -303,7 +311,9 @@ class TestDaemonResponseComments:
         daemon.ticket_client.get_comments_since.return_value = [response_comment]
 
         with (
-            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(
+                daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"
+            ),
             patch.object(daemon.runner, "run") as mock_run,
         ):
             daemon.comment_processor.process(item)
@@ -352,7 +362,9 @@ class TestDaemonResponseComments:
         # Same content before and after (no diff)
         with (
             patch.object(daemon.comment_processor, "_extract_section_content") as mock_extract,
-            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(
+                daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"
+            ),
             patch.object(daemon.runner, "run"),
         ):
             mock_extract.side_effect = ["Same content", "Same content"]
@@ -674,7 +686,9 @@ class TestDaemonProcessCommentsForItem:
         daemon.ticket_client.find_kiln_comment.return_value = None
 
         with (
-            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(
+                daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"
+            ),
             patch.object(daemon.runner, "run") as mock_run,
         ):
             daemon.comment_processor.process(item)
@@ -731,7 +745,9 @@ class TestDaemonProcessCommentsForItem:
 
         with (
             patch.object(daemon.comment_processor, "_extract_section_content") as mock_extract,
-            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(
+                daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"
+            ),
             patch.object(daemon.runner, "run"),
         ):
             mock_extract.side_effect = ["Before", "After"]
@@ -796,7 +812,9 @@ class TestDaemonProcessCommentsForItem:
         daemon.ticket_client.find_kiln_comment.return_value = MagicMock(body="<!-- kiln:plan -->")
 
         with (
-            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(
+                daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"
+            ),
             patch.object(daemon.runner, "run") as mock_run,
         ):
             daemon.comment_processor.process(item)
@@ -854,7 +872,9 @@ class TestDaemonProcessCommentsForItem:
         daemon.ticket_client.get_comments_since.return_value = comments
 
         with (
-            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(
+                daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"
+            ),
             patch.object(daemon.runner, "run") as mock_run,
         ):
             daemon.comment_processor.process(item)
@@ -917,7 +937,9 @@ class TestDaemonProcessCommentsForItem:
         )
 
         with (
-            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(
+                daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"
+            ),
             patch.object(daemon.runner, "run") as mock_run,
         ):
             daemon.comment_processor.process(item)
@@ -974,7 +996,9 @@ class TestDaemonProcessCommentsForItem:
         daemon.ticket_client.get_comments_since.return_value = comments
 
         with (
-            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(
+                daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"
+            ),
             patch.object(daemon.runner, "run") as mock_run,
         ):
             daemon.comment_processor.process(item)
@@ -1026,7 +1050,9 @@ class TestDaemonProcessCommentsForItem:
         daemon.ticket_client.find_kiln_comment.return_value = MagicMock(body="<!-- kiln:plan -->")
 
         with (
-            patch.object(daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"),
+            patch.object(
+                daemon.comment_processor, "_ensure_worktree_exists", return_value="/tmp/worktree"
+            ),
             patch.object(daemon.runner, "run") as mock_run,
         ):
             daemon.comment_processor.process(item)
@@ -1375,16 +1401,12 @@ class TestYoloLabelRemovalDuringWorkflow:
 
                 # Verify yolo_failed was NOT added
                 add_label_calls = daemon.ticket_client.add_label.call_args_list
-                yolo_failed_calls = [
-                    c for c in add_label_calls if Labels.YOLO_FAILED in c[0]
-                ]
+                yolo_failed_calls = [c for c in add_label_calls if Labels.YOLO_FAILED in c[0]]
                 assert len(yolo_failed_calls) == 0
 
                 # Verify YOLO label was NOT removed (since it's already gone)
                 remove_label_calls = daemon.ticket_client.remove_label.call_args_list
-                yolo_remove_calls = [
-                    c for c in remove_label_calls if Labels.YOLO in c[0]
-                ]
+                yolo_remove_calls = [c for c in remove_label_calls if Labels.YOLO in c[0]]
                 # The only remove_label call should be for the running label, not YOLO
                 for call_args in yolo_remove_calls:
                     assert call_args[0][2] != Labels.YOLO
