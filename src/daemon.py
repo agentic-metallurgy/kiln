@@ -341,6 +341,7 @@ class Daemon:
             username_self=config.username_self,
             team_usernames=config.team_usernames,
             daemon=self,
+            workspace_manager=self.workspace_manager,
         )
 
         # Initialize Azure OAuth client if configured

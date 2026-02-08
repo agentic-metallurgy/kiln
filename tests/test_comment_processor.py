@@ -16,25 +16,52 @@ def _create_mock_config():
     return config
 
 
+def _create_mock_workspace_manager():
+    """Create a mock WorkspaceManager for testing."""
+    manager = Mock()
+    # Default behavior: return a path based on owner_repo format
+    manager.get_workspace_path.side_effect = lambda repo, issue_number: (
+        f"/worktrees/{repo.split('/')[-2]}_{repo.split('/')[-1]}-issue-{issue_number}"
+        if "/" in repo
+        else f"/worktrees/{repo}-issue-{issue_number}"
+    )
+    manager.is_valid_worktree.return_value = True
+    return manager
+
+
 @pytest.mark.unit
 class TestCommentProcessorGetWorktreePath:
     """Tests for _get_worktree_path method."""
 
-    def test_get_worktree_path_with_owner_repo(self):
+    def test_get_worktree_path_with_owner_repo(self, tmp_path):
         """Test worktree path generation with owner/repo format."""
+        workspace_dir = str(tmp_path / "worktrees")
         processor = CommentProcessor(
-            Mock(), Mock(), Mock(), "/worktrees", config=_create_mock_config()
+            Mock(), Mock(), Mock(), workspace_dir, config=_create_mock_config()
         )
         path = processor._get_worktree_path("owner/repo", 42)
-        assert path == "/worktrees/repo-issue-42"
+        # New format uses owner_repo to prevent collisions
+        assert path == f"{workspace_dir}/owner_repo-issue-42"
 
-    def test_get_worktree_path_without_owner(self):
-        """Test worktree path generation with repo name only."""
+    def test_get_worktree_path_with_hostname_owner_repo(self, tmp_path):
+        """Test worktree path generation with hostname/owner/repo format."""
+        workspace_dir = str(tmp_path / "worktrees")
         processor = CommentProcessor(
-            Mock(), Mock(), Mock(), "/worktrees", config=_create_mock_config()
+            Mock(), Mock(), Mock(), workspace_dir, config=_create_mock_config()
+        )
+        path = processor._get_worktree_path("github.com/owner/repo", 42)
+        # New format uses owner_repo (last two segments)
+        assert path == f"{workspace_dir}/owner_repo-issue-42"
+
+    def test_get_worktree_path_without_owner(self, tmp_path):
+        """Test worktree path generation with repo name only."""
+        workspace_dir = str(tmp_path / "worktrees")
+        processor = CommentProcessor(
+            Mock(), Mock(), Mock(), workspace_dir, config=_create_mock_config()
         )
         path = processor._get_worktree_path("repo", 123)
-        assert path == "/worktrees/repo-issue-123"
+        # Fallback for unexpected format
+        assert path == f"{workspace_dir}/repo-issue-123"
 
 
 @pytest.mark.unit
@@ -58,7 +85,11 @@ class TestCommentProcessorIsKilnPost:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/worktrees", config=_create_mock_config())
+        return CommentProcessor(
+            Mock(), Mock(), Mock(), "/worktrees",
+            config=_create_mock_config(),
+            workspace_manager=_create_mock_workspace_manager()
+        )
 
     def test_is_kiln_post_with_research_marker(self, processor):
         """Test detection of research marker."""
@@ -98,7 +129,11 @@ class TestCommentProcessorIsKilnResponse:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/worktrees", config=_create_mock_config())
+        return CommentProcessor(
+            Mock(), Mock(), Mock(), "/worktrees",
+            config=_create_mock_config(),
+            workspace_manager=_create_mock_workspace_manager()
+        )
 
     def test_is_kiln_response_with_marker(self, processor):
         """Test detection of kiln response marker."""
@@ -123,7 +158,11 @@ class TestCommentProcessorGenerateDiff:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/worktrees", config=_create_mock_config())
+        return CommentProcessor(
+            Mock(), Mock(), Mock(), "/worktrees",
+            config=_create_mock_config(),
+            workspace_manager=_create_mock_workspace_manager()
+        )
 
     def test_generate_diff_with_additions(self, processor):
         """Test diff generation with added lines."""
@@ -153,7 +192,11 @@ class TestCommentProcessorGetTargetType:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/worktrees", config=_create_mock_config())
+        return CommentProcessor(
+            Mock(), Mock(), Mock(), "/worktrees",
+            config=_create_mock_config(),
+            workspace_manager=_create_mock_workspace_manager()
+        )
 
     def test_get_target_type_plan_status(self, processor):
         """Test target type for Plan status."""
@@ -178,7 +221,11 @@ class TestCommentProcessorInitializeCommentTimestamp:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/worktrees", config=_create_mock_config())
+        return CommentProcessor(
+            Mock(), Mock(), Mock(), "/worktrees",
+            config=_create_mock_config(),
+            workspace_manager=_create_mock_workspace_manager()
+        )
 
     def test_initialize_comment_timestamp_finds_kiln_post(self, processor):
         """Test initialization finds latest kiln post."""
@@ -231,6 +278,7 @@ class TestCommentProcessorAllowlist:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
         # Mock database to return stored state with a timestamp
@@ -277,7 +325,7 @@ class TestCommentProcessorAllowlist:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
@@ -318,6 +366,7 @@ class TestCommentProcessorAllowlist:
             config=_create_mock_config(),
             username_self="allowed_user",
             team_usernames=["teammate1", "teammate2"],
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
         # Mock database to return stored state with a timestamp
@@ -377,7 +426,7 @@ class TestCommentProcessorAllowlist:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
@@ -411,7 +460,11 @@ class TestCommentProcessorWrapDiffLine:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/worktrees", config=_create_mock_config())
+        return CommentProcessor(
+            Mock(), Mock(), Mock(), "/worktrees",
+            config=_create_mock_config(),
+            workspace_manager=_create_mock_workspace_manager()
+        )
 
     def test_wrap_diff_line_short_line_unchanged(self, processor):
         """Test that short lines are returned unchanged."""
@@ -472,7 +525,11 @@ class TestCommentProcessorWrapDiff:
     @pytest.fixture
     def processor(self):
         """Create a CommentProcessor instance for testing."""
-        return CommentProcessor(Mock(), Mock(), Mock(), "/worktrees", config=_create_mock_config())
+        return CommentProcessor(
+            Mock(), Mock(), Mock(), "/worktrees",
+            config=_create_mock_config(),
+            workspace_manager=_create_mock_workspace_manager()
+        )
 
     def test_wrap_diff_wraps_all_lines(self, processor):
         """Test that all lines in diff are wrapped."""
@@ -505,6 +562,7 @@ class TestCommentProcessorSkipBacklog:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
         # Create a ticket item with Backlog status
@@ -543,6 +601,7 @@ class TestCommentProcessorSkipBacklog:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
         # Mock database to return stored state with a timestamp
@@ -580,7 +639,7 @@ class TestCommentProcessorSkipBacklog:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
@@ -618,6 +677,7 @@ class TestCommentProcessorSkipBacklog:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
         # Mock database to return stored state with a timestamp
@@ -655,7 +715,7 @@ class TestCommentProcessorSkipBacklog:
             patch.object(processor, "_get_target_type", return_value="plan"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
@@ -698,6 +758,7 @@ class TestCommentProcessorEyesReactionCleanup:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
         # Mock database to return stored state with a timestamp
@@ -734,7 +795,7 @@ class TestCommentProcessorEyesReactionCleanup:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(
                 processor, "_apply_comment_to_kiln_post", side_effect=Exception("Processing failed")
@@ -764,6 +825,7 @@ class TestCommentProcessorEyesReactionCleanup:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
         # Mock database to return stored state with a timestamp
@@ -800,7 +862,7 @@ class TestCommentProcessorEyesReactionCleanup:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(
                 processor, "_apply_comment_to_kiln_post", side_effect=Exception("Processing failed")
@@ -829,6 +891,7 @@ class TestCommentProcessorEyesReactionCleanup:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
         # Mock database to return stored state with a timestamp
@@ -873,7 +936,7 @@ class TestCommentProcessorEyesReactionCleanup:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
@@ -909,6 +972,7 @@ class TestCommentProcessorEyesReactionCleanup:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
         # Mock database to return stored state with a timestamp
@@ -948,7 +1012,7 @@ class TestCommentProcessorEyesReactionCleanup:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(
                 processor, "_apply_comment_to_kiln_post", side_effect=Exception("Processing failed")
@@ -992,6 +1056,7 @@ class TestCommentProcessorSlackNotification:
             "/worktrees",
             config=config,
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
         # Mock database to return stored state with a timestamp
@@ -1036,7 +1101,7 @@ class TestCommentProcessorSlackNotification:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
@@ -1071,6 +1136,7 @@ class TestCommentProcessorSlackNotification:
             "/worktrees",
             config=config,
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
         # Mock database to return stored state with a timestamp
@@ -1115,7 +1181,7 @@ class TestCommentProcessorSlackNotification:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
@@ -1155,6 +1221,7 @@ class TestCommentProcessorEditingLabelTracking:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
             daemon=daemon,
         )
 
@@ -1207,7 +1274,7 @@ class TestCommentProcessorEditingLabelTracking:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(processor, "_apply_comment_to_kiln_post", side_effect=check_tracking),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
@@ -1246,6 +1313,7 @@ class TestCommentProcessorEditingLabelTracking:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
             daemon=daemon,
         )
 
@@ -1283,7 +1351,7 @@ class TestCommentProcessorEditingLabelTracking:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(
                 processor, "_apply_comment_to_kiln_post", side_effect=Exception("Processing failed")
@@ -1310,6 +1378,7 @@ class TestCommentProcessorEditingLabelTracking:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
             daemon=None,  # No daemon provided
         )
 
@@ -1355,7 +1424,7 @@ class TestCommentProcessorEditingLabelTracking:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(processor, "_apply_comment_to_kiln_post"),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
@@ -1392,6 +1461,7 @@ class TestCommentProcessorEditingLabelTracking:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
             daemon=daemon,
         )
 
@@ -1437,7 +1507,7 @@ class TestCommentProcessorEditingLabelTracking:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(processor, "_apply_comment_to_kiln_post", side_effect=capture_label_value),
             patch("src.comment_processor.set_issue_context"),
@@ -1467,6 +1537,7 @@ class TestCommentProcessorStaleSessionHandling:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
         # Mock database to return stored state with a session ID
@@ -1519,7 +1590,7 @@ class TestCommentProcessorStaleSessionHandling:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
@@ -1546,6 +1617,7 @@ class TestCommentProcessorStaleSessionHandling:
             "/worktrees",
             config=_create_mock_config(),
             username_self="allowed_user",
+            workspace_manager=_create_mock_workspace_manager(),
         )
 
         # Mock database to return stored state with a session ID
@@ -1598,7 +1670,7 @@ class TestCommentProcessorStaleSessionHandling:
             patch.object(processor, "_get_target_type", return_value="research"),
             patch.object(processor, "_extract_section_content", return_value="content"),
             patch.object(
-                processor, "_ensure_worktree_exists", return_value="/worktrees/repo-issue-42"
+                processor, "_ensure_worktree_exists", return_value="/worktrees/owner_repo-issue-42"
             ),
             patch.object(processor, "_generate_diff", return_value="-old\n+new"),
             patch("src.comment_processor.set_issue_context"),
