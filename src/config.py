@@ -343,7 +343,11 @@ def load_config_from_file(config_path: Path) -> Config:
     else:
         watched_statuses = ["Research", "Plan", "Implement"]
 
-    # Parse log settings
+    # Parse database and log settings
+    database_path = data.get("DATABASE_PATH", ".kiln/kiln.db")
+    log_file = data.get("LOG_FILE", ".kiln/logs/kiln.log")
+    log_size = int(data.get("LOG_SIZE", 10 * 1024 * 1024))  # Default 10MB
+    log_backups = int(data.get("LOG_BACKUPS", 5))  # Default 5 backups
     log_level = data.get("LOG_LEVEL", "INFO")
     os.environ["LOG_LEVEL"] = log_level  # Set for logger module
 
@@ -409,13 +413,15 @@ def load_config_from_file(config_path: Path) -> Config:
         github_enterprise_version=github_enterprise_version,
         project_urls=project_urls,
         poll_interval=poll_interval,
-        database_path=".kiln/kiln.db",
+        database_path=database_path,
         workspace_dir=determine_workspace_dir(),
         watched_statuses=watched_statuses,
         username_self=username_self,
         team_usernames=team_usernames,
         max_concurrent_workflows=max_concurrent_workflows,
-        log_file=".kiln/logs/kiln.log",
+        log_file=log_file,
+        log_size=log_size,
+        log_backups=log_backups,
         otel_endpoint=otel_endpoint,
         otel_service_name=otel_service_name,
         safety_allow_appended_tasks=safety_allow_appended_tasks,
