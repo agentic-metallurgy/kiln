@@ -1143,6 +1143,8 @@ class TestRunLoggingIntegration:
             daemon = Daemon(config)
             daemon.ticket_client = mock_client
             daemon.comment_processor.ticket_client = mock_client
+            # Mock is_valid_worktree so _auto_prepare_worktree is skipped
+            daemon.workspace_manager.is_valid_worktree = MagicMock(return_value=True)
             yield daemon
             daemon.stop()
 

@@ -1271,6 +1271,8 @@ class TestYoloLabelRemovalDuringWorkflow:
             daemon.ticket_client = MagicMock()
             # Mock get_label_actor to return our username for post-claim verification
             daemon.ticket_client.get_label_actor.return_value = "test-user"
+            # Mock is_valid_worktree so _auto_prepare_worktree is skipped
+            daemon.workspace_manager.is_valid_worktree = MagicMock(return_value=True)
             yield daemon
             daemon.stop()
 

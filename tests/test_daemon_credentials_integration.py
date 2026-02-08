@@ -91,9 +91,8 @@ def daemon_for_workflow(temp_workspace_dir):
         daemon.database.insert_run_record = MagicMock(return_value=1)
         daemon._run_workflow = MagicMock(return_value="session-123")
 
-        # Create worktree directory so _auto_prepare_worktree is skipped
-        worktree_base = Path(temp_workspace_dir) / "worktrees"
-        worktree_base.mkdir(parents=True, exist_ok=True)
+        # Mock is_valid_worktree so _auto_prepare_worktree is skipped
+        daemon.workspace_manager.is_valid_worktree = MagicMock(return_value=True)
 
         yield daemon
         daemon.stop()
@@ -149,9 +148,10 @@ class TestProcessItemWorkflowCredentials:
         """Test that copy_to_worktree is called when credentials config exists."""
         item = make_ticket_item(repo="github.com/test-org/test-repo")
 
-        # Create worktree path
-        worktree_path = Path(temp_workspace_dir) / "test-repo-issue-42"
-        worktree_path.mkdir(parents=True, exist_ok=True)
+        # Get the expected worktree path from the workspace manager
+        expected_worktree_path = daemon_for_workflow.workspace_manager.get_workspace_path(
+            item.repo, item.ticket_id
+        )
 
         # Mock _ensure_required_labels
         daemon_for_workflow._ensure_required_labels = MagicMock()
@@ -167,7 +167,7 @@ class TestProcessItemWorkflowCredentials:
 
         # Verify copy_to_worktree was called with correct args
         daemon_for_workflow.repo_credentials_manager.copy_to_worktree.assert_called_once_with(
-            str(worktree_path), "github.com/test-org/test-repo"
+            expected_worktree_path, "github.com/test-org/test-repo"
         )
 
     def test_copy_to_worktree_not_called_when_no_config(
