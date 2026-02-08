@@ -26,7 +26,8 @@ class TestWorkspaceManagerIntegration:
         manager = WorkspaceManager(temp_workspace_dir)
 
         # Create a fake workspace directory manually (not a real worktree)
-        worktree_name = "test-repo-issue-42"
+        # New format uses owner_repo pattern
+        worktree_name = "test-org_test-repo-issue-42"
         worktree_path = Path(temp_workspace_dir) / worktree_name
         worktree_path.mkdir()
 
@@ -37,16 +38,16 @@ class TestWorkspaceManagerIntegration:
         assert worktree_path.exists()
         assert (worktree_path / "test_file.txt").exists()
 
-        # Clean up should raise error when main repo (test-repo) doesn't exist
+        # Clean up should raise error when main repo (test-org_test-repo) doesn't exist
         with pytest.raises(WorkspaceError, match="Cannot cleanup worktree: repository not found"):
-            manager.cleanup_workspace("test-repo", 42)
+            manager.cleanup_workspace("test-org/test-repo", 42)
 
     def test_cleanup_workspace_handles_nonexistent_workspace(self, temp_workspace_dir):
         """Test cleanup_workspace handles non-existent workspace gracefully."""
         manager = WorkspaceManager(temp_workspace_dir)
 
-        # Should not raise an error
-        manager.cleanup_workspace("nonexistent-repo", 999)
+        # Should not raise an error - use full repo format
+        manager.cleanup_workspace("nonexistent-org/nonexistent-repo", 999)
 
     def test_extract_repo_name_https_url(self):
         """Test _extract_repo_name parses HTTPS URLs."""
@@ -71,13 +72,15 @@ class TestWorkspaceManagerIntegration:
         assert manager._extract_repo_name("https://github.com/org/repo.git/") == "repo"
 
     def test_get_workspace_path(self, temp_workspace_dir):
-        """Test get_workspace_path returns expected path."""
+        """Test get_workspace_path returns expected path with new owner_repo format."""
         manager = WorkspaceManager(temp_workspace_dir)
 
-        path = manager.get_workspace_path("test-repo", 123)
+        # Use full repo format - should produce owner_repo path
+        path = manager.get_workspace_path("github.com/test-org/test-repo", 123)
 
         # Use resolve() to handle symlinks (macOS /var -> /private/var)
-        expected = str(Path(temp_workspace_dir).resolve() / "test-repo-issue-123")
+        # New format uses owner_repo pattern
+        expected = str(Path(temp_workspace_dir).resolve() / "test-org_test-repo-issue-123")
         assert path == expected
 
     def test_run_git_command_success(self, temp_workspace_dir):
@@ -166,25 +169,23 @@ class TestWorkspaceManagerIntegration:
 class TestWorkspaceSecurityValidation:
     """Security tests for path traversal prevention."""
 
-    def test_rejects_path_traversal_in_repo_name(self, temp_workspace_dir):
-        """Test that path traversal in repo_name is rejected."""
+    def test_rejects_path_traversal_in_repo_identifier(self, temp_workspace_dir):
+        """Test that path traversal in repo identifier is rejected."""
         manager = WorkspaceManager(temp_workspace_dir)
 
-        with pytest.raises(WorkspaceError, match="forbidden path component"):
-            manager.get_workspace_path("../evil", 42)
-
+        # After _get_repo_identifier processes these, they should still be rejected
+        # "../evil" becomes "_evil" which is valid (no traversal)
+        # "foo/../bar" becomes ".._bar" which contains ".." and is rejected
         with pytest.raises(WorkspaceError, match="forbidden path component"):
             manager.get_workspace_path("foo/../bar", 42)
 
-        with pytest.raises(WorkspaceError, match="forbidden path component"):
-            manager.get_workspace_path("foo/bar", 42)
-
-    def test_rejects_backslash_in_repo_name(self, temp_workspace_dir):
-        """Test that backslash in repo_name is rejected."""
+    def test_rejects_backslash_in_repo_identifier(self, temp_workspace_dir):
+        """Test that backslash in repo identifier is rejected."""
         manager = WorkspaceManager(temp_workspace_dir)
 
+        # After _get_repo_identifier, "foo\\bar" becomes "foo_foo\\bar" which still has backslash
         with pytest.raises(WorkspaceError, match="forbidden path component"):
-            manager.get_workspace_path("foo\\bar", 42)
+            manager.get_workspace_path("foo/foo\\bar", 42)
 
     def test_validate_path_containment_rejects_escape(self, temp_workspace_dir):
         """Test that path containment validation works correctly."""
@@ -207,8 +208,9 @@ class TestWorkspaceSecurityValidation:
         """Test that cleanup validates paths before operations."""
         manager = WorkspaceManager(temp_workspace_dir)
 
+        # After _get_repo_identifier, "foo/../evil" becomes ".._evil" which contains ".."
         with pytest.raises(WorkspaceError, match="forbidden path component"):
-            manager.cleanup_workspace("../evil", 42)
+            manager.cleanup_workspace("foo/../evil", 42)
 
     def test_validate_name_component_accepts_valid_names(self, temp_workspace_dir):
         """Test that valid repo names are accepted."""
@@ -520,11 +522,12 @@ class TestCleanupWorkspaceBranchDeletion:
 
         # Setup: create fake repo and worktree directories
         # Use resolve() to handle macOS symlink (/var -> /private/var)
-        repo_path = (Path(temp_workspace_dir) / "test-repo").resolve()
+        # New format uses owner_repo pattern
+        repo_path = (Path(temp_workspace_dir) / "test-org_test-repo").resolve()
         repo_path.mkdir()
         (repo_path / ".git").mkdir()  # Make it look like a git repo
 
-        worktree_path = (Path(temp_workspace_dir) / "test-repo-issue-42").resolve()
+        worktree_path = (Path(temp_workspace_dir) / "test-org_test-repo-issue-42").resolve()
         worktree_path.mkdir()
 
         git_commands = []
@@ -550,7 +553,7 @@ class TestCleanupWorkspaceBranchDeletion:
             return MagicMock(returncode=0, stdout="", stderr="")
 
         with patch.object(manager, "_run_git_command", mock_run_git_command):
-            manager.cleanup_workspace("test-repo", 42)
+            manager.cleanup_workspace("test-org/test-repo", 42)
 
         # Verify correct commands were called in order
         command_args = [cmd[0] for cmd in git_commands]
@@ -570,11 +573,12 @@ class TestCleanupWorkspaceBranchDeletion:
 
         # Setup: create fake repo and worktree directories
         # Use resolve() to handle macOS symlink (/var -> /private/var)
-        repo_path = (Path(temp_workspace_dir) / "test-repo").resolve()
+        # New format uses owner_repo pattern
+        repo_path = (Path(temp_workspace_dir) / "test-org_test-repo").resolve()
         repo_path.mkdir()
         (repo_path / ".git").mkdir()
 
-        worktree_path = (Path(temp_workspace_dir) / "test-repo-issue-42").resolve()
+        worktree_path = (Path(temp_workspace_dir) / "test-org_test-repo-issue-42").resolve()
         worktree_path.mkdir()
 
         git_commands = []
@@ -599,7 +603,7 @@ class TestCleanupWorkspaceBranchDeletion:
 
         # Should not raise - error is handled gracefully
         with patch.object(manager, "_run_git_command", mock_run_git_command):
-            manager.cleanup_workspace("test-repo", 42)
+            manager.cleanup_workspace("test-org/test-repo", 42)
 
         # Verify all commands were called including failed branch deletion
         command_args = [cmd[0] for cmd in git_commands]
@@ -611,11 +615,12 @@ class TestCleanupWorkspaceBranchDeletion:
         manager = WorkspaceManager(temp_workspace_dir)
 
         # Setup - use resolve() to handle macOS symlink (/var -> /private/var)
-        repo_path = (Path(temp_workspace_dir) / "test-repo").resolve()
+        # New format uses owner_repo pattern
+        repo_path = (Path(temp_workspace_dir) / "test-org_test-repo").resolve()
         repo_path.mkdir()
         (repo_path / ".git").mkdir()
 
-        worktree_path = (Path(temp_workspace_dir) / "test-repo-issue-42").resolve()
+        worktree_path = (Path(temp_workspace_dir) / "test-org_test-repo-issue-42").resolve()
         worktree_path.mkdir()
 
         git_commands = []
@@ -628,7 +633,7 @@ class TestCleanupWorkspaceBranchDeletion:
             return MagicMock(returncode=0, stdout="", stderr="")
 
         with patch.object(manager, "_run_git_command", mock_run_git_command):
-            manager.cleanup_workspace("test-repo", 42)
+            manager.cleanup_workspace("test-org/test-repo", 42)
 
         # Verify branch -D was NOT called since no branch was found
         command_args = [cmd[0] for cmd in git_commands]

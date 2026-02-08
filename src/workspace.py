@@ -182,13 +182,13 @@ class WorkspaceManager:
         # Fallback for unexpected format
         return parts[-1]
 
-    def _ensure_repo_cloned(self, repo_url: str, repo_name: str) -> Path:
+    def _ensure_repo_cloned(self, repo_url: str, repo: str) -> Path:
         """
         Ensure the main repository is cloned.
 
         Args:
             repo_url: Git repository URL
-            repo_name: Repository name
+            repo: Repository in 'hostname/owner/repo' or 'owner/repo' format
 
         Returns:
             Path to the cloned repository
@@ -196,13 +196,14 @@ class WorkspaceManager:
         Raises:
             WorkspaceError: If clone fails
         """
-        self._validate_name_component(repo_name, "repository name")
+        repo_id = self._get_repo_identifier(repo)
+        self._validate_name_component(repo_id, "repository identifier")
         repo_path = self._validate_path_containment(
-            self.workspace_dir / repo_name, self.workspace_dir, "repository path"
+            self.workspace_dir / repo_id, self.workspace_dir, "repository path"
         )
 
         if repo_path.exists():
-            logger.info(f"Repository '{repo_name}' already cloned at {repo_path}")
+            logger.info(f"Repository '{repo_id}' already cloned at {repo_path}")
             # Verify it's a valid git repository
             if not (repo_path / ".git").exists():
                 raise WorkspaceError(f"Directory exists but is not a git repository: {repo_path}")
@@ -214,19 +215,20 @@ class WorkspaceManager:
 
         return repo_path
 
-    def get_workspace_path(self, repo_name: str, issue_number: int) -> str:
+    def get_workspace_path(self, repo: str, issue_number: int) -> str:
         """
         Get the expected workspace path for a repository and issue.
 
         Args:
-            repo_name: Repository name
+            repo: Repository in 'hostname/owner/repo' or 'owner/repo' format
             issue_number: Issue number
 
         Returns:
             Absolute path to the workspace (may not exist)
         """
-        self._validate_name_component(repo_name, "repository name")
-        worktree_name = f"{repo_name}-issue-{issue_number}"
+        repo_id = self._get_repo_identifier(repo)
+        self._validate_name_component(repo_id, "repository identifier")
+        worktree_name = f"{repo_id}-issue-{issue_number}"
         worktree_path = self._validate_path_containment(
             self.workspace_dir / worktree_name, self.workspace_dir, "worktree path"
         )
@@ -274,24 +276,25 @@ class WorkspaceManager:
         except WorkspaceError:
             return None
 
-    def cleanup_workspace(self, repo_name: str, issue_number: int) -> None:
+    def cleanup_workspace(self, repo: str, issue_number: int) -> None:
         """
         Remove a worktree, its directory, and the associated local branch.
 
         Args:
-            repo_name: Repository name
+            repo: Repository in 'hostname/owner/repo' or 'owner/repo' format
             issue_number: Issue number
 
         Raises:
             WorkspaceError: If cleanup fails
         """
-        worktree_path = Path(self.get_workspace_path(repo_name, issue_number))
+        worktree_path = Path(self.get_workspace_path(repo, issue_number))
         # get_workspace_path already validates, but double-check worktree_path
         self._validate_path_containment(worktree_path, self.workspace_dir, "worktree path")
 
-        self._validate_name_component(repo_name, "repository name")
+        repo_id = self._get_repo_identifier(repo)
+        self._validate_name_component(repo_id, "repository identifier")
         repo_path = self._validate_path_containment(
-            self.workspace_dir / repo_name, self.workspace_dir, "repository path"
+            self.workspace_dir / repo_id, self.workspace_dir, "repository path"
         )
 
         if not worktree_path.exists():
@@ -321,7 +324,7 @@ class WorkspaceManager:
                     # Non-fatal - branch may already be deleted or never existed
                     logger.warning(f"Failed to delete local branch '{branch_name}': {e}")
 
-            logger.info(f"Successfully cleaned up workspace for {repo_name} issue {issue_number}")
+            logger.info(f"Successfully cleaned up workspace for {repo} issue {issue_number}")
         else:
             logger.warning(f"Repository not found at {repo_path}, cannot clean worktree")
             raise WorkspaceError(f"Cannot cleanup worktree: repository not found at {repo_path}")
