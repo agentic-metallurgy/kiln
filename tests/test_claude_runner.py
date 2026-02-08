@@ -1,6 +1,7 @@
 """Unit tests for the claude_runner module."""
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -680,7 +681,7 @@ class TestEnhanceClaudeError:
         result = enhance_claude_error(original)
 
         assert "Reinstall Claude Code" in result
-        assert "anthropic.com" in result
+        assert re.search(r"anthropic\.com", result)
 
     def test_permission_denied_pattern(self):
         """Test detection of permission denied errors."""
