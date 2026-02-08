@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix format format-check test setup
+.PHONY: lint lint-fix format format-check test setup check-config check-orphans check-dead-code check-all
 
 # Ensure venv exists and has dev deps
 setup:
@@ -24,3 +24,15 @@ format-check: setup
 # Run tests
 test: setup
 	.venv/bin/pytest tests/ -v
+
+# Proactive code checks
+check-config:
+	python scripts/check_config_sync.py
+
+check-orphans:
+	python scripts/check_orphan_modules.py
+
+check-dead-code: setup
+	.venv/bin/vulture src/ vulture_whitelist.py
+
+check-all: lint check-config check-orphans check-dead-code
