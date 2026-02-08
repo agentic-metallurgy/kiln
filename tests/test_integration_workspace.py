@@ -49,27 +49,27 @@ class TestWorkspaceManagerIntegration:
         # Should not raise an error - use full repo format
         manager.cleanup_workspace("nonexistent-org/nonexistent-repo", 999)
 
-    def test_extract_repo_name_https_url(self):
-        """Test _extract_repo_name parses HTTPS URLs."""
+    def test_extract_repo_name_from_url_https(self):
+        """Test _extract_repo_name_from_url parses HTTPS URLs."""
         manager = WorkspaceManager("/tmp/test")
 
-        assert manager._extract_repo_name("https://github.com/org/repo") == "repo"
-        assert manager._extract_repo_name("https://github.com/org/repo.git") == "repo"
-        assert manager._extract_repo_name("https://github.com/org/my-repo.git") == "my-repo"
+        assert manager._extract_repo_name_from_url("https://github.com/org/repo") == "repo"
+        assert manager._extract_repo_name_from_url("https://github.com/org/repo.git") == "repo"
+        assert manager._extract_repo_name_from_url("https://github.com/org/my-repo.git") == "my-repo"
 
-    def test_extract_repo_name_ssh_url(self):
-        """Test _extract_repo_name parses SSH URLs."""
+    def test_extract_repo_name_from_url_ssh(self):
+        """Test _extract_repo_name_from_url parses SSH URLs."""
         manager = WorkspaceManager("/tmp/test")
 
-        assert manager._extract_repo_name("git@github.com:org/repo.git") == "repo"
-        assert manager._extract_repo_name("git@github.com:org/my-repo.git") == "my-repo"
+        assert manager._extract_repo_name_from_url("git@github.com:org/repo.git") == "repo"
+        assert manager._extract_repo_name_from_url("git@github.com:org/my-repo.git") == "my-repo"
 
-    def test_extract_repo_name_trailing_slash(self):
-        """Test _extract_repo_name handles trailing slashes."""
+    def test_extract_repo_name_from_url_trailing_slash(self):
+        """Test _extract_repo_name_from_url handles trailing slashes."""
         manager = WorkspaceManager("/tmp/test")
 
-        assert manager._extract_repo_name("https://github.com/org/repo/") == "repo"
-        assert manager._extract_repo_name("https://github.com/org/repo.git/") == "repo"
+        assert manager._extract_repo_name_from_url("https://github.com/org/repo/") == "repo"
+        assert manager._extract_repo_name_from_url("https://github.com/org/repo.git/") == "repo"
 
     def test_get_workspace_path(self, temp_workspace_dir):
         """Test get_workspace_path returns expected path with new owner_repo format."""

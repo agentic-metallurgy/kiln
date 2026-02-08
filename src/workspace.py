@@ -41,15 +41,23 @@ class WorkspaceManager:
 
         logger.debug(f"WorkspaceManager initialized with workspace_dir: {self.workspace_dir}")
 
-    def _extract_repo_name(self, repo_url: str) -> str:
+    def _extract_repo_name_from_url(self, repo_url: str) -> str:
         """
-        Extract repository name from URL.
+        Extract repository name from a git URL for cloning purposes.
+
+        This method extracts just the final repo name component from a git URL.
+        It is used for git clone operations where the repo name determines the
+        clone directory name.
+
+        NOTE: This is distinct from _get_repo_identifier() which creates unique
+        filesystem-safe identifiers for path construction using owner_repo format.
+        Use _get_repo_identifier() for worktree/workspace path construction.
 
         Args:
-            repo_url: Git repository URL
+            repo_url: Git repository URL (HTTPS or SSH format)
 
         Returns:
-            Repository name (e.g., "repo" from "https://github.com/org/repo.git")
+            Repository name only (e.g., "repo" from "https://github.com/org/repo.git")
 
         Examples:
             https://github.com/org/repo -> repo
@@ -61,10 +69,10 @@ class WorkspaceManager:
         if url.endswith(".git"):
             url = url[:-4]
 
-        # Extract the last component of the path
+        # Extract the last component of the path (just the repo name)
         repo_name = url.split("/")[-1]
 
-        logger.debug(f"Extracted repo name '{repo_name}' from URL: {repo_url}")
+        logger.debug(f"Extracted repo name '{repo_name}' from git URL: {repo_url}")
         return repo_name
 
     def _run_git_command(

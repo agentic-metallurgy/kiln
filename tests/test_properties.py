@@ -158,8 +158,12 @@ class TestParseIssueArgProperties:
 
 @pytest.mark.unit
 @pytest.mark.hypothesis
-class TestExtractRepoNameProperties:
-    """Property-based tests for WorkspaceManager._extract_repo_name."""
+class TestExtractRepoNameFromUrlProperties:
+    """Property-based tests for WorkspaceManager._extract_repo_name_from_url.
+
+    This method extracts just the repo name from git URLs for cloning purposes.
+    It is distinct from _get_repo_identifier() which creates unique owner_repo identifiers.
+    """
 
     @given(org=repo_name_strategy, repo=repo_name_strategy)
     @example(org="org", repo="repo")
@@ -170,7 +174,7 @@ class TestExtractRepoNameProperties:
         with tempfile.TemporaryDirectory() as tmp_path:
             manager = WorkspaceManager(tmp_path)
             url = f"https://github.com/{org}/{repo}"
-            result = manager._extract_repo_name(url)
+            result = manager._extract_repo_name_from_url(url)
             assert result == repo
 
     @given(org=repo_name_strategy, repo=repo_name_strategy)
@@ -180,7 +184,7 @@ class TestExtractRepoNameProperties:
         with tempfile.TemporaryDirectory() as tmp_path:
             manager = WorkspaceManager(tmp_path)
             url = f"https://github.com/{org}/{repo}.git"
-            result = manager._extract_repo_name(url)
+            result = manager._extract_repo_name_from_url(url)
             assert result == repo
             assert not result.endswith(".git")
 
@@ -193,8 +197,8 @@ class TestExtractRepoNameProperties:
             url_without_slash = f"https://github.com/{org}/{repo}"
             url_with_slash = f"https://github.com/{org}/{repo}/"
 
-            result_without = manager._extract_repo_name(url_without_slash)
-            result_with = manager._extract_repo_name(url_with_slash)
+            result_without = manager._extract_repo_name_from_url(url_without_slash)
+            result_with = manager._extract_repo_name_from_url(url_with_slash)
 
             assert result_without == result_with == repo
 
@@ -205,7 +209,7 @@ class TestExtractRepoNameProperties:
         with tempfile.TemporaryDirectory() as tmp_path:
             manager = WorkspaceManager(tmp_path)
             url = f"git@github.com:{org}/{repo}.git"
-            result = manager._extract_repo_name(url)
+            result = manager._extract_repo_name_from_url(url)
             assert result == repo
 
     @given(org=repo_name_strategy, repo=repo_name_strategy)
@@ -214,7 +218,7 @@ class TestExtractRepoNameProperties:
         with tempfile.TemporaryDirectory() as tmp_path:
             manager = WorkspaceManager(tmp_path)
             url = f"https://github.com/{org}/{repo}"
-            result = manager._extract_repo_name(url)
+            result = manager._extract_repo_name_from_url(url)
             assert len(result) > 0
 
     @given(
@@ -228,7 +232,7 @@ class TestExtractRepoNameProperties:
         with tempfile.TemporaryDirectory() as tmp_path:
             manager = WorkspaceManager(tmp_path)
             url = f"https://{hostname}/{org}/{repo}.git"
-            result = manager._extract_repo_name(url)
+            result = manager._extract_repo_name_from_url(url)
             assert result == repo
 
 
