@@ -1,0 +1,34 @@
+name: Proactive Code Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - '.env.example'
+      - 'pyproject.toml'
+
+jobs:
+  config-sync:
+    name: Config Sync Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check config sync
+        run: python scripts/check_config_sync.py
+
+  orphan-detection:
+    name: Orphan Module Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check for orphan modules
+        run: python scripts/check_orphan_modules.py

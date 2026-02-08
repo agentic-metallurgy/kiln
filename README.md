@@ -54,3 +54,15 @@ Use periodic polling instead of webhook-based event handling:
 - **Firewall-friendly**: Works behind VPNs without requiring publicly-accessible endpoints
 
 **Trade-off**: 30-second latency (configurable) vs. near-instant webhook response.
+
+## Proactive Code Checks
+
+Kiln includes proactive CI checks that catch common issues before they reach production:
+
+| Check | Command | What it catches |
+|-------|---------|-----------------|
+| Config sync | `make check-config` | Mismatches between `.env.example` and `config.py` |
+| Orphan modules | `make check-orphans` | Python files not imported from entry points or tests |
+| Dead code | `make check-dead-code` | Unused functions/classes (via Vulture) |
+
+Run all checks locally with `make check-all`, or let CI catch them on pull requests.
