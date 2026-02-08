@@ -40,12 +40,6 @@ class AzureTokenRequestError(AzureOAuthError):
         self.error_code = error_code
 
 
-class AzureTokenExpiredError(AzureOAuthError):
-    """Token has expired and refresh failed."""
-
-    pass
-
-
 @dataclass
 class TokenResponse:
     """Represents an Azure OAuth token response."""

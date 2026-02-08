@@ -13,7 +13,6 @@ This package contains modules for optional external services:
 from src.integrations.azure_oauth import (
     AzureOAuthClient,
     AzureOAuthError,
-    AzureTokenExpiredError,
     AzureTokenRequestError,
 )
 
@@ -62,7 +61,6 @@ __all__ = [
     # azure_oauth
     "AzureOAuthClient",
     "AzureOAuthError",
-    "AzureTokenExpiredError",
     "AzureTokenRequestError",
     # mcp_client
     "MCPTestResult",
